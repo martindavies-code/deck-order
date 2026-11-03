@@ -16,6 +16,7 @@ import {
   exchangeAuthCode,
   fetchPlaylists,
   fetchPlaylistItems,
+  formatPlaylistLoadToast,
   parseCsvText,
   verifyTracklist,
   submitOverride,
@@ -210,8 +211,10 @@ export function App() {
     }
   }, [authToken, refreshToken, staySignedIn]);
 
-  const showToast = (msg, duration = 3000) => {
-    setToastMessage(msg);
+  const showToast = (msg, duration = 3000, type = 'success') => {
+    const text = typeof msg === 'string' ? msg : msg?.text || msg?.message || String(msg);
+    const toastType = typeof msg === 'object' && msg?.type ? msg.type : type;
+    setToastMessage({ text, type: toastType });
     setTimeout(() => setToastMessage(null), duration);
   };
 
@@ -284,17 +287,35 @@ export function App() {
     try {
       const data = await fetchPlaylistItems(authToken, pl.id);
       const verifyRes = await verifyTracklist(data.items, false);
+      const loadedCount = verifyRes.tracks.length;
+      const totalReturned = data.totalItems ?? loadedCount;
+      const skipped = data.skipped || { episodes: 0, localFiles: 0, unavailable: 0, unsupported: 0, total: 0 };
+
+      const toastInfo = formatPlaylistLoadToast(pl, loadedCount, totalReturned, skipped);
+
+      if (loadedCount === 0) {
+        setTracks([]);
+        setCoverageReport(null);
+        setOrderedTracks([]);
+        setEvaluation(null);
+        setSelectedTrackIndex(null);
+        showToast(toastInfo.text, 6000, toastInfo.type);
+        return;
+      }
+
       setTracks(verifyRes.tracks);
       setCoverageReport(verifyRes.report);
       setOrderedTracks([]);
       setEvaluation(null);
       setSelectedTrackIndex(null);
-      showToast(`Loaded ${verifyRes.tracks.length} tracks from "${pl.name}".`);
+      showToast(toastInfo.text, toastInfo.type === 'warning' ? 5000 : 3000, toastInfo.type);
     } catch (err) {
       if (err.status === 403 || err.message?.includes('403')) {
-        showToast(SPOTIFY_403_MSG, 6000);
+        showToast(SPOTIFY_403_MSG, 6000, 'error');
+      } else if (err.status === 401) {
+        showToast('Spotify session expired (401). Please reconnect.', 5000, 'error');
       } else {
-        showToast(`Could not read playlist: ${err.message}`, 5000);
+        showToast(`Could not read playlist: ${err.message}`, 5000, 'error');
       }
     } finally {
       setIsLoading(false);
@@ -557,10 +578,22 @@ export function App() {
         <div
           role="status"
           aria-live="polite"
-          className="fixed top-5 right-5 z-50 bg-[#1B1F19] border border-[#D6FC55] text-[#F3F0E6] px-4 py-2.5 rounded-md text-xs font-semibold shadow-2xl flex items-center gap-2"
+          className={`fixed top-5 right-5 z-50 bg-[#1B1F19] border ${
+            toastMessage.type === 'error'
+              ? 'border-[#EF4444]'
+              : toastMessage.type === 'warning'
+              ? 'border-[#F59E0B]'
+              : 'border-[#D6FC55]'
+          } text-[#F3F0E6] px-4 py-2.5 rounded-md text-xs font-semibold shadow-2xl flex items-center gap-2`}
         >
-          <Check className="w-4 h-4 text-[#D6FC55]" />
-          <span>{toastMessage}</span>
+          {toastMessage.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-[#EF4444]" />
+          ) : toastMessage.type === 'warning' ? (
+            <AlertCircle className="w-4 h-4 text-[#F59E0B]" />
+          ) : (
+            <Check className="w-4 h-4 text-[#D6FC55]" />
+          )}
+          <span>{toastMessage.text || toastMessage}</span>
         </div>
       )}
 

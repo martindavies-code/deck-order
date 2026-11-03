@@ -219,43 +219,244 @@ export async function fetchPlaylists(token) {
   return { success: true, playlists, user: me };
 }
 
-export async function fetchPlaylistItems(token, playlistId) {
-  if (!isGitHubPages) {
-    try {
-      const res = await fetch(`/api/spotify/playlists/${playlistId}/items`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-        signal: AbortSignal.timeout(3000)
-      });
-      if (res.ok) return await res.json();
-    } catch {}
+export function isValidSpotifyNextUrl(urlStr) {
+  if (!urlStr || typeof urlStr !== 'string') return false;
+  try {
+    const parsed = new URL(urlStr);
+    return (
+      parsed.protocol === 'https:' &&
+      parsed.hostname === 'api.spotify.com' &&
+      parsed.pathname.startsWith('/v1/')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Unwraps a Spotify playlist item entry conforming to Feb 2026+ specifications.
+ * Uses field-existence checking ('item' in entry) to prevent resurrecting explicit null items.
+ */
+export function unwrapPlaylistItem(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return { track: null, status: 'null_entry' };
   }
 
-  // Direct Web API call in static mode
-  const data = await spotifyApiFetch(`/playlists/${playlistId}/items?limit=50`, token);
-  const rawItems = data.items || [];
+  // 1. Field-existence unwrap, not a || chain
+  const raw = 'item' in entry ? entry.item : ('track' in entry ? entry.track : null);
 
-  const items = rawItems
-    .map(i => i.track || i)
-    .filter(t => t && t.id && t.name)
-    .map(t => ({
-      id: t.id,
-      title: t.name,
-      artist: t.artists?.map(a => a.name).join(', ') || 'Unknown Artist',
-      album: t.album?.name,
-      durationMs: t.duration_ms,
-      durationSec: t.duration_ms ? Math.round(t.duration_ms / 1000) : null,
-      bpm: null,
-      key: null,
-      camelot: null,
-      energy: null,
-      confidence: 'unverified',
-      status: 'unverified',
-      isrc: t.external_ids?.isrc || null,
-      spotifyUri: t.uri,
-      uri: t.uri
-    }));
+  // If explicit null item (local file, unavailable content), keep it null
+  if (!raw) {
+    if (entry.is_local) {
+      return { track: null, status: 'local_file' };
+    }
+    return { track: null, status: 'unavailable' };
+  }
 
-  return { success: true, items };
+  // 2. Type guard: keep only track && track.type === 'track'
+  if (raw.type === 'episode') {
+    return { track: null, status: 'episode' };
+  }
+
+  if (raw.type !== 'track') {
+    return { track: null, status: 'unsupported_type', type: raw.type };
+  }
+
+  if (!raw.id || !raw.name) {
+    return { track: null, status: 'missing_metadata' };
+  }
+
+  return { track: raw, status: 'valid' };
+}
+
+export function mapSpotifyTrackToItem(t) {
+  return {
+    id: t.id,
+    title: t.name,
+    artist: t.artists?.map(a => a.name).join(', ') || 'Unknown Artist',
+    album: t.album?.name || null,
+    albumArt: t.album?.images?.[0]?.url || null,
+    durationMs: t.duration_ms || null,
+    durationSec: t.duration_ms ? Math.round(t.duration_ms / 1000) : null,
+    bpm: null,
+    key: null,
+    camelot: null,
+    energy: null,
+    confidence: 'unverified',
+    status: 'unverified',
+    isrc: t.external_ids?.isrc || null,
+    spotifyUri: t.uri,
+    uri: t.uri
+  };
+}
+
+/**
+ * Formats user-facing toast notifications for playlist loading.
+ * Guarantees zero usable tracks NEVER shows a success notification.
+ */
+export function formatPlaylistLoadToast(pl, loadedCount, totalReturned, skipped = {}) {
+  const plName = pl?.name || 'Playlist';
+  const expectedCount = pl?.itemCount;
+  const total = totalReturned ?? loadedCount;
+  const sk = {
+    episodes: skipped.episodes || 0,
+    localFiles: skipped.localFiles || 0,
+    unavailable: skipped.unavailable || 0,
+    unsupported: skipped.unsupported || 0,
+    total: skipped.total || 0
+  };
+
+  if (loadedCount === 0) {
+    if (total === 0) {
+      return {
+        text: `Playlist "${plName}" contains no items on Spotify.`,
+        type: 'warning',
+        isSuccess: false
+      };
+    }
+    const breakdown = [];
+    if (sk.episodes) breakdown.push(`${sk.episodes} podcast episode${sk.episodes > 1 ? 's' : ''}`);
+    if (sk.localFiles) breakdown.push(`${sk.localFiles} local file${sk.localFiles > 1 ? 's' : ''}`);
+    if (sk.unavailable) breakdown.push(`${sk.unavailable} unavailable track${sk.unavailable > 1 ? 's' : ''}`);
+    if (sk.unsupported) breakdown.push(`${sk.unsupported} unsupported item${sk.unsupported > 1 ? 's' : ''}`);
+    const reasonStr = breakdown.length > 0 ? ` (${breakdown.join(', ')})` : '';
+    return {
+      text: `No usable tracks found in "${plName}": all ${total} item${total > 1 ? 's were' : ' was'} skipped${reasonStr}.`,
+      type: 'warning',
+      isSuccess: false
+    };
+  }
+
+  // Loaded > 0
+  const breakdown = [];
+  if (sk.episodes) breakdown.push(`${sk.episodes} episode${sk.episodes > 1 ? 's' : ''}`);
+  if (sk.localFiles) breakdown.push(`${sk.localFiles} local`);
+  if (sk.unavailable) breakdown.push(`${sk.unavailable} unavailable`);
+  if (sk.unsupported) breakdown.push(`${sk.unsupported} unsupported`);
+  const skipDetail = breakdown.length > 0 ? `: ${breakdown.join(', ')}` : '';
+
+  if (sk.total > 0) {
+    if (expectedCount && expectedCount !== loadedCount) {
+      return {
+        text: `Loaded ${loadedCount} tracks from "${plName}" (expected about ${expectedCount}, ${sk.total} skipped${skipDetail}).`,
+        type: 'warning',
+        isSuccess: true
+      };
+    }
+    return {
+      text: `Loaded ${loadedCount} tracks from "${plName}" (${sk.total} skipped${skipDetail}).`,
+      type: 'warning',
+      isSuccess: true
+    };
+  }
+
+  if (expectedCount && Math.abs(expectedCount - loadedCount) > 0) {
+    return {
+      text: `Loaded ${loadedCount} tracks from "${plName}" (playlist reported ${expectedCount} items).`,
+      type: 'success',
+      isSuccess: true
+    };
+  }
+
+  return {
+    text: `Loaded ${loadedCount} tracks from "${plName}".`,
+    type: 'success',
+    isSuccess: true
+  };
+}
+
+export async function fetchPlaylistItems(token, playlistId) {
+  if (!isGitHubPages) {
+    let proxyRes = null;
+    try {
+      proxyRes = await fetch(`/api/spotify/playlists/${playlistId}/items`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(5000)
+      });
+    } catch (netErr) {
+      // Network failure (server likely not running) - fall back quietly with a console.warn
+      console.warn('Local proxy server unreachable, falling back to direct Spotify Web API:', netErr.message);
+    }
+
+    if (proxyRes) {
+      if (proxyRes.ok) {
+        const proxyData = await proxyRes.json();
+        const items = proxyData.items || [];
+        return {
+          success: true,
+          items,
+          totalItems: proxyData.totalItems ?? items.length,
+          skipped: proxyData.skipped ?? { episodes: 0, localFiles: 0, unavailable: 0, unsupported: 0, total: 0 }
+        };
+      }
+
+      // HTTP Error statuses (401, 403, 429, 5xx) surfaced honestly without leaking tokens
+      const errBody = await proxyRes.json().catch(() => ({}));
+      const message = errBody.error?.message || errBody.message || `Proxy server HTTP ${proxyRes.status}`;
+      const err = new Error(message);
+      err.status = proxyRes.status;
+      throw err;
+    }
+  }
+
+  // Direct Web API call with safe pagination loop
+  const MAX_PAGES = 20; // Up to 1,000 tracks (20 pages * 50)
+  let nextUrl = `/playlists/${playlistId}/items?limit=50`;
+  let pageCount = 0;
+  let totalRawItems = 0;
+  const items = [];
+  const skipped = {
+    episodes: 0,
+    localFiles: 0,
+    unavailable: 0,
+    unsupported: 0,
+    total: 0
+  };
+
+  while (nextUrl) {
+    pageCount++;
+    if (pageCount > MAX_PAGES) {
+      throw new Error(`Playlist exceeds supported size limit (maximum ${MAX_PAGES} pages / 1,000 tracks).`);
+    }
+
+    const data = await spotifyApiFetch(nextUrl, token);
+    const rawBatch = data.items || [];
+    totalRawItems += rawBatch.length;
+
+    for (const entry of rawBatch) {
+      const { track, status } = unwrapPlaylistItem(entry);
+      if (status === 'valid') {
+        items.push(mapSpotifyTrackToItem(track));
+      } else {
+        skipped.total++;
+        if (status === 'episode') {
+          skipped.episodes++;
+        } else if (status === 'local_file') {
+          skipped.localFiles++;
+        } else if (status === 'unavailable' || status === 'null_entry' || status === 'missing_metadata') {
+          skipped.unavailable++;
+        } else {
+          skipped.unsupported++;
+        }
+      }
+    }
+
+    if (data.next) {
+      if (!isValidSpotifyNextUrl(data.next)) {
+        throw new Error(`Spotify pagination rejected: untrusted next URL "${data.next}".`);
+      }
+      nextUrl = data.next;
+    } else {
+      nextUrl = null;
+    }
+  }
+
+  return {
+    success: true,
+    items,
+    totalItems: totalRawItems,
+    skipped
+  };
 }
 
 export async function parseCsvText(csvContent) {
