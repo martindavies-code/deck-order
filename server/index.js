@@ -38,6 +38,7 @@ app.use('/api', createApiRouter(apiConfig));
 
 // Serve production client build if present
 const clientDist = path.resolve(__dirname, '../client/dist');
+app.use('/deck-order', express.static(clientDist));
 app.use(express.static(clientDist));
 
 app.use((req, res, next) => {

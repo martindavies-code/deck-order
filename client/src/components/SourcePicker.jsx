@@ -61,7 +61,7 @@ export function SourcePicker({
           }`}
         >
           <ListMusic className="w-4 h-4 shrink-0" />
-          <span>My Spotify Playlists {spotifyConnected ? `(${playlists.length})` : '(Connect First)'}</span>
+          <span>My Spotify Playlists {spotifyConnected ? `(${playlists.length})` : '(Connect Account First)'}</span>
         </button>
 
         <button
@@ -73,7 +73,7 @@ export function SourcePicker({
           }`}
         >
           <FileText className="w-4 h-4 shrink-0" />
-          <span>Manual CSV / Tracklist (Offline Mode)</span>
+          <span>Manual CSV / Tracklist (Offline / Paranoid Mode)</span>
         </button>
       </div>
 
@@ -82,16 +82,16 @@ export function SourcePicker({
         <div>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-4">
             <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-              Select user-owned playlist:
+              Select Curated Playlist to Rescue:
             </h3>
-            <span className="text-xs text-slate-500">
-              Only owned playlists return items under post-Feb 2026 Web API policy
+            <span className="text-[11px] text-slate-500">
+              Only owned playlists return tracks under strict Spotify Web API policy
             </span>
           </div>
 
           {playlists.length === 0 ? (
             <div className="text-center py-8 text-slate-400 text-xs bg-[#0c0e15] rounded-lg border border-[#1a1e2b]">
-              No owned playlists found. Create one in Spotify or switch to CSV mode.
+              No owned playlists found. Either create one in Spotify or switch to Offline CSV mode.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-1">
@@ -116,7 +116,7 @@ export function SourcePicker({
                     <h4 className="text-xs font-bold text-slate-200 truncate group-hover:text-emerald-400 transition-colors">
                       {pl.name}
                     </h4>
-                    <p className="text-[11px] text-slate-400 font-mono">
+                    <p className="text-[11px] text-slate-400 font-mono tabular-nums">
                       {pl.itemCount} tracks
                     </p>
                   </div>
@@ -133,12 +133,13 @@ export function SourcePicker({
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <p className="text-xs text-slate-400">
-              Format: <code className="text-cyan-400 font-mono">Artist, Title, BPM, Key</code> (or exports from Rekordbox, Tunebat, Mixed In Key):
+              Paste tracklist: <code className="text-cyan-400 font-mono">Artist, Title, BPM, Key</code> (or exports from Rekordbox, Tunebat, Mixed In Key):
             </p>
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
                 onClick={loadDemoPlaylist}
                 className="deck-btn-secondary text-xs flex-1 sm:flex-none justify-center"
+                title="Load a curated set of verified house/techno bangers"
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                 <span>Load 12-Track Demo</span>
@@ -171,7 +172,7 @@ export function SourcePicker({
               disabled={isLoading || !csvInput.trim()}
               className="deck-btn-primary text-xs w-full sm:w-auto"
             >
-              Parse & Verify Tracklist
+              Parse & Cross-Examine Tracklist
             </button>
           </div>
         </div>

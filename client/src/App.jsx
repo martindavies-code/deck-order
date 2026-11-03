@@ -9,6 +9,7 @@ import { SuggestionsDrawer } from './components/SuggestionsDrawer.jsx';
 import { DisputeModal } from './components/DisputeModal.jsx';
 import { DryRunModal } from './components/DryRunModal.jsx';
 import { MixInstructionsModal } from './components/MixInstructionsModal.jsx';
+import { HistoryDrawer } from './components/HistoryDrawer.jsx';
 import {
   fetchStatus,
   exchangeAuthCode,
@@ -29,7 +30,15 @@ import {
   getStoredCodeVerifier,
   clearStoredCodeVerifier
 } from './services/spotifyPkce.js';
-import { Save, Copy, Download, Sliders, Check, Disc } from 'lucide-react';
+import {
+  getStoredGoogleUser,
+  promptGoogleLogin,
+  logoutGoogle,
+  getCrateHistory,
+  saveSetToHistory,
+  clearCrateHistory
+} from './services/googleAuth.js';
+import { Save, Copy, Download, Check, Sparkles } from 'lucide-react';
 
 export function App() {
   const [status, setStatus] = useState(null);
@@ -37,6 +46,11 @@ export function App() {
   const [authUser, setAuthUser] = useState(null);
   const [playlists, setPlaylists] = useState([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+
+  // Google Auth & Crate History
+  const [googleUser, setGoogleUser] = useState(() => getStoredGoogleUser());
+  const [crateHistory, setCrateHistory] = useState(() => getCrateHistory());
+  const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
 
   // Tracks & Sequencing State
   const [tracks, setTracks] = useState([]);
@@ -82,7 +96,7 @@ export function App() {
           localStorage.setItem('spotify_access_token', tokenData.access_token);
           clearStoredCodeVerifier();
           window.history.replaceState({}, document.title, window.location.pathname);
-          showToast('Spotify account connected successfully!');
+          showToast('Spotify account linked. Ready to manufacture playlists.');
         })
         .catch(err => {
           showToast(`Spotify Auth Error: ${err.message}`, 5000);
@@ -99,7 +113,7 @@ export function App() {
         .then(data => {
           setPlaylists(data.playlists || []);
           if (data.playlists?.[0]) {
-            setAuthUser({ display_name: data.playlists[0].ownerName || 'Connected' });
+            setAuthUser({ display_name: data.playlists[0].ownerName || 'Connected DJ' });
           }
         })
         .catch(err => {
@@ -134,6 +148,34 @@ export function App() {
     showToast('Spotify disconnected. Offline CSV mode active.');
   };
 
+  const handleLoginGoogle = () => {
+    const user = promptGoogleLogin();
+    setGoogleUser(user);
+    showToast(`Logged into Crate Vault as ${user.name}`);
+  };
+
+  const handleLogoutGoogle = () => {
+    logoutGoogle();
+    setGoogleUser(null);
+    showToast('Signed out of Crate Vault.');
+  };
+
+  const handleLoadHistoricalSet = (historicalSet) => {
+    setOrderedTracks(historicalSet.tracks || []);
+    setOriginalTracks(historicalSet.tracks || []);
+    setEvaluation(historicalSet.evaluation || null);
+    setSelectedPlaylist({ name: historicalSet.name, id: null, itemCount: historicalSet.tracks?.length || 0 });
+    setViewMode('sequenced');
+    setShowHistoryDrawer(false);
+    showToast(`Loaded "${historicalSet.name}" from Crate Vault!`);
+  };
+
+  const handleClearHistory = () => {
+    clearCrateHistory();
+    setCrateHistory([]);
+    showToast('Crate history incinerated.');
+  };
+
   // Ingest Spotify Playlist
   const handleSelectPlaylist = async (pl) => {
     setIsLoading(true);
@@ -164,7 +206,7 @@ export function App() {
       setCoverageReport(verifyRes.report);
       setOrderedTracks([]);
       setEvaluation(null);
-      showToast(`Parsed ${verifyRes.tracks.length} tracks via CSV parser.`);
+      showToast(`Cross-examined ${verifyRes.tracks.length} tracks via parser.`);
     } catch (err) {
       showToast(`CSV error: ${err.message}`, 5000);
     } finally {
@@ -191,6 +233,14 @@ export function App() {
       setOriginalEvaluation(res.originalEvaluation);
       setViewMode('sequenced');
 
+      // Auto-save set to Crate Vault
+      const updatedHistory = saveSetToHistory({
+        name: selectedPlaylist?.name || 'Manual Tracklist',
+        tracks: res.orderedTracks,
+        evaluation: res.evaluation
+      });
+      setCrateHistory(updatedHistory);
+
       // Fetch bridge & bonus suggestions
       try {
         const sugRes = await fetchSuggestions(res.evaluation, res.orderedTracks, authToken);
@@ -200,7 +250,7 @@ export function App() {
         console.warn('Suggestions error:', sugErr);
       }
 
-      showToast(`DJ Sequenced! Flow improved from ${res.originalEvaluation.smoothPct}% to ${res.evaluation.smoothPct}% smooth.`);
+      showToast(`DJ Sequenced! Dancefloor survival jumped from ${res.originalEvaluation.smoothPct}% to ${res.evaluation.smoothPct}%.`);
     } catch (err) {
       showToast(`Sequencer error: ${err.message}`, 5000);
     } finally {
@@ -212,14 +262,13 @@ export function App() {
   const handleReorderTracks = async (newOrderedList) => {
     setOrderedTracks(newOrderedList);
     try {
-      // Re-run evaluation on the newly manually ordered tracks
       const seqRes = await runSequencer(newOrderedList, {
         seed: 42,
         enableEnergy,
         unverifiedStrategy: 'keep_relative_position'
       });
       setEvaluation(seqRes.result.evaluation);
-      showToast('Transition grades dynamically recalculated.');
+      showToast('Transition friction dynamically recalculated.');
     } catch (err) {
       console.warn('Re-evaluation error:', err);
     }
@@ -232,7 +281,7 @@ export function App() {
       const verifyRes = await verifyTracklist(tracks);
       setTracks(verifyRes.tracks);
       setCoverageReport(verifyRes.report);
-      showToast('Manual override saved. Recalculating...');
+      showToast('Human superiority asserted. Override saved.');
 
       if (orderedTracks.length > 0) {
         const seqRes = await runSequencer(verifyRes.tracks, {
@@ -269,10 +318,9 @@ export function App() {
     }
 
     handleReorderTracks(updatedList);
-    // Uncheck after applying
     setBridgeSuggestions(prev => prev.map(s => ({ ...s, selected: false })));
     setBonusTunes(prev => prev.map(s => ({ ...s, selected: false })));
-    showToast(`Inserted ${allSelected.length} track(s) into your set!`);
+    showToast(`Injected ${allSelected.length} crowd-pleasers into your set!`);
   };
 
   // Save Flow
@@ -288,7 +336,7 @@ export function App() {
 
   const handleConfirmSave = async () => {
     if (!saveManifest || !authToken) {
-      showToast('Connect Spotify to save directly to your account.', 4000);
+      showToast('Connect Spotify account to manufacture directly to your library.', 4000);
       return;
     }
     setIsSaving(true);
@@ -296,7 +344,7 @@ export function App() {
       const result = await confirmSavePlaylist(authToken, saveManifest);
       setSaveManifest(null);
       setSaveResult(result.result);
-      showToast('Playlist successfully saved to Spotify!');
+      showToast('New private playlist successfully manufactured in Spotify!');
     } catch (err) {
       showToast(`Save error: ${err.message}`, 6000);
     } finally {
@@ -320,7 +368,7 @@ export function App() {
     if (orderedTracks.length === 0) return;
     try {
       await triggerCsvDownload(orderedTracks, evaluation);
-      showToast('CSV export downloaded!');
+      showToast('DJ CSV export downloaded!');
     } catch (err) {
       showToast('Failed to download CSV', 3000);
     }
@@ -339,16 +387,21 @@ export function App() {
         </div>
       )}
 
-      {/* Header */}
+      {/* Header with Dual LED VU Meter, Spotify & Google Crate Vault */}
       <Header
         status={status}
         authUser={authUser}
+        googleUser={googleUser}
+        historyCount={crateHistory.length}
         onConnectSpotify={handleConnectSpotify}
         onDisconnectSpotify={handleDisconnectSpotify}
+        onLoginGoogle={handleLoginGoogle}
+        onLogoutGoogle={handleLogoutGoogle}
+        onOpenHistory={() => setShowHistoryDrawer(true)}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
-        {/* Source Picker (Spotify vs CSV) */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+        {/* Source Picker (Spotify vs Offline CSV) */}
         <SourcePicker
           spotifyConnected={Boolean(authToken)}
           playlists={playlists}
@@ -371,7 +424,7 @@ export function App() {
           />
         )}
 
-        {/* Comparison View */}
+        {/* Comparison View (Before vs After) */}
         {evaluation && originalEvaluation && (
           <ComparisonView
             originalEvaluation={originalEvaluation}
@@ -381,7 +434,7 @@ export function App() {
           />
         )}
 
-        {/* Visual Harmonic & Tempo Progression Arc */}
+        {/* Visual Harmonic Arc & Waveform Timeline */}
         {evaluation && currentDisplayTracks.length > 1 && (
           <HarmonicArcVisualizer
             tracks={currentDisplayTracks}
@@ -393,11 +446,11 @@ export function App() {
         {currentDisplayTracks.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-3 px-1">
-              <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-300">
-                {viewMode === 'sequenced' ? '🎧 DJ Running Order (Drag to Reorder)' : '📑 Original Playlist Order'}
+              <h2 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-300 font-mono">
+                {viewMode === 'sequenced' ? '🎧 DJ Running Order (Drag to Override Math)' : '📑 Original Chaotic Tracklist'}
               </h2>
-              <span className="text-xs text-slate-400 font-mono">
-                {currentDisplayTracks.length} tracks • {evaluation?.smoothPct || 0}% smooth transitions
+              <span className="text-xs text-slate-400 font-mono tabular-nums">
+                {currentDisplayTracks.length} tracks • {evaluation?.smoothPct || 0}% dancefloor survival
               </span>
             </div>
 
@@ -426,40 +479,40 @@ export function App() {
         {orderedTracks.length > 0 && (
           <div className="deck-card p-4 bg-[#121522] border-[#252c42] flex flex-wrap items-center justify-between gap-4 sticky bottom-6 shadow-2xl z-20">
             <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Ready to save or export. Writes are always non-destructive.</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <span>Sequencing complete. Writes are guaranteed non-destructive.</span>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
               {/* Copy Plain Text for TuneMyMusic */}
               <button
                 onClick={handleCopyText}
-                className="deck-btn-secondary text-xs"
+                className="deck-btn-secondary text-xs flex-1 sm:flex-none"
                 title="Copy Artist - Title list for TuneMyMusic / Soundiiz"
               >
                 <Copy className="w-3.5 h-3.5 text-cyan-400" />
-                Copy Tracklist (TuneMyMusic)
+                <span>Copy Tracklist (TuneMyMusic)</span>
               </button>
 
               {/* Download CSV */}
               <button
                 onClick={handleDownloadCsv}
-                className="deck-btn-secondary text-xs"
+                className="deck-btn-secondary text-xs flex-1 sm:flex-none"
                 title="Download full CSV with BPM, Camelot, and transition metrics"
               >
                 <Download className="w-3.5 h-3.5 text-purple-400" />
-                Download CSV
+                <span>Download CSV (Proof)</span>
               </button>
 
               {/* Save to Spotify */}
               <button
                 onClick={handleOpenDryRun}
                 disabled={!authToken}
-                className="deck-btn-primary text-xs"
-                title={authToken ? 'Preview and save as new private Spotify playlist' : 'Connect Spotify to save directly'}
+                className="deck-btn-primary text-xs w-full sm:w-auto"
+                title={authToken ? 'Preview and save as new private Spotify playlist' : 'Connect Spotify to manufacture playlist'}
               >
                 <Save className="w-4 h-4" />
-                Save as New Spotify Playlist
+                <span>{authToken ? 'Manufacture Spotify Playlist' : 'Connect Spotify to Save'}</span>
               </button>
             </div>
           </div>
@@ -487,14 +540,24 @@ export function App() {
           >
             Sonovault
           </a>
-          , and manual DJ analysis.
+          , and manual DJ forensics.
         </p>
         <p className="text-[11px] text-slate-600">
-          Deck Order operates strictly within 2026 Spotify Web API development mode constraints. Audio transitions executed within Spotify Mix.
+          Deck Order operates strictly within 2026 Spotify Web API development mode constraints. Audio transitions executed within Spotify Mix. Professional DJ ego not included.
         </p>
       </footer>
 
-      {/* Modals */}
+      {/* Modals & Drawers */}
+      <HistoryDrawer
+        isOpen={showHistoryDrawer}
+        history={crateHistory}
+        googleUser={googleUser}
+        onClose={() => setShowHistoryDrawer(false)}
+        onLoadSet={handleLoadHistoricalSet}
+        onClearHistory={handleClearHistory}
+        onLoginGoogle={handleLoginGoogle}
+      />
+
       {showDisputeModal && (
         <DisputeModal
           disputedTracks={coverageReport?.disputedTracks || []}
@@ -521,4 +584,5 @@ export function App() {
     </div>
   );
 }
+
 export default App;

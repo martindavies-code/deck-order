@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, ExternalLink, Sparkles, CheckCircle2, Sliders } from 'lucide-react';
+import { X, ExternalLink, Sliders, CheckCircle2 } from 'lucide-react';
 
 export function MixInstructionsModal({
   saveResult,
@@ -18,15 +18,15 @@ export function MixInstructionsModal({
         </button>
 
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
             <CheckCircle2 className="w-6 h-6" />
           </div>
           <div>
             <h3 className="text-base font-bold text-white">
-              Playlist Successfully Created!
+              Playlist Successfully Manufactured
             </h3>
             <p className="text-xs text-slate-400">
-              {saveResult.itemsWritten} tracks saved in optimal harmonic order
+              {saveResult.itemsWritten} tracks arranged in harmonic perfection
             </p>
           </div>
         </div>
@@ -42,8 +42,8 @@ export function MixInstructionsModal({
             "Open your new playlist in the Spotify app. If your Premium account and app version include the Mix feature, tap Mix, then Auto to apply transitions, and tap any transition to customize them. Mix shows each track's BPM and key so you can sanity-check the order."
           </blockquote>
 
-          <p className="text-[11px] text-slate-400">
-            Note: Mix has been rolling out to Premium users on mobile and desktop through 2025–2026; availability depends on account and app version. The app sets the running order; ears are the final judge!
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Note: Spotify will now blend your audio. During playback, please remember to occasionally touch an unassigned knob on your desk and stare into the middle distance with intense concentration so the room assumes you are doing something difficult.
           </p>
         </div>
 
@@ -56,7 +56,7 @@ export function MixInstructionsModal({
               className="deck-btn-primary text-xs"
             >
               <ExternalLink className="w-4 h-4" />
-              Open Playlist in Spotify
+              Open In Spotify App
             </a>
           ) : <div />}
 
@@ -64,7 +64,7 @@ export function MixInstructionsModal({
             onClick={onClose}
             className="deck-btn-secondary text-xs"
           >
-            Done
+            Acknowledge & Close
           </button>
         </div>
       </div>

@@ -1,5 +1,4 @@
 import { execSync } from 'node:child_process';
-import path from 'node:path';
 
 const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
@@ -18,10 +17,9 @@ let allPassed = true;
 
 for (const vp of viewports) {
   try {
-    const cmd = `"${chromePath}" --headless=new --window-size=${vp.width},${vp.height} --dump-dom --virtual-time-budget=1500 "http://localhost:3001"`;
-    const dom = execSync(cmd, { encoding: 'utf8', timeout: 10000 });
+    const cmd = `"${chromePath}" --headless=new --window-size=${vp.width},${vp.height} --dump-dom --virtual-time-budget=3000 "http://localhost:3001/deck-order/"`;
+    const dom = execSync(cmd, { encoding: 'utf8', timeout: 12000 });
 
-    // Verify key elements exist in DOM
     const hasHeader = dom.includes('Deck Order');
     const hasTabs = dom.includes('My Spotify Playlists') && dom.includes('Manual CSV');
     const hasDemoBtn = dom.includes('Load 12-Track Demo');

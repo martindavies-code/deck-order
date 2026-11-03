@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Plus, Check, Music2, ArrowUpRight } from 'lucide-react';
+import { Sparkles, Plus } from 'lucide-react';
 
 export function SuggestionsDrawer({
   bridgeSuggestions = [],
@@ -12,18 +12,18 @@ export function SuggestionsDrawer({
   const selectedCount = [...bridgeSuggestions, ...bonusTunes].filter(t => t.selected).length;
 
   return (
-    <div className="deck-card p-6 mb-6 bg-[#111420] border-[#252b40]">
+    <div className="deck-card p-4 sm:p-6 mb-6 bg-[#111420] border-[#252b40]">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-[#21263a] gap-4 mb-4">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
             <h3 className="text-sm font-bold text-white">
-              Bridge & Bonus Track Recommendations
+              Bridge Tracks & Certified Crowd-Pleasers
             </h3>
             <p className="text-xs text-slate-400">
-              Real verified tracks to smooth awkward joins (Off by default — tick to include)
+              Harmonic bridges to prevent the dancefloor from staring at their phones (Off by default — tick to include)
             </p>
           </div>
         </div>
@@ -31,10 +31,10 @@ export function SuggestionsDrawer({
         {selectedCount > 0 && (
           <button
             onClick={onApplySelectedSuggestions}
-            className="deck-btn-primary text-xs"
+            className="deck-btn-primary text-xs w-full sm:w-auto"
           >
             <Plus className="w-3.5 h-3.5" />
-            Insert {selectedCount} Selected Track{selectedCount > 1 ? 's' : ''} into Set
+            Inject {selectedCount} Selected Track{selectedCount > 1 ? 's' : ''} into Running Order
           </button>
         )}
       </div>
@@ -59,7 +59,7 @@ export function SuggestionsDrawer({
               : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
-          More Huge Tunes ({bonusTunes.length})
+          Pretend You Own These on Vinyl ({bonusTunes.length})
         </button>
       </div>
 
@@ -67,8 +67,8 @@ export function SuggestionsDrawer({
       <div className="space-y-3">
         {activeTab === 'bridge' && (
           bridgeSuggestions.length === 0 ? (
-            <div className="text-center py-6 text-slate-500 text-xs">
-              No stretch or clash gaps detected, or no bridge tracks required!
+            <div className="text-center py-6 text-slate-500 text-xs bg-[#0b0d14] rounded-lg border border-[#1b1f2e]">
+              No emergency harmonic bridge needed. Your selection is suspiciously cohesive.
             </div>
           ) : (
             bridgeSuggestions.map((item) => (
@@ -77,7 +77,7 @@ export function SuggestionsDrawer({
                 onClick={() => onToggleSuggestion(item.id)}
                 className={`p-3 rounded-xl border flex items-center justify-between gap-4 cursor-pointer transition-all ${
                   item.selected
-                    ? 'bg-amber-950/30 border-amber-500/60'
+                    ? 'bg-amber-950/30 border-amber-500/60 shadow-lg shadow-amber-950/20'
                     : 'bg-[#151926] border-[#242a3e] hover:border-slate-500'
                 }`}
               >
@@ -86,17 +86,17 @@ export function SuggestionsDrawer({
                     type="checkbox"
                     checked={Boolean(item.selected)}
                     onChange={() => {}} // handled by parent onClick
-                    className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-900 border-slate-700"
+                    className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-900 border-slate-700 cursor-pointer"
                   />
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-bold text-white truncate">
                         {item.artist} - {item.title}
                       </span>
                       <span className="badge-camelot bg-cyan-950 text-cyan-300 border border-cyan-800/40 text-[10px]">
                         {item.camelot}
                       </span>
-                      <span className="text-xs font-mono text-slate-300">
+                      <span className="text-xs font-mono text-slate-300 tabular-nums">
                         {item.bpm} BPM
                       </span>
                     </div>
@@ -106,7 +106,7 @@ export function SuggestionsDrawer({
                   </div>
                 </div>
 
-                <span className="text-[10px] font-mono uppercase bg-slate-800 text-slate-400 px-2 py-0.5 rounded whitespace-nowrap">
+                <span className="text-[10px] font-mono uppercase bg-slate-800 text-slate-400 px-2 py-0.5 rounded whitespace-nowrap shrink-0">
                   {item.source}
                 </span>
               </div>
@@ -116,8 +116,8 @@ export function SuggestionsDrawer({
 
         {activeTab === 'bonus' && (
           bonusTunes.length === 0 ? (
-            <div className="text-center py-6 text-slate-500 text-xs">
-              No bonus tunes available for this tempo and key distribution.
+            <div className="text-center py-6 text-slate-500 text-xs bg-[#0b0d14] rounded-lg border border-[#1b1f2e]">
+              No additional bangers match this exact tempo and key constellation.
             </div>
           ) : (
             bonusTunes.map((item) => (
@@ -126,7 +126,7 @@ export function SuggestionsDrawer({
                 onClick={() => onToggleSuggestion(item.id)}
                 className={`p-3 rounded-xl border flex items-center justify-between gap-4 cursor-pointer transition-all ${
                   item.selected
-                    ? 'bg-emerald-950/30 border-emerald-500/60'
+                    ? 'bg-emerald-950/30 border-emerald-500/60 shadow-lg shadow-emerald-950/20'
                     : 'bg-[#151926] border-[#242a3e] hover:border-slate-500'
                 }`}
               >
@@ -135,17 +135,17 @@ export function SuggestionsDrawer({
                     type="checkbox"
                     checked={Boolean(item.selected)}
                     onChange={() => {}}
-                    className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-900 border-slate-700"
+                    className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-900 border-slate-700 cursor-pointer"
                   />
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-bold text-white truncate">
                         {item.artist} - {item.title}
                       </span>
                       <span className="badge-camelot bg-cyan-950 text-cyan-300 border border-cyan-800/40 text-[10px]">
                         {item.camelot}
                       </span>
-                      <span className="text-xs font-mono text-slate-300">
+                      <span className="text-xs font-mono text-slate-300 tabular-nums">
                         {item.bpm} BPM
                       </span>
                     </div>
@@ -155,7 +155,7 @@ export function SuggestionsDrawer({
                   </div>
                 </div>
 
-                <span className="text-[10px] font-mono uppercase bg-slate-800 text-slate-400 px-2 py-0.5 rounded whitespace-nowrap">
+                <span className="text-[10px] font-mono uppercase bg-slate-800 text-slate-400 px-2 py-0.5 rounded whitespace-nowrap shrink-0">
                   {item.source}
                 </span>
               </div>

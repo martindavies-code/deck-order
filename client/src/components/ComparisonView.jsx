@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, Sparkles, TrendingUp, BarChart3 } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 export function ComparisonView({
   originalEvaluation,
@@ -15,11 +15,11 @@ export function ComparisonView({
   return (
     <div className="deck-card p-4 sm:p-5 mb-6 bg-[#10131d] border-[#1e2336]">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        {/* Comparison Metrics */}
+        {/* Comparison Metrics with Tabular Numbers */}
         <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
           <div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
-              Harmonic Flow (Smooth %)
+              Dancefloor Survival Rate (Smooth %)
             </span>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-xs font-mono text-slate-400 tabular-nums">
@@ -41,7 +41,7 @@ export function ComparisonView({
 
           <div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
-              Total Transition Cost
+              Total Friction (Embarrassment Index)
             </span>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-xs font-mono text-slate-400 tabular-nums">
@@ -63,7 +63,7 @@ export function ComparisonView({
 
           <div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
-              Harmonic Clashes
+              Harmonic Clashes (Key Trainwrecks)
             </span>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-xs font-mono text-rose-400 font-bold tabular-nums">
@@ -81,23 +81,23 @@ export function ComparisonView({
         <div className="grid grid-cols-2 gap-1 w-full sm:w-auto bg-[#0a0c14] p-1 rounded-lg border border-[#1d2235]">
           <button
             onClick={() => onToggleViewMode('sequenced')}
-            className={`min-h-[40px] px-3 py-1.5 rounded-md text-xs font-bold transition-all text-center flex items-center justify-center ${
+            className={`min-h-[40px] px-3.5 py-1.5 rounded-md text-xs font-bold transition-all text-center flex items-center justify-center ${
               viewMode === 'sequenced'
-                ? 'bg-emerald-500 text-black shadow-sm'
+                ? 'bg-emerald-500 text-black shadow-sm font-extrabold'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            DJ Sequence
+            Sequenced (Pro)
           </button>
           <button
             onClick={() => onToggleViewMode('original')}
-            className={`min-h-[40px] px-3 py-1.5 rounded-md text-xs font-bold transition-all text-center flex items-center justify-center ${
+            className={`min-h-[40px] px-3.5 py-1.5 rounded-md text-xs font-bold transition-all text-center flex items-center justify-center ${
               viewMode === 'original'
-                ? 'bg-slate-700 text-white shadow-sm'
+                ? 'bg-slate-700 text-white shadow-sm font-extrabold'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Original Order
+            Original (Chaos)
           </button>
         </div>
       </div>
