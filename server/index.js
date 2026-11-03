@@ -14,13 +14,14 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 
+// Security: limit request sizes to prevent DOS
 app.use(cors({
   origin: [CLIENT_ORIGIN, 'http://localhost:3000', 'http://127.0.0.1:5173'],
   credentials: true
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // API Router
 const apiConfig = {
@@ -59,8 +60,10 @@ app.use((req, res, next) => {
   });
 });
 
+let serverInstance = null;
+
 export function startServer(port = PORT) {
-  return app.listen(port, () => {
+  serverInstance = app.listen(port, () => {
     console.log(`\n==================================================`);
     console.log(`🎧 DECK ORDER PROXY SERVER ACTIVE ON PORT ${port}`);
     console.log(`- API Status:    http://localhost:${port}/api/status`);
@@ -71,6 +74,22 @@ export function startServer(port = PORT) {
     console.log(`- CSV Fallback:  Always Active & Guaranteed ✅`);
     console.log(`==================================================\n`);
   });
+
+  // Graceful shutdown
+  const handleSignal = (sig) => {
+    console.log(`\n[Server] Received ${sig}, closing gracefully...`);
+    if (serverInstance) {
+      serverInstance.close(() => {
+        console.log('[Server] HTTP server closed cleanly.');
+        process.exit(0);
+      });
+    }
+  };
+
+  process.on('SIGTERM', () => handleSignal('SIGTERM'));
+  process.on('SIGINT', () => handleSignal('SIGINT'));
+
+  return serverInstance;
 }
 
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename);

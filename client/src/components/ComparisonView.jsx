@@ -13,77 +13,77 @@ export function ComparisonView({
   const smoothDelta = sequencedEvaluation.smoothPct - originalEvaluation.smoothPct;
 
   return (
-    <div className="deck-card p-5 mb-6 bg-[#111420] border-[#22273d]">
+    <div className="deck-card p-4 sm:p-5 mb-6 bg-[#10131d] border-[#1e2336]">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         {/* Comparison Metrics */}
-        <div className="flex items-center gap-6 flex-wrap">
+        <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
           <div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
               Harmonic Flow (Smooth %)
             </span>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-sm font-mono text-slate-400">
+              <span className="text-xs font-mono text-slate-400 tabular-nums">
                 {originalEvaluation.smoothPct}%
               </span>
               <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
-              <span className="text-base font-mono font-extrabold text-emerald-400">
+              <span className="text-sm font-mono font-extrabold text-emerald-400 tabular-nums">
                 {sequencedEvaluation.smoothPct}%
               </span>
               {smoothDelta > 0 && (
-                <span className="text-[11px] font-bold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40">
+                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800/40 tabular-nums">
                   +{smoothDelta}%
                 </span>
               )}
             </div>
           </div>
 
-          <div className="h-8 w-[1px] bg-[#22273d] hidden sm:block" />
+          <div className="h-8 w-[1px] bg-[#1e2336] hidden sm:block" />
 
           <div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
               Total Transition Cost
             </span>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-sm font-mono text-slate-400">
-                {originalEvaluation.totalCost}
+              <span className="text-xs font-mono text-slate-400 tabular-nums">
+                {originalEvaluation.totalCost.toFixed(1)}
               </span>
               <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
-              <span className="text-base font-mono font-extrabold text-cyan-400">
-                {sequencedEvaluation.totalCost}
+              <span className="text-sm font-mono font-extrabold text-cyan-400 tabular-nums">
+                {sequencedEvaluation.totalCost.toFixed(1)}
               </span>
               {costDelta > 0 && (
-                <span className="text-[11px] font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/40">
-                  -{costDelta}
+                <span className="text-[10px] font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.2 rounded border border-cyan-800/40 tabular-nums">
+                  -{costDelta.toFixed(1)}
                 </span>
               )}
             </div>
           </div>
 
-          <div className="h-8 w-[1px] bg-[#22273d] hidden sm:block" />
+          <div className="h-8 w-[1px] bg-[#1e2336] hidden sm:block" />
 
           <div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
               Harmonic Clashes
             </span>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-sm font-mono text-rose-400 font-bold">
+              <span className="text-xs font-mono text-rose-400 font-bold tabular-nums">
                 {originalEvaluation.clashCount}
               </span>
               <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
-              <span className="text-base font-mono font-extrabold text-emerald-400">
+              <span className="text-sm font-mono font-extrabold text-emerald-400 tabular-nums">
                 {sequencedEvaluation.clashCount}
               </span>
             </div>
           </div>
         </div>
 
-        {/* View Toggle */}
-        <div className="flex items-center bg-[#0d0f17] p-1 rounded-xl border border-[#23293e]">
+        {/* View Toggle (Responsive Grid on Mobile) */}
+        <div className="grid grid-cols-2 gap-1 w-full sm:w-auto bg-[#0a0c14] p-1 rounded-lg border border-[#1d2235]">
           <button
             onClick={() => onToggleViewMode('sequenced')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`min-h-[40px] px-3 py-1.5 rounded-md text-xs font-bold transition-all text-center flex items-center justify-center ${
               viewMode === 'sequenced'
-                ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20'
+                ? 'bg-emerald-500 text-black shadow-sm'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -91,9 +91,9 @@ export function ComparisonView({
           </button>
           <button
             onClick={() => onToggleViewMode('original')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`min-h-[40px] px-3 py-1.5 rounded-md text-xs font-bold transition-all text-center flex items-center justify-center ${
               viewMode === 'original'
-                ? 'bg-slate-700 text-white shadow-md'
+                ? 'bg-slate-700 text-white shadow-sm'
                 : 'text-slate-400 hover:text-white'
             }`}
           >

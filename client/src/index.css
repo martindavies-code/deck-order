@@ -1,20 +1,42 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
 :root {
-  --bg-main: #090a0f;
-  --bg-card: #12141f;
-  --bg-card-hover: #171a2a;
-  --bg-input: #0f111a;
-  --border-dim: #1f2333;
-  --border-bright: #2d334d;
-  --accent-cyan: #06b6d4;
-  --accent-green: #10b981;
-  --accent-amber: #f59e0b;
-  --accent-red: #f43f5e;
-  --accent-purple: #8b5cf6;
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
+  /* Strict 4-Step Spacing Scale */
+  --space-1: 0.5rem;   /* 8px */
+  --space-2: 1rem;     /* 16px */
+  --space-3: 1.5rem;   /* 24px */
+  --space-4: 2rem;     /* 32px */
+
+  /* Strict 4-Tier Typography Scale */
+  --text-title: clamp(1.25rem, 3vw, 1.75rem);
+  --text-section: 1.125rem;
+  --text-body: 0.875rem;
+  --text-caption: 0.75rem;
+
+  /* Single Container Radius Token */
+  --radius-container: 10px;
+  --radius-pill: 6px;
+
+  /* Editorial DJ Deck Hardware Palette */
+  --bg-app: #08090d;
+  --bg-card: #10131d;
+  --bg-card-hover: #151926;
+  --bg-card-inset: #0c0e15;
+  --border-dim: #1a1e2d;
+  --border-subtle: #242a3e;
+  --border-bright: #363f5c;
+
+  /* Harmonic Semantic Encodings */
+  --accent-smooth: #10b981;  /* Emerald: Harmonic cost <= 2 */
+  --accent-stretch: #f59e0b; /* Amber: Harmonic cost 3 - 5 */
+  --accent-clash: #f43f5e;   /* Coral: Harmonic cost > 5 */
+  --accent-camelot: #06b6d4; /* Cyan: Musical keys & Camelot */
+  --accent-purple: #a855f7;  /* Amethyst: Normalization & resets */
+
+  /* Neutral Text Hierarchy */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
 }
 
 * {
@@ -24,85 +46,102 @@
 }
 
 body {
-  background-color: var(--bg-main);
-  color: var(--text-main);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   min-height: 100vh;
   overflow-x: hidden;
+  font-size: var(--text-body);
+}
+
+/* Enforce Tabular Numerals on all data metrics and digits */
+.tabular-nums, .font-mono, [data-numeric], td, th, .badge-camelot {
+  font-variant-numeric: tabular-nums;
+  -webkit-font-feature-settings: "tnum";
+  font-feature-settings: "tnum";
 }
 
 code, pre, .font-mono {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Custom Scrollbars */
+/* Scrollbars */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0d0f17;
+  background: var(--bg-app);
 }
 ::-webkit-scrollbar-thumb {
-  background: #23273c;
-  border-radius: 4px;
+  background: var(--border-subtle);
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #343a57;
+  background: var(--border-bright);
 }
 
-/* DJ Deck Buttons & Cards */
+/* DJ Deck Hardware Containers */
 .deck-card {
   background: var(--bg-card);
   border: 1px solid var(--border-dim);
-  border-radius: 12px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  border-radius: var(--radius-container);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .deck-card:hover {
-  border-color: var(--border-bright);
+  border-color: var(--border-subtle);
 }
 
+/* Touch-Compliant Interactive Controls (min 44px touch targets) */
 .deck-btn-primary {
   background: linear-gradient(135deg, #10b981, #059669);
   color: #022c22;
   font-weight: 700;
-  padding: 0.6rem 1.25rem;
-  border-radius: 8px;
+  font-size: var(--text-body);
+  min-height: 44px;
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--radius-pill);
   border: none;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.2);
 }
 .deck-btn-primary:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.35);
 }
 .deck-btn-primary:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .deck-btn-secondary {
-  background: #1a1e2d;
+  background: #151926;
   color: #e2e8f0;
   font-weight: 600;
-  padding: 0.6rem 1.1rem;
-  border-radius: 8px;
-  border: 1px solid #282f46;
+  font-size: var(--text-body);
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-subtle);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .deck-btn-secondary:hover:not(:disabled) {
-  background: #22283c;
-  border-color: #3b4566;
+  background: #1c2233;
+  border-color: var(--border-bright);
 }
 
 /* Camelot Wheel Badges */
@@ -110,12 +149,12 @@ code, pre, .font-mono {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
+  font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
-  padding: 0.2rem 0.55rem;
-  border-radius: 6px;
-  font-size: 0.82rem;
-  letter-spacing: 0.04em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  letter-spacing: 0.03em;
 }
 
 /* Harmonic Relation Indicators */
@@ -132,30 +171,30 @@ code, pre, .font-mono {
 }
 
 .chip-clash {
-  background: rgba(244, 63, 94, 0.14);
+  background: rgba(244, 63, 94, 0.12);
   color: #fb7185;
-  border: 1px solid rgba(244, 63, 94, 0.35);
+  border: 1px solid rgba(244, 63, 94, 0.3);
 }
 
-/* Vinyl rotation animation */
+/* Subtle vinyl rotation animation */
 @keyframes spinSlow {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 
 .animate-spin-slow {
-  animation: spinSlow 10s linear infinite;
+  animation: spinSlow 12s linear infinite;
 }
 
 /* Modal Backdrops */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(4, 5, 8, 0.8);
+  background: rgba(6, 7, 10, 0.85);
   backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
-  padding: 1.5rem;
+  padding: 1rem;
 }

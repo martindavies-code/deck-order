@@ -4,6 +4,7 @@ import { SourcePicker } from './components/SourcePicker.jsx';
 import { CoverageReport } from './components/CoverageReport.jsx';
 import { SequencedTable } from './components/SequencedTable.jsx';
 import { ComparisonView } from './components/ComparisonView.jsx';
+import { HarmonicArcVisualizer } from './components/HarmonicArcVisualizer.jsx';
 import { SuggestionsDrawer } from './components/SuggestionsDrawer.jsx';
 import { DisputeModal } from './components/DisputeModal.jsx';
 import { DryRunModal } from './components/DryRunModal.jsx';
@@ -377,6 +378,14 @@ export function App() {
             sequencedEvaluation={evaluation}
             viewMode={viewMode}
             onToggleViewMode={setViewMode}
+          />
+        )}
+
+        {/* Visual Harmonic & Tempo Progression Arc */}
+        {evaluation && currentDisplayTracks.length > 1 && (
+          <HarmonicArcVisualizer
+            tracks={currentDisplayTracks}
+            evaluation={viewMode === 'original' ? originalEvaluation : evaluation}
           />
         )}
 
