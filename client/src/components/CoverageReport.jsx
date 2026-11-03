@@ -90,7 +90,7 @@ export function CoverageReport({
               id="unverified-strategy-select"
               value={unverifiedStrategy}
               onChange={(e) => onChangeStrategy(e.target.value)}
-              className="deck-select text-xs !min-h-[44px] sm:w-64"
+              className="deck-select text-xs min-h-[44px] sm:w-64"
             >
               <option value="keep_relative_position">Keep their relative order</option>
               <option value="cluster_at_start">Place at start of set</option>

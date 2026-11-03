@@ -12,7 +12,9 @@
     "gate1": "node scripts/run_gate1.js",
     "gate2": "node scripts/run_gate2.js",
     "verify:security": "node scripts/verify_security.js",
-    "verify:viewports": "node scripts/verify_viewports.js"
+    "verify:viewports": "node scripts/verify_viewports.js",
+    "verify:cascade": "node scripts/verify_layout_cascade.js",
+    "verify:interactive": "node scripts/verify_fixes_interactive.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

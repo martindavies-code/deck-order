@@ -1,7 +1,8 @@
 /**
  * API client with seamless in-browser fallback for static GitHub Pages hosting.
  * When hosted on GitHub Pages or offline, executes pure mathematical algorithms
- * (Camelot mapping, 2-opt solver, CSV parsing, export) directly in the client.
+ * (Camelot mapping, 2-opt solver, CSV parsing, export) directly in the client,
+ * and interacts directly with Spotify Web API and Google Identity Services.
  */
 
 import {
@@ -13,15 +14,60 @@ import {
 
 const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
 
+export const SPOTIFY_403_MSG =
+  "Spotify refused this request. If this app is in Development Mode, only accounts on its allowlist can use it - paste or upload a tracklist instead.";
+
+/**
+ * Direct Spotify Web API helper for static mode.
+ * Handles 401 (session expired) and 403 (honest allowlist explanation).
+ */
+async function spotifyApiFetch(endpoint, token, options = {}) {
+  const url = endpoint.startsWith('http') ? endpoint : `https://api.spotify.com/v1${endpoint}`;
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/json',
+      ...(options.headers || {})
+    }
+  });
+
+  if (res.status === 401) {
+    const err = new Error('Spotify session expired (401).');
+    err.status = 401;
+    throw err;
+  }
+
+  if (res.status === 403) {
+    const err = new Error(SPOTIFY_403_MSG);
+    err.status = 403;
+    throw err;
+  }
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    const err = new Error(errBody.error?.message || `Spotify HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  if (res.status === 204) return null;
+  return await res.json();
+}
+
 export async function fetchStatus() {
+  const spotifyClientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID || null;
+  const isSpotifyConfigured = Boolean(spotifyClientId);
+
   if (isGitHubPages) {
     return {
       success: true,
       spotifyEligibility: {
-        isConfigured: false,
-        clientIdProvided: false,
+        isConfigured: isSpotifyConfigured,
+        clientIdProvided: isSpotifyConfigured,
+        clientId: spotifyClientId,
         mode: 'Static Web Mode (GitHub Pages)',
-        quotaNote: 'Running 100% client-side in browser. Connect via local proxy for Spotify writes.',
+        quotaNote: 'Running 100% client-side in browser with PKCE authorization.',
         mixFeatureNote: 'Spotify Mix audio transitions require Spotify Premium.'
       },
       providers: {
@@ -37,15 +83,25 @@ export async function fetchStatus() {
   try {
     const res = await fetch('/api/status', { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    const data = await res.json();
+    return {
+      ...data,
+      spotifyEligibility: {
+        ...data.spotifyEligibility,
+        isConfigured: isSpotifyConfigured || data.spotifyEligibility?.isConfigured,
+        clientIdProvided: isSpotifyConfigured || data.spotifyEligibility?.clientIdProvided,
+        clientId: spotifyClientId || data.spotifyEligibility?.clientId
+      }
+    };
   } catch {
     return {
       success: true,
       spotifyEligibility: {
-        isConfigured: false,
-        clientIdProvided: false,
+        isConfigured: isSpotifyConfigured,
+        clientIdProvided: isSpotifyConfigured,
+        clientId: spotifyClientId,
         mode: 'In-Browser Mode (Proxy Offline)',
-        quotaNote: 'Running in browser. Start local server with `npm start` for Spotify sync.',
+        quotaNote: 'Running in browser. Start local server with `npm start` for Spotify proxy.',
         mixFeatureNote: 'Spotify Mix audio transitions require Spotify Premium.'
       },
       providers: {
@@ -57,38 +113,149 @@ export async function fetchStatus() {
 }
 
 export async function exchangeAuthCode(code, codeVerifier, redirectUri) {
-  const res = await fetch('/api/auth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, code_verifier: codeVerifier, redirect_uri: redirectUri })
+  // Try proxy first if not on GitHub Pages
+  if (!isGitHubPages) {
+    try {
+      const res = await fetch('/api/auth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, code_verifier: codeVerifier, redirect_uri: redirectUri }),
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) return await res.json();
+    } catch {
+      // Fall through to direct browser exchange
+    }
+  }
+
+  const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
+  if (!clientId) {
+    throw new Error("Spotify isn't configured for this deployment. Paste or upload a tracklist instead.");
+  }
+
+  const params = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: clientId,
+    code,
+    redirect_uri: redirectUri,
+    code_verifier: codeVerifier
   });
+
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params
+  });
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error_description || err.error || `HTTP ${res.status}`);
   }
-  return res.json();
+
+  return await res.json();
+}
+
+export async function refreshSpotifyToken(refreshToken) {
+  const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
+  if (!refreshToken || !clientId) return null;
+
+  try {
+    const params = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: clientId
+    });
+
+    const res = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params
+    });
+
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Silent token refresh failed:', err);
+  }
+  return null;
+}
+
+export async function fetchUserProfile(token) {
+  return await spotifyApiFetch('/me', token);
 }
 
 export async function fetchPlaylists(token) {
-  const res = await fetch('/api/spotify/playlists', {
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `HTTP ${res.status}`);
+  if (!isGitHubPages) {
+    try {
+      const res = await fetch('/api/spotify/playlists', {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) return await res.json();
+    } catch {}
   }
-  return res.json();
+
+  // Direct Web API call in static mode
+  const me = await fetchUserProfile(token);
+  const myId = me.id;
+
+  const data = await spotifyApiFetch('/me/playlists?limit=50', token);
+  const items = data.items || [];
+  // Filter to user's OWN playlists per Phase 0.3 constraints
+  const owned = items.filter(p => p.owner && p.owner.id === myId);
+
+  const playlists = owned.map(p => ({
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    ownerId: p.owner?.id,
+    ownerName: p.owner?.display_name,
+    itemCount: p.items?.total ?? p.tracks?.total ?? 0,
+    snapshotId: p.snapshot_id,
+    uri: p.uri
+  }));
+
+  return { success: true, playlists, user: me };
 }
 
 export async function fetchPlaylistItems(token, playlistId) {
-  const res = await fetch(`/api/spotify/playlists/${playlistId}/items`, {
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `HTTP ${res.status}`);
+  if (!isGitHubPages) {
+    try {
+      const res = await fetch(`/api/spotify/playlists/${playlistId}/items`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) return await res.json();
+    } catch {}
   }
-  return res.json();
+
+  // Direct Web API call in static mode
+  const data = await spotifyApiFetch(`/playlists/${playlistId}/items?limit=50`, token);
+  const rawItems = data.items || [];
+
+  const items = rawItems
+    .map(i => i.track || i)
+    .filter(t => t && t.id && t.name)
+    .map(t => ({
+      id: t.id,
+      title: t.name,
+      artist: t.artists?.map(a => a.name).join(', ') || 'Unknown Artist',
+      album: t.album?.name,
+      durationMs: t.duration_ms,
+      durationSec: t.duration_ms ? Math.round(t.duration_ms / 1000) : null,
+      bpm: null,
+      key: null,
+      camelot: null,
+      energy: null,
+      confidence: 'unverified',
+      status: 'unverified',
+      isrc: t.external_ids?.isrc || null,
+      spotifyUri: t.uri,
+      uri: t.uri
+    }));
+
+  return { success: true, items };
 }
 
 export async function parseCsvText(csvContent) {
@@ -193,7 +360,7 @@ export async function verifyTracklist(tracks, isSampleData = false) {
       disputed: 0,
       missing,
       unverified: missing,
-      summaryText: `Supplied by you: ${supplied}, Missing data: ${missing}`,
+      summaryText: `User supplied (${supplied} valid, ${missing} missing)`,
       disputedTracks: [],
       unverifiedTracks: processed.filter(t => t.status === 'missing')
     }
@@ -264,29 +431,98 @@ export async function fetchSuggestions(evaluation, orderedTracks, token = null) 
 }
 
 export async function requestSavePreview(sourcePlaylist, orderedTracks) {
-  const res = await fetch('/api/spotify/save/preview', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sourcePlaylist, orderedTracks })
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  if (!isGitHubPages) {
+    try {
+      const res = await fetch('/api/spotify/save/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourcePlaylist, orderedTracks }),
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) return await res.json();
+    } catch {}
+  }
+
+  // Pure client-side dry-run manifest generation
+  const operationId = `op_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+  const targetName = `${sourcePlaylist?.name || 'Custom Playlist'} - DJ sequence`;
+  const targetDescription = `Sequenced by Deck Order on ${new Date().toLocaleDateString()} for harmonic mixing.`;
+
+  const uris = orderedTracks
+    .map(t => t.uri || t.spotifyUri)
+    .filter(uri => Boolean(uri && uri.startsWith('spotify:track:')));
+
+  const manifest = {
+    operationId,
+    sourceSnapshot: {
+      id: sourcePlaylist?.id || null,
+      name: sourcePlaylist?.name || 'Manual Source',
+      snapshotId: sourcePlaylist?.snapshotId || null,
+      itemCount: sourcePlaylist?.itemCount || orderedTracks.length
+    },
+    targetPlaylist: {
+      name: targetName,
+      isPublic: false,
+      description: targetDescription
+    },
+    totalTracks: orderedTracks.length,
+    validUrisCount: uris.length,
+    urisManifest: uris,
+    isDryRun: true,
+    previewSummary: `This will create playlist "${targetName}" with ${uris.length} tracks in this order.`
+  };
+
+  return { success: true, manifest };
 }
 
 export async function confirmSavePlaylist(token, manifest) {
-  const res = await fetch('/api/spotify/save/confirm', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify({ manifest, isConfirmed: true })
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `HTTP ${res.status}`);
+  if (!isGitHubPages) {
+    try {
+      const res = await fetch('/api/spotify/save/confirm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ manifest, isConfirmed: true }),
+        signal: AbortSignal.timeout(8000)
+      });
+      if (res.ok) return await res.json();
+    } catch {}
   }
-  return res.json();
+
+  // Direct Web API creation in static mode
+  const target = manifest.targetPlaylist || { name: 'Deck Order Sequence', isPublic: false, description: '' };
+  const created = await spotifyApiFetch('/me/playlists', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: target.name,
+      description: target.description || 'Sequenced by Deck Order',
+      public: Boolean(target.isPublic)
+    })
+  });
+
+  const playlistId = created.id;
+  const uris = manifest.urisManifest || [];
+
+  // Add items in batches of 100
+  for (let i = 0; i < uris.length; i += 100) {
+    const chunk = uris.slice(i, i + 100);
+    await spotifyApiFetch(`/playlists/${playlistId}/items`, token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uris: chunk })
+    });
+  }
+
+  return {
+    success: true,
+    playlistId,
+    name: created.name,
+    uri: created.uri,
+    trackCount: uris.length
+  };
 }
 
 export async function copyTracklistText(orderedTracks) {

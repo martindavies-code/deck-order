@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header.jsx';
 import { SourcePicker } from './components/SourcePicker.jsx';
 import { CoverageReport } from './components/CoverageReport.jsx';
@@ -24,26 +24,37 @@ import {
   requestSavePreview,
   confirmSavePlaylist,
   copyTracklistText,
-  triggerCsvDownload
+  triggerCsvDownload,
+  refreshSpotifyToken,
+  SPOTIFY_403_MSG
 } from './services/api.js';
 import {
   initiateSpotifyLogin,
   getStoredCodeVerifier,
-  clearStoredCodeVerifier
+  clearStoredCodeVerifier,
+  verifyAndClearAuthState,
+  getSpotifyRedirectUri,
+  getStoredSpotifyTokens,
+  saveSpotifyTokens,
+  clearSpotifyTokens
 } from './services/spotifyPkce.js';
 import {
   getStoredGoogleUser,
-  promptGoogleLogin,
   logoutGoogle,
+  getAccountKey,
   getCrateHistory,
   saveSetToHistory,
-  clearCrateHistory
+  clearCrateHistory,
+  forgetThisDevice
 } from './services/googleAuth.js';
 import { Copy, Download, Disc, Check, ArrowLeft, Edit2, AlertCircle } from 'lucide-react';
 
 export function App() {
   const [status, setStatus] = useState(null);
-  const [authToken, setAuthToken] = useState(() => localStorage.getItem('spotify_access_token'));
+  const [initialTokens] = useState(() => getStoredSpotifyTokens());
+  const [authToken, setAuthToken] = useState(initialTokens.accessToken);
+  const [refreshToken, setRefreshToken] = useState(initialTokens.refreshToken);
+  const [staySignedIn, setStaySignedIn] = useState(initialTokens.staySignedIn);
   const [authUser, setAuthUser] = useState(null);
   const [playlists, setPlaylists] = useState([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
@@ -53,9 +64,10 @@ export function App() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [isSampleSet, setIsSampleSet] = useState(false);
 
-  // Google Auth & Crate History
+  // Google Auth & Crate History (Keyed by account per Fix 6)
   const [googleUser, setGoogleUser] = useState(() => getStoredGoogleUser());
-  const [crateHistory, setCrateHistory] = useState(() => getCrateHistory());
+  const accountKey = getAccountKey(googleUser, authUser);
+  const [crateHistory, setCrateHistory] = useState(() => getCrateHistory(accountKey));
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
 
   // Tracks & Sequencing State
@@ -91,18 +103,55 @@ export function App() {
       .catch(err => console.error('Error fetching backend status:', err));
   }, []);
 
-  // Handle PKCE Callback
+  // Isolate crate history by account and clear in-progress set on account switch (Fix 6)
+  const prevAccountKeyRef = useRef(accountKey);
+  useEffect(() => {
+    if (prevAccountKeyRef.current !== accountKey) {
+      prevAccountKeyRef.current = accountKey;
+      setCrateHistory(getCrateHistory(accountKey));
+      setTracks([]);
+      setOrderedTracks([]);
+      setOriginalTracks([]);
+      setEvaluation(null);
+      setOriginalEvaluation(null);
+      setCoverageReport(null);
+      setSelectedPlaylist(null);
+      setSelectedTrackIndex(null);
+      setIsSampleSet(false);
+    }
+  }, [accountKey]);
+
+  // Handle PKCE Callback with CSRF state verification (Fix 3 & Fix 4)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
+    const state = urlParams.get('state');
     const verifier = getStoredCodeVerifier();
 
-    if (code && verifier) {
+    if (code) {
+      if (!verifier) {
+        showToast('Spotify authorization error: missing code verifier session.', 5000);
+        return;
+      }
+
+      const isStateValid = verifyAndClearAuthState(state);
+      if (!isStateValid) {
+        clearStoredCodeVerifier();
+        window.history.replaceState({}, document.title, window.location.pathname);
+        showToast('Spotify authorization rejected: state mismatch (potential CSRF).', 5000);
+        return;
+      }
+
       setIsLoading(true);
-      exchangeAuthCode(code, verifier, window.location.origin)
+      const redirectUri = getSpotifyRedirectUri();
+
+      exchangeAuthCode(code, verifier, redirectUri)
         .then(tokenData => {
           setAuthToken(tokenData.access_token);
-          localStorage.setItem('spotify_access_token', tokenData.access_token);
+          if (tokenData.refresh_token) {
+            setRefreshToken(tokenData.refresh_token);
+          }
+          saveSpotifyTokens(tokenData, staySignedIn);
           clearStoredCodeVerifier();
           window.history.replaceState({}, document.title, window.location.pathname);
           showToast('Spotify account connected.');
@@ -110,30 +159,56 @@ export function App() {
         .catch(err => {
           showToast(`Spotify connection error: ${err.message}`, 5000);
           clearStoredCodeVerifier();
+          window.history.replaceState({}, document.title, window.location.pathname);
         })
         .finally(() => setIsLoading(false));
     }
-  }, []);
+  }, [staySignedIn]);
 
-  // Fetch playlists when authenticated
+  // Fetch playlists and user profile when authenticated with silent refresh & honest 403 handling
   useEffect(() => {
     if (authToken) {
       fetchPlaylists(authToken)
         .then(data => {
           setPlaylists(data.playlists || []);
-          if (data.playlists?.[0]) {
-            setAuthUser({ display_name: data.playlists[0].ownerName || 'Spotify User' });
+          if (data.user) {
+            setAuthUser({
+              id: data.user.id,
+              display_name: data.user.display_name || data.playlists?.[0]?.ownerName || 'Spotify User',
+              images: data.user.images
+            });
+          } else if (data.playlists?.[0]) {
+            setAuthUser({
+              id: data.playlists[0].ownerId || 'spotify_user',
+              display_name: data.playlists[0].ownerName || 'Spotify User'
+            });
           }
         })
-        .catch(err => {
+        .catch(async (err) => {
           console.warn('Could not fetch playlists:', err);
-          if (err.message?.includes('401')) {
+          if (err.status === 401 || err.message?.includes('401')) {
+            // Attempt silent token refresh if refresh_token exists
+            if (refreshToken) {
+              const refreshed = await refreshSpotifyToken(refreshToken);
+              if (refreshed?.access_token) {
+                setAuthToken(refreshed.access_token);
+                if (refreshed.refresh_token) setRefreshToken(refreshed.refresh_token);
+                saveSpotifyTokens(refreshed, staySignedIn);
+                return;
+              }
+            }
             setAuthToken(null);
-            localStorage.removeItem('spotify_access_token');
+            setAuthUser(null);
+            clearSpotifyTokens();
+            showToast('Spotify session expired. Please reconnect.', 4000);
+          } else if (err.status === 403 || err.message?.includes('403')) {
+            showToast(SPOTIFY_403_MSG, 6000);
+          } else {
+            showToast(`Could not load Spotify playlists: ${err.message}`, 5000);
           }
         });
     }
-  }, [authToken]);
+  }, [authToken, refreshToken, staySignedIn]);
 
   const showToast = (msg, duration = 3000) => {
     setToastMessage(msg);
@@ -141,9 +216,8 @@ export function App() {
   };
 
   const handleConnectSpotify = async () => {
-    const clientId = status?.spotifyEligibility?.clientIdProvided ? status?.spotifyEligibility?.clientId : null;
     try {
-      await initiateSpotifyLogin(clientId || prompt('Enter Spotify Client ID:'));
+      await initiateSpotifyLogin();
     } catch (err) {
       showToast(err.message, 5000);
     }
@@ -151,14 +225,14 @@ export function App() {
 
   const handleDisconnectSpotify = () => {
     setAuthToken(null);
+    setRefreshToken(null);
     setAuthUser(null);
     setPlaylists([]);
-    localStorage.removeItem('spotify_access_token');
+    clearSpotifyTokens();
     showToast('Spotify account disconnected.');
   };
 
-  const handleLoginGoogle = () => {
-    const user = promptGoogleLogin();
+  const handleLoginGoogle = (user) => {
     setGoogleUser(user);
     showToast(`Signed in as ${user.name}`);
   };
@@ -167,6 +241,18 @@ export function App() {
     logoutGoogle();
     setGoogleUser(null);
     showToast('Signed out of Google account.');
+  };
+
+  const handleForgetDevice = () => {
+    forgetThisDevice();
+    setAuthToken(null);
+    setRefreshToken(null);
+    setAuthUser(null);
+    setGoogleUser(null);
+    setPlaylists([]);
+    setCrateHistory([]);
+    handleStartFresh();
+    showToast('All local data and session tokens wiped from this device.');
   };
 
   const handleLoadHistoricalSet = (historicalSet) => {
@@ -184,7 +270,7 @@ export function App() {
   };
 
   const handleClearHistory = () => {
-    clearCrateHistory();
+    clearCrateHistory(accountKey);
     setCrateHistory([]);
     showToast('Saved sets cleared.');
   };
@@ -205,7 +291,11 @@ export function App() {
       setSelectedTrackIndex(null);
       showToast(`Loaded ${verifyRes.tracks.length} tracks from "${pl.name}".`);
     } catch (err) {
-      showToast(`Could not read playlist: ${err.message}`, 5000);
+      if (err.status === 403 || err.message?.includes('403')) {
+        showToast(SPOTIFY_403_MSG, 6000);
+      } else {
+        showToast(`Could not read playlist: ${err.message}`, 5000);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -255,12 +345,12 @@ export function App() {
       setViewMode('sequenced');
       setSelectedTrackIndex(0);
 
-      // Auto-save set to history
+      // Auto-save set to history keyed by account (Fix 6)
       const updatedHistory = saveSetToHistory({
         name: setName || 'My Set',
         tracks: res.orderedTracks,
         evaluation: res.evaluation
-      });
+      }, accountKey);
       setCrateHistory(updatedHistory);
 
       // Fetch bridge & bonus suggestions if available
@@ -397,10 +487,14 @@ export function App() {
     try {
       const result = await confirmSavePlaylist(authToken, saveManifest);
       setSaveManifest(null);
-      setSaveResult(result.result);
-      showToast('New playlist created.');
+      setSaveResult(result);
+      showToast(`New playlist "${result.name}" created with ${result.trackCount} tracks.`);
     } catch (err) {
-      showToast(`Spotify haven't confirmed whether the save finished. Check the playlist before trying again.`, 6000);
+      if (err.status === 403 || err.message?.includes('403')) {
+        showToast(SPOTIFY_403_MSG, 6000);
+      } else {
+        showToast(`Spotify haven't confirmed whether the save finished. Check the playlist before trying again.`, 6000);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -476,10 +570,13 @@ export function App() {
         authUser={authUser}
         googleUser={googleUser}
         historyCount={crateHistory.length}
+        staySignedIn={staySignedIn}
+        onToggleStaySignedIn={setStaySignedIn}
         onConnectSpotify={handleConnectSpotify}
         onDisconnectSpotify={handleDisconnectSpotify}
         onLoginGoogle={handleLoginGoogle}
         onLogoutGoogle={handleLogoutGoogle}
+        onForgetDevice={handleForgetDevice}
         onOpenHistory={() => setShowHistoryDrawer(true)}
       />
 
@@ -493,6 +590,8 @@ export function App() {
             onParseCsv={handleParseCsv}
             onConnectSpotify={handleConnectSpotify}
             isLoading={isLoading}
+            staySignedIn={staySignedIn}
+            onToggleStaySignedIn={setStaySignedIn}
           />
         ) : (
           /* Composition B: With a Set Loaded (Workbench) */
@@ -519,7 +618,7 @@ export function App() {
                         onBlur={() => setIsEditingName(false)}
                         onKeyDown={(e) => e.key === 'Enter' && setIsEditingName(false)}
                         autoFocus
-                        className="deck-input text-base font-bold !py-0.5 !px-2 w-64"
+                        className="deck-input text-base font-bold py-0.5 px-2 w-64"
                       />
                     ) : (
                       <button

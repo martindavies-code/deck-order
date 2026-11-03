@@ -151,14 +151,14 @@ export function DisputeModal({ disputedTracks, onClose, onApplyOverride }) {
               placeholder="BPM (e.g. 128)"
               value={customBpm}
               onChange={(e) => setCustomBpm(e.target.value)}
-              className="deck-input text-xs font-mono w-full sm:w-32 !min-h-[44px]"
+              className="deck-input text-xs font-mono w-full sm:w-32 min-h-[44px]"
             />
             <input
               type="text"
               placeholder="Key (e.g. 8A or A minor)"
               value={customKey}
               onChange={(e) => setCustomKey(e.target.value)}
-              className="deck-input text-xs font-mono flex-1 w-full !min-h-[44px]"
+              className="deck-input text-xs font-mono flex-1 w-full min-h-[44px]"
             />
             <button
               type="submit"

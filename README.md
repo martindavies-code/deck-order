@@ -20,7 +20,74 @@ npm --prefix client run build
 npm start
 ```
 
-Open your browser to `http://localhost:3001` (or run `npm run client` for Vite hot-reload on `http://localhost:5173`).
+Open your browser to `http://localhost:3001` (or run `npm run client` for Vite hot-reload on `http://127.0.0.1:5173/deck-order/`).
+
+---
+
+## 🛠️ Owner Setup Guide
+
+To enable live Google Sign-In and Spotify Connect for your deployment:
+
+### 1. Spotify Developer Dashboard Setup
+1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and open your app.
+2. In app settings, note your **App Status** (typically *Development Mode*).
+3. Under **Redirect URIs**, add both of the following exact URIs (trailing slash is mandatory):
+   - `https://martindavies-code.github.io/deck-order/` (Production on GitHub Pages)
+   - `http://127.0.0.1:5173/deck-order/` (Local development — **note**: Spotify Web API strictly forbids `localhost` in redirect URIs; always use the loopback IP literal `127.0.0.1`).
+4. Copy your **Client ID** (a public identifier used for OAuth 2.0 PKCE).
+5. Under the **Users Management** tab, add up to 5 Spotify accounts (email addresses) to your allowlist for Development Mode access.
+
+### 2. Google Cloud Console Setup
+1. Open the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+2. Configure the **OAuth Consent Screen**:
+   - Set User Type to *External*.
+   - Fill in App Name, User Support Email, and Developer Contact.
+   - **Testing Mode Exception**: Google explicitly exempts apps requesting only basic identity scopes (`openid`, `email`, `profile`) from Testing-mode restrictions ([Google Cloud Help](https://support.google.com/cloud/answer/15549945)). Users do **not** need to be on a test-user allowlist, see no warning, and their authorizations do not expire after 7 days. Any Google account can sign in immediately.
+   - Moving the consent screen to *In Production* is recommended once configured. (Custom brand logo display requires Google brand verification).
+3. Create an **OAuth 2.0 Client ID**:
+   - Application Type: *Web application*.
+   - **Authorized JavaScript origins**:
+     - `https://martindavies-code.github.io`
+     - `http://127.0.0.1:5173`
+   - (No redirect URI is needed for the Google Identity Services popup UX flow).
+4. Copy the **Client ID**.
+
+### 3. GitHub Actions Build Variables
+In your GitHub repository:
+1. Navigate to **Settings** → **Secrets and variables** → **Actions** → **Variables** tab.
+2. Add the two build variables (these are public Client IDs, not secrets):
+   - `VITE_SPOTIFY_CLIENT_ID`: Your Spotify App Client ID
+   - `VITE_GOOGLE_CLIENT_ID`: Your Google OAuth Client ID
+3. The `.github/workflows/deploy.yml` workflow automatically injects these into `npm run build` on push to `main`.
+
+### 4. Local Development Environment
+Create a `client/.env` file (gitignored):
+```env
+VITE_SPOTIFY_CLIENT_ID=your_spotify_client_id_here
+VITE_GOOGLE_CLIENT_ID=your_google_client_id_here
+```
+When running Vite (`npm run client`), navigate to `http://127.0.0.1:5173/deck-order/` to test Spotify PKCE authentication locally.
+
+---
+
+## 🔒 Security Architecture & Access Policies
+
+### Google Sign-In & In-Browser JWT Verification
+- **Cryptographic Verification**: When Google Identity Services returns a credential, Deck Order verifies the ID token directly in the browser using [`jose`](https://github.com/panva/jose) against Google's public JWKS (`https://www.googleapis.com/oauth2/v3/certs`). It verifies the JWS signature, issuer (`accounts.google.com` or `https://accounts.google.com`), audience (`aud` equals your Client ID), and expiration (`exp`).
+- **Architectural Boundary**: In-browser verification establishes a verified Google identity *for this browser*. Without a backend session, this provides local personalization (keyed crate history), not a cross-device account system. It never gates access to sensitive server assets. Full cross-device accounts would require a backend issuing session cookies, which remains an optional future architecture.
+
+### Spotify Access Limits: Development Mode vs Extended Quota
+- **Development Mode**: By Spotify policy, non-commercial development-mode apps are restricted to the registered app owner (who must have an active Spotify Premium subscription) and up to 5 allowlisted Spotify accounts. Visitors outside the allowlist receive an honest explanation: *"Spotify refused this request. If this app is in Development Mode, only accounts on its allowlist can use it - paste or upload a tracklist instead."*
+- **Extended Quota Mode**: Since May 2025, Spotify limits Extended Quota applications strictly to legally registered businesses and established organizations with an already-launched service and at least 250,000 monthly active users. Because a personal open-source project does not meet these criteria, Spotify Connect is not offered to the general public. **CSV / paste mode is the guaranteed, fully functional path for all visitors.**
+
+### Token Storage & Web Storage Hygiene
+- Tokens stored in `sessionStorage` or `localStorage` are accessible to scripts running on the origin. Keep dependencies lean and never inject unsanitized HTML into the DOM.
+- **Session Lifetimes**:
+  - Spotify access tokens are kept in `sessionStorage` by default and expire when the browser session ends.
+  - If the user explicitly checks *"Stay signed in on this device"*, the token is stored in `localStorage`.
+  - When Spotify issues a `refresh_token`, Deck Order uses it to refresh access tokens silently in the background before the 1-hour access token expires.
+- **Forget This Device**: A one-click action in the Account menu wipes every `deck_order_*` and `spotify_*` key across both `localStorage` and `sessionStorage`, leaving no residual data on shared computers.
+- **Multi-User Account Isolation**: Crate history is keyed by account (`google_<sub_id>` or `spotify_<user_id>`). Switching accounts immediately switches the visible crate history and clears any in-progress set belonging to the previous account. Accounts are never linked across providers by email.
 
 ---
 
@@ -31,7 +98,7 @@ This project strictly adheres to the current Spotify Web API policies and restri
 1. **Development Mode Quotas & Eligibility**:
    - Newly registered Spotify developer apps run in **Development Mode**, restricted to the app owner and up to 5 allowlisted Spotify users.
    - The listening account must have a **Spotify Premium** subscription to use Spotify's **Mix** feature.
-   - Development-mode apps share quota buckets (`429 QUOTA_EXCEEDED`). Deck Order includes an aggressive multi-tier in-memory and disk cache (`cache/provider_cache.json`) for playlist items, track metadata, and provider lookups so runs stay well under quota.
+   - Development-mode apps share quota buckets (`429 QUOTA_EXCEEDED`). Deck Order includes an aggressive multi-tier cache (`cache/provider_cache.json`) for playlist items, track metadata, and provider lookups so runs stay well under quota.
 2. **Zero Forbidden Endpoints**:
    - Spotify removed `/audio-features`, `/audio-analysis`, `/recommendations`, and `/related-artists` for apps registered after Nov 2024. Deck Order makes **ZERO** calls to these forbidden endpoints (enforced by automated grep unit tests).
 3. **Current Post-February 2026 Endpoint Names**:
@@ -129,7 +196,7 @@ After Deck Order saves your playlist, open it in Spotify:
 
 Run the test suite and gate runners:
 ```bash
-# Run all 32 unit & integration tests
+# Run all 50 unit, integration, and security tests
 npm test
 
 # Run Phase 1 Gate (12-track real pipeline verification)
@@ -140,4 +207,7 @@ npm run gate2
 
 # Verify Zero Forbidden Endpoints & Zero Secrets in Client
 npm run verify:security
+
+# Verify Multi-Viewport Layout Integrity & Cascade
+npm run verify:viewports
 ```

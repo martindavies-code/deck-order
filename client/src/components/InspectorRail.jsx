@@ -175,7 +175,7 @@ export function InspectorRail({
                 value={overrideBpm}
                 onChange={(e) => setOverrideBpm(e.target.value)}
                 placeholder="e.g. 128"
-                className="deck-input text-xs font-mono !py-1.5"
+                className="deck-input text-xs font-mono py-1.5"
               />
             </div>
             <div>
@@ -187,12 +187,12 @@ export function InspectorRail({
                 value={overrideKey}
                 onChange={(e) => setOverrideKey(e.target.value)}
                 placeholder="e.g. 8A or C major"
-                className="deck-input text-xs font-mono !py-1.5"
+                className="deck-input text-xs font-mono py-1.5"
               />
             </div>
             <button
               type="submit"
-              className="deck-btn-primary w-full text-xs !min-h-[36px] justify-center"
+              className="deck-btn-primary w-full text-xs min-h-[36px] justify-center"
             >
               <Check className="w-3.5 h-3.5" />
               <span>Apply value</span>

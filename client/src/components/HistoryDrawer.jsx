@@ -81,7 +81,7 @@ export function HistoryDrawer({
                     onLoadSet(item);
                     onClose();
                   }}
-                  className="deck-btn-secondary text-xs !min-h-[36px] py-1 px-3 shrink-0"
+                  className="deck-btn-secondary text-xs min-h-[36px] py-1 px-3 shrink-0"
                   title="Load this set into the workspace"
                 >
                   <Play className="w-3 h-3 fill-current" />

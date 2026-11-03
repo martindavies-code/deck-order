@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ListMusic, FileText, Upload, Sparkles, Disc, Music, ArrowRight, X, Check } from 'lucide-react';
 
 export const DEMO_ELECTRONIC_CSV = `Artist,Title,Version,BPM,Key,ISRC
@@ -21,12 +21,16 @@ export function SourcePicker({
   onSelectPlaylist,
   onParseCsv,
   onConnectSpotify,
-  isLoading
+  isLoading,
+  staySignedIn = false,
+  onToggleStaySignedIn
 }) {
   const [activeTab, setActiveTab] = useState(spotifyConnected ? 'spotify' : 'paste');
   const [csvInput, setCsvInput] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [rowErrors, setRowErrors] = useState([]);
+  const fileInputRef = useRef(null);
+  const spotifyClientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
 
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
@@ -220,16 +224,40 @@ export function SourcePicker({
                       </div>
                     </div>
 
-                    <button
-                      onClick={onConnectSpotify}
-                      className="deck-btn-primary w-full text-xs justify-center"
-                    >
-                      <span>Connect Spotify</span>
-                    </button>
-
-                    <p className="text-[11px] text-[#7E8876] leading-tight">
-                      Under current Spotify Web API policy, only playlists you own return track items. Or switch to paste/upload to work offline.
-                    </p>
+                    {!spotifyClientId ? (
+                      <div className="space-y-2">
+                        <button
+                          disabled
+                          className="deck-btn-primary w-full text-xs justify-center opacity-50 cursor-not-allowed"
+                        >
+                          <span>Connect Spotify</span>
+                        </button>
+                        <p className="text-xs text-[#FF8857] leading-relaxed">
+                          Spotify isn't configured for this deployment. Paste or upload a tracklist instead.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <button
+                          onClick={onConnectSpotify}
+                          className="deck-btn-primary w-full text-xs justify-center"
+                        >
+                          <span>Connect Spotify</span>
+                        </button>
+                        <label className="flex items-center gap-2 text-[11px] text-[#BAC2B3] cursor-pointer pt-0.5">
+                          <input
+                            type="checkbox"
+                            checked={staySignedIn}
+                            onChange={(e) => onToggleStaySignedIn && onToggleStaySignedIn(e.target.checked)}
+                            className="rounded border-[#394133] bg-[#10120F] text-[#D6FC55] focus:ring-0"
+                          />
+                          <span>Stay signed in on this device</span>
+                        </label>
+                        <p className="text-[11px] text-[#7E8876] leading-tight">
+                          Under current Spotify Web API policy, only playlists you own return track items. Or switch to paste/upload to work offline.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -277,7 +305,7 @@ export function SourcePicker({
                       if (rowErrors.length > 0) setRowErrors([]);
                     }}
                     placeholder={`Bicep, Glue, 130, 8A\nFour Tet, Baby, 126, F minor\nOvermono, Good Lies, 134, 4A`}
-                    className="deck-textarea text-xs font-mono !min-h-[160px] leading-relaxed"
+                    className="deck-textarea text-xs font-mono min-h-[160px] leading-relaxed"
                   />
 
                   <p className="text-[11px] text-[#7E8876] mt-1.5 leading-relaxed">
