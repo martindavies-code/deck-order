@@ -1,0 +1,21 @@
+{
+  "name": "deck-order",
+  "version": "1.0.0",
+  "description": "Deck Order - Spotify playlist DJ sequencer with verified BPM and Camelot harmonic mixing",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "server": "node server/index.js",
+    "client": "npm --prefix client run dev",
+    "dev": "node server/index.js",
+    "test": "node --test test/*.test.js",
+    "gate1": "node scripts/run_gate1.js",
+    "gate2": "node scripts/run_gate2.js",
+    "verify:security": "node scripts/verify_security.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}
