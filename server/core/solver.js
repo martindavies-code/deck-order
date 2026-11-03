@@ -15,6 +15,10 @@ function createPrng(seed = 1337) {
   };
 }
 
+const getHeapUsed = () => (typeof process !== 'undefined' && typeof process?.memoryUsage === 'function')
+  ? process.memoryUsage().heapUsed
+  : null;
+
 /**
  * Sequencer solving DJ track ordering via greedy warm-start and directed 2-opt.
  */
@@ -163,7 +167,7 @@ export class DJSequencer {
    */
   solve(rawTracks) {
     const startTime = performance.now();
-    const memBefore = process.memoryUsage().heapUsed;
+    const memBefore = getHeapUsed();
 
     if (!rawTracks || rawTracks.length === 0) {
       return {
@@ -171,7 +175,7 @@ export class DJSequencer {
         evaluation: evaluateSequence([]),
         originalEvaluation: evaluateSequence([]),
         unverifiedCount: 0,
-        stats: { runtimeMs: 0, memoryDeltaBytes: 0, iterations: 0 }
+        stats: { runtimeMs: 0, memoryDeltaBytes: null, iterations: 0 }
       };
     }
 
@@ -181,7 +185,7 @@ export class DJSequencer {
 
     rawTracks.forEach((t, origIdx) => {
       // Must have BPM and Camelot for harmonic sequencing
-      if (t.bpm && t.camelot && t.status !== 'unverified') {
+      if (t.bpm && t.camelot && t.status !== 'unverified' && t.status !== 'missing') {
         sequencable.push({ track: t, originalIndex: origIdx });
       } else {
         unverified.push({ track: t, originalIndex: origIdx });
@@ -263,9 +267,11 @@ export class DJSequencer {
     const originalEvaluation = evaluateSequence(rawTracks, { enableEnergy: this.enableEnergy });
     annotateEnergyResets(originalEvaluation.transitions);
 
-    const memAfter = process.memoryUsage().heapUsed;
+    const memAfter = getHeapUsed();
     const runtimeMs = Math.round((performance.now() - startTime) * 100) / 100;
-    const memoryDeltaBytes = Math.max(0, memAfter - memBefore);
+    const memoryDeltaBytes = (memBefore !== null && memAfter !== null)
+      ? Math.max(0, memAfter - memBefore)
+      : null;
 
     return {
       orderedTracks: finalTracks,

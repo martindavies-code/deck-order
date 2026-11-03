@@ -7,4 +7,5 @@ cache/
 dist/
 client/dist/
 client/node_modules/
+screenshots/
 .DS_Store

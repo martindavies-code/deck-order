@@ -1,41 +1,34 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
 
 :root {
-  /* Strict 4-Step Spacing Scale */
-  --space-1: 0.5rem;   /* 8px */
-  --space-2: 1rem;     /* 16px */
-  --space-3: 1.5rem;   /* 24px */
-  --space-4: 2rem;     /* 32px */
+  /* Art Direction Palette: After Hours / Record-Sleeve Editorial */
+  --ink: #10120F;
+  --surface: #1B1F19;
+  --surface-raised: #252B22;
+  --border-subtle: #394133;
+  --border-strong: #4F5A47;
+  --border-focus: #D6FC55;
 
-  /* Strict 4-Tier Typography Scale */
-  --text-title: clamp(1.25rem, 3.5vw, 1.85rem);
-  --text-section: 1.125rem;
-  --text-body: 0.875rem;
-  --text-caption: 0.75rem;
+  /* Typography Colors */
+  --chalk: #F3F0E6;
+  --chalk-muted: #BAC2B3;
+  --chalk-dim: #7E8876;
 
-  /* Single Container Radius Token */
-  --radius-container: 12px;
-  --radius-pill: 6px;
+  /* Accents */
+  --accent-lime: #D6FC55;
+  --accent-lime-hover: #C5ED3F;
+  --accent-orange: #FF8857;
+  --accent-orange-dim: rgba(255, 136, 87, 0.15);
 
-  /* Tactile Electronic Hardware DJ Palette */
-  --chassis-dark: #06070a;
-  --chassis-panel: #0d0f17;
-  --chassis-inset: #090a10;
-  --border-hardware: #1b1f2e;
-  --border-beveled: #262c40;
-  --border-glow: #384260;
+  /* Semantic Status */
+  --status-amber: #EAB308;
+  --status-red: #EF4444;
+  --status-green: #4ADE80;
 
-  /* VFD / LED Illumination */
-  --vfd-cyan: #22d3ee;
-  --vfd-emerald: #10b981;
-  --vfd-amber: #f59e0b;
-  --vfd-coral: #f43f5e;
-  --vfd-purple: #c084fc;
-
-  /* Neutral Text Hierarchy */
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-tertiary: #64748b;
+  /* Geometry & Spacing */
+  --radius-panel: 12px;
+  --radius-control: 6px;
+  --radius-tag: 4px;
 }
 
 * {
@@ -45,16 +38,15 @@
 }
 
 body {
-  background-color: var(--chassis-dark);
-  background-image: 
-    radial-gradient(ellipse at 50% -10%, rgba(16, 185, 129, 0.07) 0%, transparent 60%),
-    radial-gradient(circle at 100% 100%, rgba(34, 211, 238, 0.04) 0%, transparent 40%);
-  color: var(--text-primary);
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  background-color: var(--ink);
+  color: var(--chalk);
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
   min-height: 100vh;
   overflow-x: hidden;
-  font-size: var(--text-body);
+  font-size: 0.875rem;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Enforce Tabular Numerals on all data metrics and digits */
@@ -65,7 +57,7 @@ body {
 }
 
 code, pre, .font-mono {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 }
 
 /* Scrollbars */
@@ -74,170 +66,213 @@ code, pre, .font-mono {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--chassis-dark);
+  background: var(--ink);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-hardware);
+  background: var(--border-subtle);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--border-glow);
+  background: var(--border-strong);
 }
 
-/* DJ Hardware Console Panels */
-.deck-card {
-  background: var(--chassis-panel);
-  border: 1px solid var(--border-hardware);
-  border-radius: var(--radius-container);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  transition: border-color 0.15s ease;
+/* Base Panel Styling */
+.deck-panel {
+  background-color: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
 }
 
-.deck-card:hover {
-  border-color: var(--border-beveled);
+.deck-panel-raised {
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
 }
 
-/* Tactile Hardware Buttons (Min 44px Touch Targets) */
+/* Buttons (Disciplined hierarchy, 44px min touch target) */
 .deck-btn-primary {
-  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
-  color: #022c22;
+  background-color: var(--accent-lime);
+  color: var(--ink);
   font-weight: 700;
-  font-size: var(--text-body);
+  font-size: 0.875rem;
   min-height: 44px;
-  padding: 0.5rem 1.25rem;
-  border-radius: var(--radius-pill);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.625rem 1.25rem;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 .deck-btn-primary:hover:not(:disabled) {
+  background-color: var(--accent-lime-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 .deck-btn-primary:active:not(:disabled) {
-  transform: translateY(1px);
-  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.3);
+  transform: translateY(0);
 }
 .deck-btn-primary:disabled {
-  opacity: 0.4;
+  opacity: 0.45;
   cursor: not-allowed;
   transform: none;
-  box-shadow: none;
+}
+.deck-btn-primary:focus-visible {
+  outline: 2px solid var(--accent-lime);
+  outline-offset: 2px;
 }
 
 .deck-btn-secondary {
-  background: linear-gradient(180deg, #161926 0%, #11131c 100%);
-  color: #e2e8f0;
+  background-color: var(--surface-raised);
+  color: var(--chalk);
   font-weight: 600;
-  font-size: var(--text-body);
+  font-size: 0.875rem;
   min-height: 44px;
-  padding: 0.5rem 1rem;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-hardware);
+  padding: 0.625rem 1rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  transition: all 0.15s ease;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .deck-btn-secondary:hover:not(:disabled) {
-  background: #1c2133;
-  border-color: var(--border-glow);
-  color: #ffffff;
+  background-color: #2F362C;
+  border-color: var(--border-strong);
+  color: #FFFFFF;
+}
+.deck-btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.deck-btn-secondary:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
 }
 
-/* Electronic Hardware Transport Rings (CUE & PLAY) */
-.btn-cue {
-  background: radial-gradient(circle, #271f11 0%, #15130f 100%);
-  border: 2px solid #f59e0b;
-  color: #fbbf24;
-  box-shadow: 0 0 12px rgba(245, 158, 11, 0.25);
+.deck-btn-ghost {
+  background: transparent;
+  color: var(--chalk-muted);
+  font-weight: 500;
+  font-size: 0.8125rem;
+  min-height: 36px;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
-.btn-cue:hover {
-  box-shadow: 0 0 18px rgba(245, 158, 11, 0.45);
+.deck-btn-ghost:hover:not(:disabled) {
+  background-color: var(--surface-raised);
+  color: var(--chalk);
+}
+.deck-btn-ghost:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
 }
 
-.btn-play {
-  background: radial-gradient(circle, #0e271f 0%, #0c1813 100%);
-  border: 2px solid #10b981;
-  color: #34d399;
-  box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+/* Form Inputs & Textarea */
+.deck-input, .deck-textarea, .deck-select {
+  background-color: var(--ink);
+  color: var(--chalk);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  width: 100%;
+  transition: border-color 0.15s ease;
 }
-.btn-play:hover {
-  box-shadow: 0 0 18px rgba(16, 185, 129, 0.45);
+.deck-input:focus, .deck-textarea:focus, .deck-select:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+.deck-input::placeholder, .deck-textarea::placeholder {
+  color: var(--chalk-dim);
 }
 
-/* Camelot Wheel Badges */
+/* Badges for Camelot and Evidence */
 .badge-camelot {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
-  padding: 0.25rem 0.55rem;
-  border-radius: 4px;
-  font-size: var(--text-caption);
-  letter-spacing: 0.04em;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-tag);
+  font-size: 0.75rem;
+  background-color: #171A15;
+  border: 1px solid var(--border-subtle);
+  color: var(--chalk);
 }
 
-/* Harmonic Relation Indicators */
-.chip-smooth {
-  background: rgba(16, 185, 129, 0.12);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+/* Evidence Status Badges */
+.badge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-tag);
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: 'JetBrains Mono', monospace;
 }
-
-.chip-stretch {
-  background: rgba(245, 158, 11, 0.12);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+.badge-status-corroborated {
+  background-color: rgba(74, 222, 128, 0.12);
+  color: #86EFAC;
+  border: 1px solid rgba(74, 222, 128, 0.3);
 }
-
-.chip-clash {
-  background: rgba(244, 63, 94, 0.12);
-  color: #fb7185;
-  border: 1px solid rgba(244, 63, 94, 0.3);
+.badge-status-single {
+  background-color: rgba(214, 252, 85, 0.1);
+  color: #E2FFA1;
+  border: 1px solid rgba(214, 252, 85, 0.25);
 }
-
-/* Animated Dual LED VU Meter */
-.vu-meter-bar {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 20px;
+.badge-status-supplied {
+  background-color: rgba(186, 194, 179, 0.12);
+  color: var(--chalk-muted);
+  border: 1px solid rgba(186, 194, 179, 0.25);
 }
-.vu-segment {
-  width: 3px;
-  border-radius: 1px;
+.badge-status-sample {
+  background-color: rgba(255, 136, 87, 0.12);
+  color: #FFB08E;
+  border: 1px solid rgba(255, 136, 87, 0.3);
 }
-
-/* Subtle vinyl rotation animation */
-@keyframes spinSlow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.badge-status-disputed {
+  background-color: rgba(234, 179, 8, 0.14);
+  color: #FDE047;
+  border: 1px solid rgba(234, 179, 8, 0.4);
 }
-
-.animate-spin-slow {
-  animation: spinSlow 12s linear infinite;
+.badge-status-missing {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: #FCA5A5;
+  border: 1px dashed rgba(239, 68, 68, 0.4);
 }
 
 /* Modal Backdrops */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(4, 5, 8, 0.88);
-  backdrop-filter: blur(10px);
+  background-color: rgba(8, 9, 7, 0.85);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
   padding: 1rem;
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

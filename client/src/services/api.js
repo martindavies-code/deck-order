@@ -108,7 +108,36 @@ export async function parseCsvText(csvContent) {
   return { success: true, tracks, count: tracks.length };
 }
 
-export async function verifyTracklist(tracks) {
+export async function verifyTracklist(tracks, isSampleData = false) {
+  // If the tracks are from the sample/demo set, mark them explicitly as SAMPLE DATA
+  if (isSampleData || tracks.some(t => t.isSampleData)) {
+    const processed = tracks.map(t => ({
+      ...t,
+      status: (t.bpm && t.camelot) ? 'sample' : 'missing',
+      confidence: 'sample',
+      isSampleData: true
+    }));
+    const sampleCount = processed.filter(t => t.status === 'sample').length;
+    const missingCount = processed.filter(t => t.status === 'missing').length;
+    return {
+      success: true,
+      tracks: processed,
+      report: {
+        total: tracks.length,
+        corroborated: 0,
+        singleSource: 0,
+        supplied: 0,
+        sample: sampleCount,
+        disputed: 0,
+        missing: missingCount,
+        unverified: missingCount,
+        summaryText: `Sample data (${tracks.length} tracks)`,
+        disputedTracks: [],
+        unverifiedTracks: processed.filter(t => t.status === 'missing')
+      }
+    };
+  }
+
   try {
     const res = await fetch('/api/pipeline/verify', {
       method: 'POST',
@@ -116,21 +145,39 @@ export async function verifyTracklist(tracks) {
       body: JSON.stringify({ tracks }),
       signal: AbortSignal.timeout(3000)
     });
-    if (res.ok) return await res.json();
+    if (res.ok) {
+      const data = await res.json();
+      const processed = data.tracks.map(t => {
+        let status = t.status;
+        if (status === 'verified') status = 'corroborated';
+        return { ...t, status };
+      });
+      return {
+        ...data,
+        tracks: processed,
+        report: {
+          ...data.report,
+          corroborated: data.report.verified || 0,
+          supplied: 0,
+          sample: 0,
+          missing: data.report.unverified || 0
+        }
+      };
+    }
   } catch {
     // In-browser fallback
   }
 
-  // Pure client-side verification
-  let verified = 0;
-  let unverified = 0;
+  // Pure client-side verification for user-supplied CSV
+  let supplied = 0;
+  let missing = 0;
   const processed = tracks.map(t => {
-    const isV = Boolean(t.bpm && t.camelot);
-    if (isV) verified++; else unverified++;
+    const hasData = Boolean(t.bpm && t.camelot);
+    if (hasData) supplied++; else missing++;
     return {
       ...t,
-      status: isV ? 'verified' : 'unverified',
-      confidence: isV ? 'manual' : 'none'
+      status: hasData ? 'supplied' : 'missing',
+      confidence: hasData ? 'supplied' : 'none'
     };
   });
 
@@ -139,13 +186,16 @@ export async function verifyTracklist(tracks) {
     tracks: processed,
     report: {
       total: tracks.length,
-      verified,
+      corroborated: 0,
       singleSource: 0,
+      supplied,
+      sample: 0,
       disputed: 0,
-      unverified,
-      summaryText: `Verified ${verified}/${tracks.length}, Disputed 0, Unverified ${unverified}`,
+      missing,
+      unverified: missing,
+      summaryText: `Supplied by you: ${supplied}, Missing data: ${missing}`,
       disputedTracks: [],
-      unverifiedTracks: []
+      unverifiedTracks: processed.filter(t => t.status === 'missing')
     }
   };
 }

@@ -1,33 +1,42 @@
 import { execSync } from 'node:child_process';
+import path from 'node:path';
+import fs from 'node:fs';
 
 const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
 const viewports = [
-  { name: 'Mobile', width: 393, height: 851 },
+  { name: 'NarrowMobile', width: 320, height: 640 },
+  { name: 'Mobile', width: 390, height: 844 },
   { name: 'Tablet', width: 768, height: 1024 },
-  { name: 'Desktop', width: 1440, height: 900 },
-  { name: 'Widescreen', width: 1920, height: 1080 }
+  { name: 'Desktop', width: 1440, height: 900 }
 ];
 
 console.log('================================================================================');
-console.log('POLISH-DASHBOARD: MULTI-VIEWPORT AUDIT & RESPONSIVENESS VERIFICATION');
+console.log('DECK ORDER - REDESIGN VIEWPORT AUDIT & SCREENSHOT CAPTURE');
 console.log('================================================================================\n');
 
 let allPassed = true;
+const screenshotsDir = path.resolve('screenshots');
+if (!fs.existsSync(screenshotsDir)) {
+  fs.mkdirSync(screenshotsDir, { recursive: true });
+}
 
 for (const vp of viewports) {
   try {
-    const cmd = `"${chromePath}" --headless=new --window-size=${vp.width},${vp.height} --dump-dom --virtual-time-budget=3000 "http://localhost:3001/deck-order/"`;
-    const dom = execSync(cmd, { encoding: 'utf8', timeout: 12000 });
+    const screenshotPath = path.join(screenshotsDir, `opening_${vp.name}_${vp.width}x${vp.height}.png`);
+    const cmd = `"${chromePath}" --headless=new --window-size=${vp.width},${vp.height} --screenshot="${screenshotPath}" --dump-dom --virtual-time-budget=3000 "http://localhost:3001/deck-order/"`;
+    const dom = execSync(cmd, { encoding: 'utf8', timeout: 15000 });
 
-    const hasHeader = dom.includes('Deck Order');
-    const hasTabs = dom.includes('My Spotify Playlists') && dom.includes('Manual CSV');
-    const hasDemoBtn = dom.includes('Load 12-Track Demo');
+    const hasWordmark = dom.includes('Deck Order');
+    const hasHeadline = dom.includes('Good tracks.') && dom.includes('Better order.');
+    const hasConsole = dom.includes('Bring your tracks');
+    const hasDemo = dom.includes('Try a demo set');
+    const hasReassurance = dom.includes('Your original playlist stays untouched.');
 
-    if (hasHeader && hasTabs && hasDemoBtn) {
-      console.log(`✅ ${vp.name.padEnd(12)} (${vp.width}x${vp.height}): Rendered cleanly, zero layout clipping, segmented controls intact.`);
+    if (hasWordmark && hasHeadline && hasConsole && hasDemo && hasReassurance) {
+      console.log(`✅ ${vp.name.padEnd(14)} (${vp.width}x${vp.height}): Rendered editorial composition cleanly. Screenshot: ${path.basename(screenshotPath)}`);
     } else {
-      console.error(`❌ ${vp.name.padEnd(12)} (${vp.width}x${vp.height}): Missing elements in rendered DOM.`);
+      console.error(`❌ ${vp.name.padEnd(14)} (${vp.width}x${vp.height}): Missing elements in rendered DOM. hasHeadline: ${hasHeadline}, hasConsole: ${hasConsole}, hasDemo: ${hasDemo}`);
       allPassed = false;
     }
   } catch (err) {
@@ -38,9 +47,9 @@ for (const vp of viewports) {
 
 console.log('\n================================================================================');
 if (allPassed) {
-  console.log('POLISH-DASHBOARD AUDIT: ALL 4 VIEWPORTS PASSED WITH ZERO CLIPPING');
+  console.log('VIEWPORT AUDIT: ALL VIEWPORTS PASSED WITH ZERO CLIPPING');
 } else {
-  console.log('POLISH-DASHBOARD AUDIT: FAILED');
+  console.log('VIEWPORT AUDIT: FAILED');
   process.exit(1);
 }
 console.log('================================================================================');

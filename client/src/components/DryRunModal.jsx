@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, ShieldCheck, Check, Disc3 } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { X, Check, Disc, Shield } from 'lucide-react';
 
 export function DryRunModal({
   manifest,
@@ -7,81 +7,96 @@ export function DryRunModal({
   onConfirmSave,
   isSaving
 }) {
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && !isSaving) onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, isSaving]);
+
   if (!manifest) return null;
 
   return (
-    <div className="modal-backdrop">
-      <div className="deck-card max-w-lg w-full p-6 relative bg-[#131622] border-[#2c334d] shadow-2xl">
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="save-review-title">
+      <div className="deck-panel max-w-lg w-full p-6 relative bg-[#1B1F19] border-[#394133] shadow-2xl space-y-4">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-white"
+          disabled={isSaving}
+          className="absolute top-4 right-4 text-[#BAC2B3] hover:text-[#F3F0E6] min-h-[44px] min-w-[44px] flex items-center justify-center -mr-2 -mt-2 disabled:opacity-30"
+          aria-label="Close dialog"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-6 h-6" />
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-[rgba(214,252,85,0.12)] text-[#D6FC55] flex items-center justify-center shrink-0 border border-[rgba(214,252,85,0.25)]">
+            <Shield className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-white">
-              Commit to Spotify (No Takebacks at 3 AM)
+            <h3 id="save-review-title" className="text-base font-bold text-[#F3F0E6]">
+              A new playlist. Your original stays put.
             </h3>
-            <p className="text-xs text-slate-400">
-              Audit Batch ID: <code className="font-mono text-cyan-400">{manifest.operationId}</code>
+            <p className="text-xs text-[#BAC2B3]">
+              Review the details before creating the playlist in your account.
             </p>
           </div>
         </div>
 
-        <div className="bg-[#0b0d14] rounded-xl p-4 my-4 border border-[#23293e] space-y-3">
-          <div className="flex justify-between text-xs">
-            <span className="text-slate-400">Target Playlist Name:</span>
-            <span className="text-emerald-400 font-bold font-mono">
+        {/* Breakdown Panel */}
+        <div className="bg-[#10120F] rounded-lg p-3.5 border border-[#394133] space-y-2.5 text-xs">
+          <div className="flex justify-between">
+            <span className="text-[#7E8876]">New playlist name:</span>
+            <span className="text-[#D6FC55] font-semibold font-mono">
               {manifest.targetPlaylist.name}
             </span>
           </div>
 
-          <div className="flex justify-between text-xs">
-            <span className="text-slate-400">Privacy Status:</span>
-            <span className="text-slate-200 font-semibold">
-              Private (Safe from public scrutiny)
+          <div className="flex justify-between">
+            <span className="text-[#7E8876]">Visibility:</span>
+            <span className="text-[#F3F0E6]">
+              Private playlist (only you can see it)
             </span>
           </div>
 
-          <div className="flex justify-between text-xs">
-            <span className="text-slate-400">Sequenced Banger Count:</span>
-            <span className="text-white font-bold font-mono tabular-nums">
+          <div className="flex justify-between">
+            <span className="text-[#7E8876]">Tracks to add:</span>
+            <span className="text-[#F3F0E6] font-mono tabular-nums">
               {manifest.validUrisCount} tracks
             </span>
           </div>
 
-          <div className="flex justify-between text-xs">
-            <span className="text-slate-400">Source Heritage:</span>
-            <span className="text-slate-300 truncate max-w-[200px]">
+          <div className="flex justify-between">
+            <span className="text-[#7E8876]">Source playlist:</span>
+            <span className="text-[#BAC2B3] truncate max-w-[200px]">
               {manifest.sourceSnapshot.name}
             </span>
           </div>
+
+          {manifest.operationId && (
+            <div className="flex justify-between font-mono text-[10px] pt-1 border-t border-[#252B22]">
+              <span className="text-[#7E8876]">Batch ID:</span>
+              <span className="text-[#7E8876]">{manifest.operationId}</span>
+            </div>
+          )}
         </div>
 
-        {/* Safety Guarantee */}
-        <div className="p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/40 text-emerald-300 text-xs flex items-start gap-2.5 mb-6">
-          <Check className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
-          <div className="space-y-1">
-            <strong className="block font-semibold text-emerald-200">
-              Strict Non-Destructive Invariant:
-            </strong>
-            <p className="text-emerald-300/90 leading-relaxed text-[11px]">
-              A brand new private playlist will be created. Your source playlist remains entirely unmolested, un-reordered, and as chaotic as you originally left it.
-            </p>
-          </div>
+        {/* Protection Note */}
+        <div className="p-3 rounded bg-[#252B22] border border-[#394133] text-xs text-[#BAC2B3] flex items-start gap-2">
+          <Check className="w-4 h-4 text-[#86EFAC] shrink-0 mt-0.5" />
+          <p className="leading-relaxed">
+            Your original playlist will remain unchanged. Deck Order creates a fresh private playlist and writes the newly arranged sequence in batches.
+          </p>
         </div>
 
-        <div className="flex items-center justify-end gap-3">
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-3 pt-1">
           <button
             onClick={onClose}
+            disabled={isSaving}
             className="deck-btn-secondary text-xs"
           >
-            Abort Mission
+            Cancel
           </button>
           <button
             onClick={onConfirmSave}
@@ -90,11 +105,11 @@ export function DryRunModal({
           >
             {isSaving ? (
               <span className="flex items-center gap-2">
-                <Disc3 className="w-4 h-4 animate-spin" />
-                Writing Batches to Spotify...
+                <Disc className="w-4 h-4 animate-spin text-[#10120F]" />
+                Creating your playlist...
               </span>
             ) : (
-              'Confirm & Manufacture Playlist'
+              'Create private playlist'
             )}
           </button>
         </div>

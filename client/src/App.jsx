@@ -5,6 +5,7 @@ import { CoverageReport } from './components/CoverageReport.jsx';
 import { SequencedTable } from './components/SequencedTable.jsx';
 import { ComparisonView } from './components/ComparisonView.jsx';
 import { HarmonicArcVisualizer } from './components/HarmonicArcVisualizer.jsx';
+import { InspectorRail } from './components/InspectorRail.jsx';
 import { SuggestionsDrawer } from './components/SuggestionsDrawer.jsx';
 import { DisputeModal } from './components/DisputeModal.jsx';
 import { DryRunModal } from './components/DryRunModal.jsx';
@@ -38,7 +39,7 @@ import {
   saveSetToHistory,
   clearCrateHistory
 } from './services/googleAuth.js';
-import { Save, Copy, Download, Check, Sparkles } from 'lucide-react';
+import { Copy, Download, Disc, Check, ArrowLeft, Edit2, AlertCircle } from 'lucide-react';
 
 export function App() {
   const [status, setStatus] = useState(null);
@@ -46,6 +47,11 @@ export function App() {
   const [authUser, setAuthUser] = useState(null);
   const [playlists, setPlaylists] = useState([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+
+  // Set name and sample flag
+  const [setName, setSetName] = useState('Untitled Set');
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [isSampleSet, setIsSampleSet] = useState(false);
 
   // Google Auth & Crate History
   const [googleUser, setGoogleUser] = useState(() => getStoredGoogleUser());
@@ -59,6 +65,9 @@ export function App() {
   const [evaluation, setEvaluation] = useState(null);
   const [originalEvaluation, setOriginalEvaluation] = useState(null);
   const [coverageReport, setCoverageReport] = useState(null);
+
+  // Active track selection for Inspector
+  const [selectedTrackIndex, setSelectedTrackIndex] = useState(null);
 
   // Settings
   const [unverifiedStrategy, setUnverifiedStrategy] = useState('keep_relative_position');
@@ -96,10 +105,10 @@ export function App() {
           localStorage.setItem('spotify_access_token', tokenData.access_token);
           clearStoredCodeVerifier();
           window.history.replaceState({}, document.title, window.location.pathname);
-          showToast('Spotify account linked. Ready to manufacture playlists.');
+          showToast('Spotify account connected.');
         })
         .catch(err => {
-          showToast(`Spotify Auth Error: ${err.message}`, 5000);
+          showToast(`Spotify connection error: ${err.message}`, 5000);
           clearStoredCodeVerifier();
         })
         .finally(() => setIsLoading(false));
@@ -113,7 +122,7 @@ export function App() {
         .then(data => {
           setPlaylists(data.playlists || []);
           if (data.playlists?.[0]) {
-            setAuthUser({ display_name: data.playlists[0].ownerName || 'Connected DJ' });
+            setAuthUser({ display_name: data.playlists[0].ownerName || 'Spotify User' });
           }
         })
         .catch(err => {
@@ -145,70 +154,82 @@ export function App() {
     setAuthUser(null);
     setPlaylists([]);
     localStorage.removeItem('spotify_access_token');
-    showToast('Spotify disconnected. Offline CSV mode active.');
+    showToast('Spotify account disconnected.');
   };
 
   const handleLoginGoogle = () => {
     const user = promptGoogleLogin();
     setGoogleUser(user);
-    showToast(`Logged into Crate Vault as ${user.name}`);
+    showToast(`Signed in as ${user.name}`);
   };
 
   const handleLogoutGoogle = () => {
     logoutGoogle();
     setGoogleUser(null);
-    showToast('Signed out of Crate Vault.');
+    showToast('Signed out of Google account.');
   };
 
   const handleLoadHistoricalSet = (historicalSet) => {
     setOrderedTracks(historicalSet.tracks || []);
     setOriginalTracks(historicalSet.tracks || []);
+    setTracks(historicalSet.tracks || []);
     setEvaluation(historicalSet.evaluation || null);
     setSelectedPlaylist({ name: historicalSet.name, id: null, itemCount: historicalSet.tracks?.length || 0 });
+    setSetName(historicalSet.name || 'Saved Set');
+    setIsSampleSet(false);
     setViewMode('sequenced');
+    setSelectedTrackIndex(0);
     setShowHistoryDrawer(false);
-    showToast(`Loaded "${historicalSet.name}" from Crate Vault!`);
+    showToast(`Loaded "${historicalSet.name}".`);
   };
 
   const handleClearHistory = () => {
     clearCrateHistory();
     setCrateHistory([]);
-    showToast('Crate history incinerated.');
+    showToast('Saved sets cleared.');
   };
 
   // Ingest Spotify Playlist
   const handleSelectPlaylist = async (pl) => {
     setIsLoading(true);
     setSelectedPlaylist(pl);
+    setSetName(pl.name);
+    setIsSampleSet(false);
     try {
       const data = await fetchPlaylistItems(authToken, pl.id);
-      const verifyRes = await verifyTracklist(data.items);
+      const verifyRes = await verifyTracklist(data.items, false);
       setTracks(verifyRes.tracks);
       setCoverageReport(verifyRes.report);
       setOrderedTracks([]);
       setEvaluation(null);
-      showToast(`Loaded ${verifyRes.tracks.length} tracks from "${pl.name}"`);
+      setSelectedTrackIndex(null);
+      showToast(`Loaded ${verifyRes.tracks.length} tracks from "${pl.name}".`);
     } catch (err) {
-      showToast(`Error reading playlist: ${err.message}`, 5000);
+      showToast(`Could not read playlist: ${err.message}`, 5000);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Ingest CSV Tracklist
-  const handleParseCsv = async (csvContent) => {
+  // Ingest CSV / Demo Tracklist
+  const handleParseCsv = async (csvContent, isSample = false) => {
     setIsLoading(true);
-    setSelectedPlaylist({ name: 'Manual Tracklist', id: null, itemCount: 0 });
+    setIsSampleSet(isSample);
+    const title = isSample ? 'Demo Electronic Set' : 'Imported Tracklist';
+    setSelectedPlaylist({ name: title, id: null, itemCount: 0 });
+    setSetName(title);
+
     try {
       const parsed = await parseCsvText(csvContent);
-      const verifyRes = await verifyTracklist(parsed.tracks);
+      const verifyRes = await verifyTracklist(parsed.tracks, isSample);
       setTracks(verifyRes.tracks);
       setCoverageReport(verifyRes.report);
       setOrderedTracks([]);
       setEvaluation(null);
-      showToast(`Cross-examined ${verifyRes.tracks.length} tracks via parser.`);
+      setSelectedTrackIndex(null);
+      showToast(`Loaded ${verifyRes.tracks.length} tracks.`);
     } catch (err) {
-      showToast(`CSV error: ${err.message}`, 5000);
+      showToast(`Import issue: ${err.message}`, 5000);
     } finally {
       setIsLoading(false);
     }
@@ -232,33 +253,34 @@ export function App() {
       setEvaluation(res.evaluation);
       setOriginalEvaluation(res.originalEvaluation);
       setViewMode('sequenced');
+      setSelectedTrackIndex(0);
 
-      // Auto-save set to Crate Vault
+      // Auto-save set to history
       const updatedHistory = saveSetToHistory({
-        name: selectedPlaylist?.name || 'Manual Tracklist',
+        name: setName || 'My Set',
         tracks: res.orderedTracks,
         evaluation: res.evaluation
       });
       setCrateHistory(updatedHistory);
 
-      // Fetch bridge & bonus suggestions
+      // Fetch bridge & bonus suggestions if available
       try {
         const sugRes = await fetchSuggestions(res.evaluation, res.orderedTracks, authToken);
         setBridgeSuggestions(sugRes.bridgeSuggestions || []);
         setBonusTunes(sugRes.bonusTunes || []);
       } catch (sugErr) {
-        console.warn('Suggestions error:', sugErr);
+        console.warn('Suggestions note:', sugErr);
       }
 
-      showToast(`DJ Sequenced! Dancefloor survival jumped from ${res.originalEvaluation.smoothPct}% to ${res.evaluation.smoothPct}%.`);
+      showToast(`Running order built.`);
     } catch (err) {
-      showToast(`Sequencer error: ${err.message}`, 5000);
+      showToast(`Couldn't build the order. Your tracks are still here.`, 5000);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Drag-and-drop Reorder -> dynamic re-evaluation!
+  // Reorder Tracks (drag-drop or keyboard move)
   const handleReorderTracks = async (newOrderedList) => {
     setOrderedTracks(newOrderedList);
     try {
@@ -268,47 +290,76 @@ export function App() {
         unverifiedStrategy: 'keep_relative_position'
       });
       setEvaluation(seqRes.result.evaluation);
-      showToast('Transition friction dynamically recalculated.');
     } catch (err) {
-      console.warn('Re-evaluation error:', err);
+      console.warn('Re-evaluation note:', err);
     }
+  };
+
+  // Restore Original Order
+  const handleRestoreOriginal = () => {
+    if (originalTracks.length === 0) return;
+    setOrderedTracks([...originalTracks]);
+    setEvaluation(originalEvaluation);
+    setViewMode('original');
+    showToast('Restored original track order.');
   };
 
   // Apply user manual override for a track
   const handleApplyOverride = async (trackId, overrideData) => {
     try {
       await submitOverride(trackId, overrideData);
-      const verifyRes = await verifyTracklist(tracks);
+      const verifyRes = await verifyTracklist(tracks, isSampleSet);
       setTracks(verifyRes.tracks);
       setCoverageReport(verifyRes.report);
-      showToast('Human superiority asserted. Override saved.');
 
-      if (orderedTracks.length > 0) {
-        const seqRes = await runSequencer(verifyRes.tracks, {
+      // Also update currently ordered tracks
+      const updatedOrdered = orderedTracks.map(t => {
+        if (t.id === trackId) {
+          return {
+            ...t,
+            bpm: overrideData.bpm || t.bpm,
+            key: overrideData.key || t.key,
+            confidence: 'user_override'
+          };
+        }
+        return t;
+      });
+      setOrderedTracks(updatedOrdered);
+
+      if (updatedOrdered.length > 0) {
+        const seqRes = await runSequencer(updatedOrdered, {
           seed: 42,
           enableEnergy,
           unverifiedStrategy
         });
-        setOrderedTracks(seqRes.result.orderedTracks);
         setEvaluation(seqRes.result.evaluation);
       }
+      showToast('Custom value applied.');
     } catch (err) {
-      showToast(`Override error: ${err.message}`, 5000);
+      showToast(`Could not apply value: ${err.message}`, 5000);
     }
   };
 
-  // Toggle Suggestion Checkbox
+  const handleRevertOverride = (trackId) => {
+    const original = tracks.find(t => t.id === trackId);
+    if (!original) return;
+    handleApplyOverride(trackId, {
+      bpm: original.rawBpm || original.bpm,
+      key: original.rawKey || original.key
+    });
+    showToast('Reset to source value.');
+  };
+
+  // Suggestion actions
   const handleToggleSuggestion = (id) => {
     setBridgeSuggestions(prev => prev.map(s => s.id === id ? { ...s, selected: !s.selected } : s));
     setBonusTunes(prev => prev.map(s => s.id === id ? { ...s, selected: !s.selected } : s));
   };
 
-  // Insert Selected Suggestions into Running Order
   const handleApplySelectedSuggestions = () => {
     const selectedBridges = bridgeSuggestions.filter(s => s.selected);
     const selectedBonus = bonusTunes.filter(s => s.selected);
     const allSelected = [...selectedBridges, ...selectedBonus];
-
     if (allSelected.length === 0) return;
 
     let updatedList = [...orderedTracks];
@@ -320,23 +371,26 @@ export function App() {
     handleReorderTracks(updatedList);
     setBridgeSuggestions(prev => prev.map(s => ({ ...s, selected: false })));
     setBonusTunes(prev => prev.map(s => ({ ...s, selected: false })));
-    showToast(`Injected ${allSelected.length} crowd-pleasers into your set!`);
+    showToast(`Added ${allSelected.length} suggestion(s) to running order.`);
   };
 
   // Save Flow
   const handleOpenDryRun = async () => {
     if (!selectedPlaylist || orderedTracks.length === 0) return;
     try {
-      const preview = await requestSavePreview(selectedPlaylist, orderedTracks);
+      const preview = await requestSavePreview(
+        { ...selectedPlaylist, name: setName },
+        orderedTracks
+      );
       setSaveManifest(preview.manifest);
     } catch (err) {
-      showToast(`Preview error: ${err.message}`, 5000);
+      showToast(`Could not prepare save preview: ${err.message}`, 5000);
     }
   };
 
   const handleConfirmSave = async () => {
     if (!saveManifest || !authToken) {
-      showToast('Connect Spotify account to manufacture directly to your library.', 4000);
+      showToast('Connect Spotify account to create a playlist.', 4000);
       return;
     }
     setIsSaving(true);
@@ -344,9 +398,9 @@ export function App() {
       const result = await confirmSavePlaylist(authToken, saveManifest);
       setSaveManifest(null);
       setSaveResult(result.result);
-      showToast('New private playlist successfully manufactured in Spotify!');
+      showToast('New playlist created.');
     } catch (err) {
-      showToast(`Save error: ${err.message}`, 6000);
+      showToast(`Spotify haven't confirmed whether the save finished. Check the playlist before trying again.`, 6000);
     } finally {
       setIsSaving(false);
     }
@@ -357,10 +411,19 @@ export function App() {
     if (orderedTracks.length === 0) return;
     try {
       const text = await copyTracklistText(orderedTracks);
-      await navigator.clipboard.writeText(text);
-      showToast('Tracklist copied to clipboard (TuneMyMusic format)!');
-    } catch (err) {
-      showToast('Failed to copy text', 3000);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      showToast('Tracklist copied. Ready to take it elsewhere.');
+    } catch {
+      showToast('Could not copy tracklist. Try downloading CSV instead.', 4000);
     }
   };
 
@@ -368,26 +431,46 @@ export function App() {
     if (orderedTracks.length === 0) return;
     try {
       await triggerCsvDownload(orderedTracks, evaluation);
-      showToast('DJ CSV export downloaded!');
-    } catch (err) {
-      showToast('Failed to download CSV', 3000);
+      showToast('CSV export downloaded.');
+    } catch {
+      showToast('Could not download CSV.', 3000);
     }
+  };
+
+  // Reset to home state
+  const handleStartFresh = () => {
+    setTracks([]);
+    setOrderedTracks([]);
+    setOriginalTracks([]);
+    setEvaluation(null);
+    setOriginalEvaluation(null);
+    setCoverageReport(null);
+    setSelectedPlaylist(null);
+    setSelectedTrackIndex(null);
+    setIsSampleSet(false);
   };
 
   const currentDisplayTracks = viewMode === 'original' ? originalTracks : orderedTracks;
   const currentDisplayTransitions = viewMode === 'original' ? originalEvaluation?.transitions : evaluation?.transitions;
 
+  const isSetLoaded = tracks.length > 0;
+  const activeTrack = selectedTrackIndex !== null ? currentDisplayTracks[selectedTrackIndex] : null;
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#0b0d14]">
+    <div className="min-h-screen flex flex-col bg-[#10120F] text-[#F3F0E6]">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-5 right-5 z-50 bg-[#161a29] border border-emerald-500/50 text-white px-4 py-2.5 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2 animate-bounce">
-          <Check className="w-4 h-4 text-emerald-400" />
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-5 right-5 z-50 bg-[#1B1F19] border border-[#D6FC55] text-[#F3F0E6] px-4 py-2.5 rounded-md text-xs font-semibold shadow-2xl flex items-center gap-2"
+        >
+          <Check className="w-4 h-4 text-[#D6FC55]" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Header with Dual LED VU Meter, Spotify & Google Crate Vault */}
+      {/* Header */}
       <Header
         status={status}
         authUser={authUser}
@@ -400,150 +483,228 @@ export function App() {
         onOpenHistory={() => setShowHistoryDrawer(true)}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
-        {/* Source Picker (Spotify vs Offline CSV) */}
-        <SourcePicker
-          spotifyConnected={Boolean(authToken)}
-          playlists={playlists}
-          onSelectPlaylist={handleSelectPlaylist}
-          onParseCsv={handleParseCsv}
-          isLoading={isLoading}
-        />
-
-        {/* Coverage Report */}
-        {coverageReport && (
-          <CoverageReport
-            report={coverageReport}
-            unverifiedStrategy={unverifiedStrategy}
-            onChangeStrategy={setUnverifiedStrategy}
-            onOpenDisputes={() => setShowDisputeModal(true)}
-            onRunSequencer={handleRunSequencer}
+      <main className="flex-1 max-w-[1240px] w-full mx-auto p-4 sm:p-6 space-y-6 pb-28">
+        {!isSetLoaded ? (
+          /* Composition A: Before a Set is Loaded */
+          <SourcePicker
+            spotifyConnected={Boolean(authToken)}
+            playlists={playlists}
+            onSelectPlaylist={handleSelectPlaylist}
+            onParseCsv={handleParseCsv}
+            onConnectSpotify={handleConnectSpotify}
             isLoading={isLoading}
-            enableEnergy={enableEnergy}
-            onToggleEnergy={() => setEnableEnergy(!enableEnergy)}
           />
-        )}
+        ) : (
+          /* Composition B: With a Set Loaded (Workbench) */
+          <div className="space-y-6">
+            {/* Workspace Bar: Set Name, Back Button, Status Banner */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#394133] pb-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <button
+                  onClick={handleStartFresh}
+                  className="deck-btn-ghost text-xs flex items-center gap-1.5 text-[#BAC2B3] hover:text-[#F3F0E6] p-1.5"
+                  title="Return to track import"
+                  aria-label="Return to import"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
 
-        {/* Comparison View (Before vs After) */}
-        {evaluation && originalEvaluation && (
-          <ComparisonView
-            originalEvaluation={originalEvaluation}
-            sequencedEvaluation={evaluation}
-            viewMode={viewMode}
-            onToggleViewMode={setViewMode}
-          />
-        )}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    {isEditingName ? (
+                      <input
+                        type="text"
+                        value={setName}
+                        onChange={(e) => setSetName(e.target.value)}
+                        onBlur={() => setIsEditingName(false)}
+                        onKeyDown={(e) => e.key === 'Enter' && setIsEditingName(false)}
+                        autoFocus
+                        className="deck-input text-base font-bold !py-0.5 !px-2 w-64"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setIsEditingName(true)}
+                        className="text-lg font-bold text-[#F3F0E6] truncate hover:text-[#D6FC55] flex items-center gap-2 group text-left"
+                        title="Click to rename set"
+                      >
+                        <span>{setName}</span>
+                        <Edit2 className="w-3.5 h-3.5 text-[#7E8876] group-hover:text-[#D6FC55]" />
+                      </button>
+                    )}
+                  </div>
 
-        {/* Visual Harmonic Arc & Waveform Timeline */}
-        {evaluation && currentDisplayTracks.length > 1 && (
-          <HarmonicArcVisualizer
-            tracks={currentDisplayTracks}
-            evaluation={viewMode === 'original' ? originalEvaluation : evaluation}
-          />
-        )}
+                  <p className="text-xs text-[#BAC2B3] font-mono">
+                    {tracks.length} tracks · {isSampleSet ? 'Sample dataset' : 'Supplied metadata'}
+                  </p>
+                </div>
+              </div>
 
-        {/* Sequencer Table (The Deck) */}
-        {currentDisplayTracks.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-3 px-1">
-              <h2 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-300 font-mono">
-                {viewMode === 'sequenced' ? '🎧 DJ Running Order (Drag to Override Math)' : '📑 Original Chaotic Tracklist'}
-              </h2>
-              <span className="text-xs text-slate-400 font-mono tabular-nums">
-                {currentDisplayTracks.length} tracks • {evaluation?.smoothPct || 0}% dancefloor survival
-              </span>
+              {/* Sample Data Banner */}
+              {isSampleSet && (
+                <div className="text-[11px] font-mono text-[#FFB08E] bg-[rgba(255,136,87,0.12)] border border-[rgba(255,136,87,0.3)] px-3 py-1.5 rounded flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#FF8857]" />
+                  <span>Demo set · sample metadata. Use it to explore the app, not verify these recordings.</span>
+                </div>
+              )}
             </div>
 
-            <SequencedTable
-              tracks={currentDisplayTracks}
-              transitions={currentDisplayTransitions}
-              onReorderTracks={handleReorderTracks}
-              onOpenOverride={(t) => {
-                setShowDisputeModal(true);
-              }}
-            />
+            {/* Coverage / Verification Summary */}
+            {coverageReport && (
+              <CoverageReport
+                report={coverageReport}
+                unverifiedStrategy={unverifiedStrategy}
+                onChangeStrategy={setUnverifiedStrategy}
+                onOpenDisputes={() => setShowDisputeModal(true)}
+                onRunSequencer={handleRunSequencer}
+                isLoading={isLoading}
+                enableEnergy={enableEnergy}
+                onToggleEnergy={() => setEnableEnergy(!enableEnergy)}
+              />
+            )}
+
+            {/* Comparison Overview (Original vs Suggested) */}
+            {evaluation && originalEvaluation && (
+              <ComparisonView
+                originalEvaluation={originalEvaluation}
+                sequencedEvaluation={evaluation}
+                viewMode={viewMode}
+                onToggleViewMode={setViewMode}
+                onRestoreOriginal={handleRestoreOriginal}
+              />
+            )}
+
+            {/* Visual Harmonic Arc & Waveform Timeline */}
+            {evaluation && currentDisplayTracks.length > 1 && (
+              <HarmonicArcVisualizer
+                tracks={currentDisplayTracks}
+                evaluation={viewMode === 'original' ? originalEvaluation : evaluation}
+                onSelectTrack={(t) => {
+                  const idx = currentDisplayTracks.findIndex(item => item.id === t.id);
+                  setSelectedTrackIndex(idx !== -1 ? idx : 0);
+                }}
+              />
+            )}
+
+            {/* Main Workbench Layout: 2/3 Running Order, 1/3 Inspector Rail */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Left Column: Running Order (8 cols = ~66%) */}
+              <div className="lg:col-span-8 space-y-4">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-xs font-mono uppercase tracking-wider text-[#BAC2B3]">
+                    {viewMode === 'sequenced' ? 'Your set, taking shape' : 'Original imported order'}
+                  </h3>
+                  <span className="text-xs text-[#7E8876] font-mono tabular-nums">
+                    {currentDisplayTracks.length} tracks
+                  </span>
+                </div>
+
+                <SequencedTable
+                  tracks={currentDisplayTracks}
+                  transitions={currentDisplayTransitions}
+                  selectedTrackId={activeTrack?.id}
+                  onReorderTracks={handleReorderTracks}
+                  onSelectTrack={(t, idx) => setSelectedTrackIndex(idx)}
+                />
+
+                {/* Suggestions Drawer (Bridge & Bonus) */}
+                {orderedTracks.length > 0 && (bridgeSuggestions.length > 0 || bonusTunes.length > 0) && (
+                  <SuggestionsDrawer
+                    bridgeSuggestions={bridgeSuggestions}
+                    bonusTunes={bonusTunes}
+                    onToggleSuggestion={handleToggleSuggestion}
+                    onApplySelectedSuggestions={handleApplySelectedSuggestions}
+                  />
+                )}
+              </div>
+
+              {/* Right Column: Track Inspector Rail (4 cols = ~33%) */}
+              <div className="lg:col-span-4 lg:sticky lg:top-20 space-y-4">
+                <InspectorRail
+                  track={activeTrack}
+                  position={selectedTrackIndex !== null ? selectedTrackIndex + 1 : 1}
+                  totalTracks={currentDisplayTracks.length}
+                  transitionBefore={selectedTrackIndex > 0 ? currentDisplayTransitions?.[selectedTrackIndex - 1] : null}
+                  transitionAfter={selectedTrackIndex !== null ? currentDisplayTransitions?.[selectedTrackIndex] : null}
+                  onClose={() => setSelectedTrackIndex(null)}
+                  onApplyOverride={handleApplyOverride}
+                  onRevertOverride={handleRevertOverride}
+                />
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Suggestions Drawer (Bridge & Bonus) */}
-        {orderedTracks.length > 0 && (bridgeSuggestions.length > 0 || bonusTunes.length > 0) && (
-          <SuggestionsDrawer
-            bridgeSuggestions={bridgeSuggestions}
-            bonusTunes={bonusTunes}
-            onToggleSuggestion={handleToggleSuggestion}
-            onApplySelectedSuggestions={handleApplySelectedSuggestions}
-          />
-        )}
-
-        {/* Action Bar (Save, Copy, CSV) */}
+        {/* Restrained Bottom Action Dock (Sticky at bottom) */}
         {orderedTracks.length > 0 && (
-          <div className="deck-card p-4 bg-[#121522] border-[#252c42] flex flex-wrap items-center justify-between gap-4 sticky bottom-6 shadow-2xl z-20">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              <span>Sequencing complete. Writes are guaranteed non-destructive.</span>
+          <aside
+            aria-label="Export and save actions"
+            className="fixed bottom-0 left-0 right-0 p-3 sm:p-4 bg-[#1B1F19]/95 backdrop-blur-md border-t border-[#394133] z-30 shadow-2xl"
+          >
+            <div className="max-w-[1240px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs text-[#BAC2B3] hidden sm:flex">
+                <span className="w-2 h-2 rounded-full bg-[#D6FC55]" />
+                <span>Running order ready.</span>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+                <button
+                  onClick={handleCopyText}
+                  className="deck-btn-secondary text-xs flex-1 sm:flex-none"
+                  title="Copy plain-text tracklist for TuneMyMusic or notes"
+                >
+                  <Copy className="w-3.5 h-3.5 text-[#BAC2B3]" />
+                  <span>Copy tracklist</span>
+                </button>
+
+                <button
+                  onClick={handleDownloadCsv}
+                  className="deck-btn-secondary text-xs flex-1 sm:flex-none"
+                  title="Download full CSV with BPM, Camelot, and transition grades"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#BAC2B3]" />
+                  <span>Download CSV</span>
+                </button>
+
+                <button
+                  onClick={handleOpenDryRun}
+                  disabled={!authToken}
+                  className="deck-btn-primary text-xs w-full sm:w-auto"
+                  title={authToken ? 'Review details before creating playlist' : 'Connect Spotify to create playlist'}
+                >
+                  <Disc className="w-4 h-4" />
+                  <span>Review Spotify save</span>
+                </button>
+              </div>
             </div>
-
-            <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
-              {/* Copy Plain Text for TuneMyMusic */}
-              <button
-                onClick={handleCopyText}
-                className="deck-btn-secondary text-xs flex-1 sm:flex-none"
-                title="Copy Artist - Title list for TuneMyMusic / Soundiiz"
-              >
-                <Copy className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Copy Tracklist (TuneMyMusic)</span>
-              </button>
-
-              {/* Download CSV */}
-              <button
-                onClick={handleDownloadCsv}
-                className="deck-btn-secondary text-xs flex-1 sm:flex-none"
-                title="Download full CSV with BPM, Camelot, and transition metrics"
-              >
-                <Download className="w-3.5 h-3.5 text-purple-400" />
-                <span>Download CSV (Proof)</span>
-              </button>
-
-              {/* Save to Spotify */}
-              <button
-                onClick={handleOpenDryRun}
-                disabled={!authToken}
-                className="deck-btn-primary text-xs w-full sm:w-auto"
-                title={authToken ? 'Preview and save as new private Spotify playlist' : 'Connect Spotify to manufacture playlist'}
-              >
-                <Save className="w-4 h-4" />
-                <span>{authToken ? 'Manufacture Spotify Playlist' : 'Connect Spotify to Save'}</span>
-              </button>
-            </div>
-          </div>
+          </aside>
         )}
       </main>
 
-      {/* Footer & Compliance Backlink */}
-      <footer className="border-t border-[#181c2b] py-6 px-6 text-center text-xs text-slate-500 space-y-2 mt-auto">
+      {/* Footer */}
+      <footer className="border-t border-[#394133] py-6 px-4 sm:px-6 text-center text-xs text-[#7E8876] space-y-2 mt-auto">
         <p>
+          A running-order tool, not an audio mixer. Source details stay with each track.
+        </p>
+        <p className="text-[11px] text-[#7E8876]">
           BPM and musical key data verified via{' '}
           <a
             href="https://getsongbpm.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-cyan-400 hover:underline"
+            className="text-[#BAC2B3] hover:underline"
           >
             GetSongBPM
-          </a>
-          ,{' '}
+          </a>{' '}
+          and{' '}
           <a
             href="https://sonovault.now"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-cyan-400 hover:underline"
+            className="text-[#BAC2B3] hover:underline"
           >
             Sonovault
-          </a>
-          , and manual DJ forensics.
-        </p>
-        <p className="text-[11px] text-slate-600">
-          Deck Order operates strictly within 2026 Spotify Web API development mode constraints. Audio transitions executed within Spotify Mix. Professional DJ ego not included.
+          </a>{' '}
+          where configured, or supplied by you.
         </p>
       </footer>
 
@@ -555,7 +716,6 @@ export function App() {
         onClose={() => setShowHistoryDrawer(false)}
         onLoadSet={handleLoadHistoricalSet}
         onClearHistory={handleClearHistory}
-        onLoginGoogle={handleLoginGoogle}
       />
 
       {showDisputeModal && (

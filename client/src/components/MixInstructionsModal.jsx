@@ -1,53 +1,62 @@
-import React from 'react';
-import { X, ExternalLink, Sliders, CheckCircle2 } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { X, ExternalLink, Check, Sliders } from 'lucide-react';
 
 export function MixInstructionsModal({
   saveResult,
   onClose
 }) {
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   if (!saveResult) return null;
 
   return (
-    <div className="modal-backdrop">
-      <div className="deck-card max-w-lg w-full p-6 relative bg-[#131622] border-[#2c334d] shadow-2xl">
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="save-success-title">
+      <div className="deck-panel max-w-lg w-full p-6 relative bg-[#1B1F19] border-[#394133] shadow-2xl space-y-4">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-white"
+          className="absolute top-4 right-4 text-[#BAC2B3] hover:text-[#F3F0E6] min-h-[44px] min-w-[44px] flex items-center justify-center -mr-2 -mt-2"
+          aria-label="Close dialog"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
-            <CheckCircle2 className="w-6 h-6" />
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-[rgba(74,222,128,0.12)] text-[#86EFAC] flex items-center justify-center shrink-0 border border-[rgba(74,222,128,0.3)]">
+            <Check className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-white">
-              Playlist Successfully Manufactured
+            <h3 id="save-success-title" className="text-base font-bold text-[#F3F0E6]">
+              New playlist created.
             </h3>
-            <p className="text-xs text-slate-400">
-              {saveResult.itemsWritten} tracks arranged in harmonic perfection
+            <p className="text-xs text-[#BAC2B3]">
+              {saveResult.itemsWritten} tracks saved in the chosen sequence.
             </p>
           </div>
         </div>
 
-        {/* The Final Step — Exact required text */}
-        <div className="bg-[#0c0e18] border border-cyan-800/40 rounded-xl p-4 my-4 space-y-3">
-          <div className="flex items-center gap-2 text-cyan-400 text-xs font-bold uppercase tracking-wider">
+        {/* Mix Instructions Box */}
+        <div className="bg-[#10120F] border border-[#394133] rounded-lg p-4 space-y-2.5">
+          <div className="flex items-center gap-2 text-xs font-semibold text-[#D6FC55]">
             <Sliders className="w-4 h-4" />
-            <span>The Final Step: Spotify Mix Transitions</span>
+            <span>Playback in Spotify</span>
           </div>
 
-          <blockquote className="text-xs text-slate-200 leading-relaxed italic border-l-2 border-cyan-500 pl-3">
+          <blockquote className="text-xs text-[#F3F0E6] leading-relaxed italic border-l-2 border-[#D6FC55] pl-3">
             "Open your new playlist in the Spotify app. If your Premium account and app version include the Mix feature, tap Mix, then Auto to apply transitions, and tap any transition to customize them. Mix shows each track's BPM and key so you can sanity-check the order."
           </blockquote>
 
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            Note: Spotify will now blend your audio. During playback, please remember to occasionally touch an unassigned knob on your desk and stare into the middle distance with intense concentration so the room assumes you are doing something difficult.
+          <p className="text-[11px] text-[#7E8876] leading-relaxed">
+            Deck Order arranges the tracks. Spotify handles playback. Mix availability depends on your account and app version.
           </p>
         </div>
 
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex items-center justify-between pt-1">
           {saveResult.spotifyUrl ? (
             <a
               href={saveResult.spotifyUrl}
@@ -56,7 +65,7 @@ export function MixInstructionsModal({
               className="deck-btn-primary text-xs"
             >
               <ExternalLink className="w-4 h-4" />
-              Open In Spotify App
+              <span>Open in Spotify</span>
             </a>
           ) : <div />}
 
@@ -64,7 +73,7 @@ export function MixInstructionsModal({
             onClick={onClose}
             className="deck-btn-secondary text-xs"
           >
-            Acknowledge & Close
+            Done
           </button>
         </div>
       </div>

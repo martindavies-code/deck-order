@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Plus } from 'lucide-react';
+import { Plus, Check, Music } from 'lucide-react';
 
 export function SuggestionsDrawer({
   bridgeSuggestions = [],
@@ -9,23 +9,21 @@ export function SuggestionsDrawer({
 }) {
   const [activeTab, setActiveTab] = useState('bridge');
 
+  const hasSuggestions = bridgeSuggestions.length > 0 || bonusTunes.length > 0;
+  if (!hasSuggestions) return null;
+
   const selectedCount = [...bridgeSuggestions, ...bonusTunes].filter(t => t.selected).length;
 
   return (
-    <div className="deck-card p-4 sm:p-6 mb-6 bg-[#111420] border-[#252b40]">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-[#21263a] gap-4 mb-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-white">
-              Bridge Tracks & Certified Crowd-Pleasers
-            </h3>
-            <p className="text-xs text-slate-400">
-              Harmonic bridges to prevent the dancefloor from staring at their phones (Off by default — tick to include)
-            </p>
-          </div>
+    <div className="deck-panel p-5 space-y-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-[#394133] gap-3">
+        <div>
+          <h3 className="text-sm font-bold text-[#F3F0E6] uppercase tracking-wide font-sans">
+            Find the missing link
+          </h3>
+          <p className="text-xs text-[#BAC2B3]">
+            Bridge tracks to smooth awkward joins in your set. Preview before adding.
+          </p>
         </div>
 
         {selectedCount > 0 && (
@@ -34,80 +32,86 @@ export function SuggestionsDrawer({
             className="deck-btn-primary text-xs w-full sm:w-auto"
           >
             <Plus className="w-3.5 h-3.5" />
-            Inject {selectedCount} Selected Track{selectedCount > 1 ? 's' : ''} into Running Order
+            <span>Insert {selectedCount} track{selectedCount > 1 ? 's' : ''} into order</span>
           </button>
         )}
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-4 border-b border-[#1c2030] mb-4">
+      <div className="flex gap-4 border-b border-[#394133] text-xs">
         <button
           onClick={() => setActiveTab('bridge')}
-          className={`pb-2 text-xs font-bold border-b-2 transition-all ${
+          className={`pb-2 font-semibold border-b-2 transition-colors ${
             activeTab === 'bridge'
-              ? 'border-amber-400 text-amber-400'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
+              ? 'border-[#D6FC55] text-[#D6FC55]'
+              : 'border-transparent text-[#BAC2B3] hover:text-[#F3F0E6]'
           }`}
         >
-          Bridge Suggestions ({bridgeSuggestions.length})
+          Bridge suggestions ({bridgeSuggestions.length})
         </button>
-        <button
-          onClick={() => setActiveTab('bonus')}
-          className={`pb-2 text-xs font-bold border-b-2 transition-all ${
-            activeTab === 'bonus'
-              ? 'border-amber-400 text-amber-400'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          Pretend You Own These on Vinyl ({bonusTunes.length})
-        </button>
+        {bonusTunes.length > 0 && (
+          <button
+            onClick={() => setActiveTab('bonus')}
+            className={`pb-2 font-semibold border-b-2 transition-colors ${
+              activeTab === 'bonus'
+                ? 'border-[#D6FC55] text-[#D6FC55]'
+                : 'border-transparent text-[#BAC2B3] hover:text-[#F3F0E6]'
+            }`}
+          >
+            Additional suggestions ({bonusTunes.length})
+          </button>
+        )}
       </div>
 
-      {/* Content */}
-      <div className="space-y-3">
+      {/* List */}
+      <div className="space-y-2">
         {activeTab === 'bridge' && (
           bridgeSuggestions.length === 0 ? (
-            <div className="text-center py-6 text-slate-500 text-xs bg-[#0b0d14] rounded-lg border border-[#1b1f2e]">
-              No emergency harmonic bridge needed. Your selection is suspiciously cohesive.
-            </div>
+            <p className="text-xs text-[#7E8876] py-3">No bridge tracks required for current set.</p>
           ) : (
             bridgeSuggestions.map((item) => (
               <div
                 key={item.id}
                 onClick={() => onToggleSuggestion(item.id)}
-                className={`p-3 rounded-xl border flex items-center justify-between gap-4 cursor-pointer transition-all ${
+                className={`p-3 rounded-lg border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
                   item.selected
-                    ? 'bg-amber-950/30 border-amber-500/60 shadow-lg shadow-amber-950/20'
-                    : 'bg-[#151926] border-[#242a3e] hover:border-slate-500'
+                    ? 'bg-[#252B22] border-[#D6FC55]'
+                    : 'bg-[#10120F] border-[#394133] hover:border-[#4F5A47]'
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <input
                     type="checkbox"
                     checked={Boolean(item.selected)}
-                    onChange={() => {}} // handled by parent onClick
-                    className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-900 border-slate-700 cursor-pointer"
+                    onChange={() => {}}
+                    className="w-4 h-4 rounded text-[#D6FC55] bg-[#10120F] border-[#394133]"
                   />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-bold text-white truncate">
+                      <span className="text-xs font-bold text-[#F3F0E6] truncate">
                         {item.artist} - {item.title}
                       </span>
-                      <span className="badge-camelot bg-cyan-950 text-cyan-300 border border-cyan-800/40 text-[10px]">
-                        {item.camelot}
-                      </span>
-                      <span className="text-xs font-mono text-slate-300 tabular-nums">
-                        {item.bpm} BPM
-                      </span>
+                      {item.camelot && (
+                        <span className="badge-camelot">
+                          {item.camelot}
+                        </span>
+                      )}
+                      {item.bpm && (
+                        <span className="text-xs font-mono text-[#BAC2B3] tabular-nums">
+                          {item.bpm} BPM
+                        </span>
+                      )}
                     </div>
-                    <p className="text-xs text-amber-300/80 mt-0.5 truncate">
-                      💡 {item.reason}
-                    </p>
+                    {item.reason && (
+                      <p className="text-[11px] text-[#BAC2B3] mt-0.5 truncate">
+                        {item.reason}
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                <span className="text-[10px] font-mono uppercase bg-slate-800 text-slate-400 px-2 py-0.5 rounded whitespace-nowrap shrink-0">
-                  {item.source}
+                <span className="text-[10px] font-mono uppercase bg-[#1B1F19] text-[#7E8876] px-2 py-0.5 rounded shrink-0 border border-[#394133]">
+                  {item.source || 'Suggested'}
                 </span>
               </div>
             ))
@@ -116,18 +120,16 @@ export function SuggestionsDrawer({
 
         {activeTab === 'bonus' && (
           bonusTunes.length === 0 ? (
-            <div className="text-center py-6 text-slate-500 text-xs bg-[#0b0d14] rounded-lg border border-[#1b1f2e]">
-              No additional bangers match this exact tempo and key constellation.
-            </div>
+            <p className="text-xs text-[#7E8876] py-3">No additional recommendations found.</p>
           ) : (
             bonusTunes.map((item) => (
               <div
                 key={item.id}
                 onClick={() => onToggleSuggestion(item.id)}
-                className={`p-3 rounded-xl border flex items-center justify-between gap-4 cursor-pointer transition-all ${
+                className={`p-3 rounded-lg border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
                   item.selected
-                    ? 'bg-emerald-950/30 border-emerald-500/60 shadow-lg shadow-emerald-950/20'
-                    : 'bg-[#151926] border-[#242a3e] hover:border-slate-500'
+                    ? 'bg-[#252B22] border-[#D6FC55]'
+                    : 'bg-[#10120F] border-[#394133] hover:border-[#4F5A47]'
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -135,28 +137,34 @@ export function SuggestionsDrawer({
                     type="checkbox"
                     checked={Boolean(item.selected)}
                     onChange={() => {}}
-                    className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-slate-900 border-slate-700 cursor-pointer"
+                    className="w-4 h-4 rounded text-[#D6FC55] bg-[#10120F] border-[#394133]"
                   />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-bold text-white truncate">
+                      <span className="text-xs font-bold text-[#F3F0E6] truncate">
                         {item.artist} - {item.title}
                       </span>
-                      <span className="badge-camelot bg-cyan-950 text-cyan-300 border border-cyan-800/40 text-[10px]">
-                        {item.camelot}
-                      </span>
-                      <span className="text-xs font-mono text-slate-300 tabular-nums">
-                        {item.bpm} BPM
-                      </span>
+                      {item.camelot && (
+                        <span className="badge-camelot">
+                          {item.camelot}
+                        </span>
+                      )}
+                      {item.bpm && (
+                        <span className="text-xs font-mono text-[#BAC2B3] tabular-nums">
+                          {item.bpm} BPM
+                        </span>
+                      )}
                     </div>
-                    <p className="text-xs text-emerald-300/80 mt-0.5 truncate">
-                      ✨ {item.reason}
-                    </p>
+                    {item.reason && (
+                      <p className="text-[11px] text-[#BAC2B3] mt-0.5 truncate">
+                        {item.reason}
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                <span className="text-[10px] font-mono uppercase bg-slate-800 text-slate-400 px-2 py-0.5 rounded whitespace-nowrap shrink-0">
-                  {item.source}
+                <span className="text-[10px] font-mono uppercase bg-[#1B1F19] text-[#7E8876] px-2 py-0.5 rounded shrink-0 border border-[#394133]">
+                  {item.source || 'Suggested'}
                 </span>
               </div>
             ))

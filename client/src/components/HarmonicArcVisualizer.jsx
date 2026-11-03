@@ -1,150 +1,250 @@
-import React from 'react';
-import { Activity, Flame, Zap } from 'lucide-react';
+import React, { useState } from 'react';
+import { Sliders } from 'lucide-react';
 
-export function HarmonicArcVisualizer({ tracks, evaluation }) {
+export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
+  const [metric, setMetric] = useState('tempo'); // 'tempo' | 'energy'
+
   if (!tracks || tracks.length < 2 || !evaluation || !evaluation.transitions) {
     return null;
   }
 
-  const bpms = tracks.map(t => t.bpm || 124);
-  const minBpm = Math.min(...bpms);
-  const maxBpm = Math.max(...bpms);
+  // Check if energy data actually exists
+  const hasEnergyData = tracks.some(t => typeof t.energy === 'number' && !isNaN(t.energy));
+
+  // Extract valid BPMs
+  const validBpms = tracks.map(t => t.bpm).filter(b => typeof b === 'number' && !isNaN(b));
+  const minBpm = validBpms.length > 0 ? Math.min(...validBpms) : 120;
+  const maxBpm = validBpms.length > 0 ? Math.max(...validBpms) : 130;
   const bpmRange = Math.max(6, maxBpm - minBpm);
 
-  // SVG dimensions
+  // SVG coordinates
   const width = 800;
-  const height = 120;
-  const padX = 40;
-  const padY = 24;
+  const height = 140;
+  const padLeft = 50;
+  const padRight = 30;
+  const padTop = 24;
+  const padBottom = 28;
 
+  const innerWidth = width - padLeft - padRight;
+  const innerHeight = height - padTop - padBottom;
+
+  // Build points with truthful gaps
   const points = tracks.map((t, idx) => {
-    const x = padX + (idx / (tracks.length - 1)) * (width - 2 * padX);
-    const bpm = t.bpm || minBpm;
-    const y = height - padY - ((bpm - minBpm) / bpmRange) * (height - 2 * padY);
-    return { x, y, track: t, bpm };
+    const x = padLeft + (idx / (tracks.length - 1)) * innerWidth;
+    const val = metric === 'energy' ? t.energy : t.bpm;
+    const hasValue = typeof val === 'number' && !isNaN(val);
+
+    let y = null;
+    if (hasValue) {
+      if (metric === 'energy') {
+        // Energy scaled 0 to 1
+        y = padTop + (1 - val) * innerHeight;
+      } else {
+        y = padTop + (1 - ((val - minBpm) / bpmRange)) * innerHeight;
+      }
+    }
+
+    return { x, y, track: t, val, hasValue, index: idx };
   });
 
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
-  const areaPath = `${linePath} L ${points[points.length - 1].x.toFixed(1)} ${height - 10} L ${points[0].x.toFixed(1)} ${height - 10} Z`;
+  // Build SVG path segments (respecting gaps for missing data)
+  const segments = [];
+  let currentSegment = [];
 
-  // Peak zone boundary (60% to 80%)
-  const peakStartX = padX + 0.60 * (width - 2 * padX);
-  const peakEndX = padX + 0.80 * (width - 2 * padX);
+  points.forEach((p) => {
+    if (p.hasValue) {
+      currentSegment.push(p);
+    } else {
+      if (currentSegment.length > 0) {
+        segments.push(currentSegment);
+        currentSegment = [];
+      }
+    }
+  });
+  if (currentSegment.length > 0) {
+    segments.push(currentSegment);
+  }
 
   return (
-    <section className="deck-card p-4 sm:p-5 mb-6 bg-gradient-to-b from-[#0f121c] to-[#0a0c13] border-[#1d2235] shadow-2xl">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 mb-2 border-b border-[#181d2c] gap-2">
+    <section className="deck-panel p-4 sm:p-5 space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-[#394133] gap-2">
         <div>
-          <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-emerald-400" />
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-100 font-mono">
-              The Mathematical Trajectory of Human Euphoria
-            </h3>
-          </div>
-          <p className="text-[11px] text-slate-400 italic">
-            "A strictly controlled tempo arc designed to peak when someone buys a round of drinks."
+          <h3 className="text-sm font-bold text-[#F3F0E6] uppercase tracking-wide font-sans">
+            The shape of your set
+          </h3>
+          <p className="text-xs text-[#BAC2B3]">
+            Tempo is one part of the story. Listen for phrasing, vocals and room to mix.
           </p>
         </div>
 
-        <div className="flex items-center gap-3 text-xs font-mono">
-          <span className="text-slate-400">
-            Tempo Ramp: <strong className="text-slate-200 tabular-nums">{minBpm.toFixed(1)} → {maxBpm.toFixed(1)} BPM</strong>
-          </span>
-          <span className="text-emerald-300 bg-emerald-950/70 border border-emerald-700/60 px-2 py-0.5 rounded text-[11px] font-bold">
-            {evaluation.smoothPct}% Butter
-          </span>
+        <div className="flex items-center gap-3">
+          {hasEnergyData && (
+            <div className="grid grid-cols-2 gap-1 bg-[#10120F] p-0.5 rounded border border-[#394133] text-xs">
+              <button
+                onClick={() => setMetric('tempo')}
+                className={`px-2.5 py-1 rounded transition-colors font-mono ${
+                  metric === 'tempo' ? 'bg-[#252B22] text-[#D6FC55]' : 'text-[#BAC2B3]'
+                }`}
+              >
+                Tempo
+              </button>
+              <button
+                onClick={() => setMetric('energy')}
+                className={`px-2.5 py-1 rounded transition-colors font-mono ${
+                  metric === 'energy' ? 'bg-[#252B22] text-[#D6FC55]' : 'text-[#BAC2B3]'
+                }`}
+              >
+                Energy
+              </button>
+            </div>
+          )}
+
+          {validBpms.length > 0 && metric === 'tempo' && (
+            <span className="text-xs font-mono text-[#BAC2B3] tabular-nums">
+              Span: <strong className="text-[#F3F0E6]">{minBpm.toFixed(0)} → {maxBpm.toFixed(0)} BPM</strong>
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Illuminated CDJ-style Waveform Area */}
+      {/* Responsive Visualizer SVG */}
       <div className="w-full overflow-hidden">
         <svg
           viewBox={`0 0 ${width} ${height}`}
-          className="w-full h-28 sm:h-32 overflow-visible select-none"
+          className="w-full h-32 select-none"
           preserveAspectRatio="none"
+          aria-label="Set tempo and key progression chart"
         >
-          <defs>
-            <linearGradient id="tempoAreaGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
-              <stop offset="70%" stopColor="#06b6d4" stopOpacity="0.1" />
-              <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
-            </linearGradient>
-            <linearGradient id="peakGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.2" />
-              <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.02" />
-            </linearGradient>
-          </defs>
-
-          {/* Peak Zone Shading */}
+          {/* Target Zone Shading: Target peak zone (60-80% of set) */}
           <rect
-            x={peakStartX}
-            y={8}
-            width={peakEndX - peakStartX}
-            height={height - 20}
-            fill="url(#peakGradient)"
-            rx="6"
-            stroke="rgba(245, 158, 11, 0.3)"
-            strokeDasharray="4 3"
+            x={padLeft + 0.60 * innerWidth}
+            y={padTop}
+            width={0.20 * innerWidth}
+            height={innerHeight}
+            fill="rgba(214, 252, 85, 0.05)"
+            stroke="rgba(214, 252, 85, 0.2)"
+            strokeDasharray="3 3"
+            rx="4"
           />
           <text
-            x={(peakStartX + peakEndX) / 2}
-            y={20}
-            fill="#fbbf24"
+            x={padLeft + 0.70 * innerWidth}
+            y={padTop + 14}
+            fill="#D6FC55"
             fontSize="9"
             fontFamily="JetBrains Mono"
             textAnchor="middle"
-            fontWeight="bold"
-            letterSpacing="0.06em"
+            letterSpacing="0.05em"
           >
-            PEAK DROPS ZONE (60–80%)
+            TARGET PEAK
           </text>
 
-          {/* Gridlines */}
-          <line x1={padX} y1={height - padY} x2={width - padX} y2={height - padY} stroke="#1b2033" strokeDasharray="3 3" />
-          <line x1={padX} y1={padY} x2={width - padX} y2={padY} stroke="#1b2033" strokeDasharray="3 3" />
+          {/* Gridlines & Y-Axis Labels */}
+          <line x1={padLeft} y1={padTop} x2={width - padRight} y2={padTop} stroke="#252B22" strokeDasharray="2 2" />
+          <text x={padLeft - 8} y={padTop + 4} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
+            {maxBpm.toFixed(0)}
+          </text>
 
-          {/* Area fill */}
-          <path d={areaPath} fill="url(#tempoAreaGradient)" />
+          <line x1={padLeft} y1={padTop + innerHeight / 2} x2={width - padRight} y2={padTop + innerHeight / 2} stroke="#252B22" strokeDasharray="2 2" />
+          <text x={padLeft - 8} y={padTop + innerHeight / 2 + 3} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
+            {((maxBpm + minBpm) / 2).toFixed(0)}
+          </text>
 
-          {/* Glowing Tempo Line */}
-          <path d={linePath} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          <line x1={padLeft} y1={padTop + innerHeight} x2={width - padRight} y2={padTop + innerHeight} stroke="#252B22" strokeDasharray="2 2" />
+          <text x={padLeft - 8} y={padTop + innerHeight + 3} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
+            {minBpm.toFixed(0)}
+          </text>
 
-          {/* Camelot Nodes */}
+          {/* Connected segments (with truthful gaps when data is missing) */}
+          {segments.map((seg, sIdx) => {
+            const linePath = seg.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+            return (
+              <path
+                key={sIdx}
+                d={linePath}
+                fill="none"
+                stroke="#D6FC55"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            );
+          })}
+
+          {/* Track Nodes */}
           {points.map((p, i) => {
             const trans = evaluation.transitions[i];
-            const nodeColor = trans?.grade === 'CLASH' ? '#f43f5e' :
-                              trans?.grade === 'STRETCH' ? '#f59e0b' : '#10b981';
+            const nodeStroke = trans?.grade === 'CLASH' ? '#EF4444' :
+                               trans?.grade === 'STRETCH' ? '#EAB308' : '#D6FC55';
+
+            if (!p.hasValue) {
+              // Missing value indicated as gap marker at baseline
+              return (
+                <g key={i} className="cursor-pointer" onClick={() => onSelectTrack && onSelectTrack(p.track)}>
+                  <circle
+                    cx={p.x}
+                    cy={padTop + innerHeight}
+                    r="3"
+                    fill="none"
+                    stroke="#EF4444"
+                    strokeWidth="1.5"
+                    strokeDasharray="2 2"
+                  />
+                  <text
+                    x={p.x}
+                    y={padTop + innerHeight + 14}
+                    fill="#EF4444"
+                    fontSize="8"
+                    fontFamily="JetBrains Mono"
+                    textAnchor="middle"
+                  >
+                    ?
+                  </text>
+                </g>
+              );
+            }
 
             return (
-              <g key={i}>
+              <g
+                key={i}
+                className="cursor-pointer group"
+                tabIndex={0}
+                role="button"
+                aria-label={`Track ${i + 1}: ${p.track.title}, ${p.track.bpm} BPM, key ${p.track.camelot || 'unknown'}`}
+                onClick={() => onSelectTrack && onSelectTrack(p.track)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    onSelectTrack && onSelectTrack(p.track);
+                  }
+                }}
+              >
                 <circle
                   cx={p.x}
                   cy={p.y}
-                  r="5"
-                  fill="#080a10"
-                  stroke={nodeColor}
-                  strokeWidth="2.5"
+                  r="4"
+                  fill="#10120F"
+                  stroke={nodeStroke}
+                  strokeWidth="2"
                 />
                 <text
                   x={p.x}
-                  y={p.y - 8}
-                  fill="#94a3b8"
-                  fontSize="9.5"
+                  y={p.y - 7}
+                  fill="#BAC2B3"
+                  fontSize="9"
                   fontFamily="JetBrains Mono"
                   textAnchor="middle"
                   fontWeight="bold"
                 >
-                  {p.track.camelot || '?'}
+                  {p.track.camelot || ''}
                 </text>
                 <text
                   x={p.x}
-                  y={height - 2}
-                  fill="#64748b"
-                  fontSize="8.5"
+                  y={height - 6}
+                  fill="#7E8876"
+                  fontSize="8"
                   fontFamily="JetBrains Mono"
                   textAnchor="middle"
                 >
-                  {p.bpm.toFixed(0)}
+                  {i + 1}
                 </text>
               </g>
             );
@@ -152,11 +252,11 @@ export function HarmonicArcVisualizer({ tracks, evaluation }) {
         </svg>
       </div>
 
-      {/* Satirical Arc Timeline Milestones */}
-      <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-[#151928] font-mono">
-        <span>01 Polite Head Nodding</span>
-        <span className="text-amber-400/90 font-medium hidden sm:inline">The Hands-In-The-Air Phase</span>
-        <span>Looking For Coat {tracks.length.toString().padStart(2, '0')}</span>
+      {/* Axis Footer */}
+      <div className="flex items-center justify-between text-[11px] text-[#7E8876] font-mono pt-1 border-t border-[#394133]">
+        <span>Track 01</span>
+        <span>Order Axis →</span>
+        <span>Track {tracks.length.toString().padStart(2, '0')}</span>
       </div>
     </section>
   );
