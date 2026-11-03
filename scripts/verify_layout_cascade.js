@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 
 const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const testUrl = 'http://localhost:3001/deck-order/';
+const testUrl = process.argv[2] || 'http://localhost:3001/deck-order/';
 
 function sendCdp(ws, method, params = {}) {
   return new Promise((resolve, reject) => {
