@@ -20,7 +20,12 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
   // 2. Tempo Cost
   // An unconfirmed octave suggestion is NOT trusted tempo: grade it like
   // unverified data instead of confidently scoring the raw/suggested jump.
+  // Same for an unconfirmed recording match: when the matched record is a
+  // different recording than supplied (recordingNeedsReview), its tempo AND
+  // key values are unconfirmed, so the transition is never graded on them.
   const tempoUnconfirmed = !!(trackA.tempoNeedsReview || trackB.tempoNeedsReview);
+  const recordingUnconfirmed = !!(trackA.recordingNeedsReview || trackB.recordingNeedsReview);
+  const valuesUnconfirmed = tempoUnconfirmed || recordingUnconfirmed;
   const bpmA = trackA.workingBpm || trackA.bpm;
   const bpmB = trackB.workingBpm || trackB.bpm;
 
@@ -28,8 +33,8 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
   let tempoDiffPct = 0;
   let bpmChange = 0;
 
-  if (tempoUnconfirmed) {
-    tempoCost = 3; // unconfirmed tempo penalty
+  if (valuesUnconfirmed) {
+    tempoCost = 3; // unconfirmed tempo/recording penalty
   } else if (bpmA && bpmB) {
     bpmChange = Math.round((bpmB - bpmA) * 10) / 10;
     tempoDiffPct = Math.abs(bpmB - bpmA) / bpmA * 100;
@@ -53,7 +58,7 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
     tempoCost = 3; // unverified tempo penalty
   }
 
-  const hasTempo = !tempoUnconfirmed &&
+  const hasTempo = !valuesUnconfirmed &&
     typeof trackA.bpm === 'number' && typeof trackB.bpm === 'number' &&
     !isNaN(trackA.bpm) && !isNaN(trackB.bpm);
 
@@ -83,13 +88,20 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
 
   const totalCost = Math.round((harmonicCost + tempoCost + energyCost) * 10) / 10;
 
+  const reviewNotes = [
+    tempoUnconfirmed && 'tempo needs review',
+    recordingUnconfirmed && 'recording needs review'
+  ].filter(Boolean);
+
   // Grade classification:
-  // UNVERIFIED: harmonic data missing or invalid (cost null) - never shown as a clash
+  // UNVERIFIED: harmonic data missing or invalid (cost null), or either
+  // track's tempo/key values are unconfirmed (tempo or recording review) -
+  // never shown as a clash
   // SMOOTH: total cost <= 2.0
   // STRETCH: 3.0 <= total cost <= 5.0
   // CLASH: total cost > 5.0
   let grade;
-  if (tempoUnconfirmed || harmEval.cost === null || harmEval.grade === 'UNVERIFIED') {
+  if (valuesUnconfirmed || harmEval.cost === null || harmEval.grade === 'UNVERIFIED') {
     grade = 'UNVERIFIED';
   } else {
     grade = 'SMOOTH';
@@ -112,7 +124,7 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
     grade,
     bpmChange: hasTempo ? bpmChange : null,
     tempoDiffPct: hasTempo ? Math.round(tempoDiffPct * 10) / 10 : null,
-    relation: tempoUnconfirmed ? `${harmEval.relation}; tempo needs review` : harmEval.relation,
+    relation: reviewNotes.length > 0 ? `${harmEval.relation}; ${reviewNotes.join('; ')}` : harmEval.relation,
     harmEval
   };
 }
