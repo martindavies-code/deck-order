@@ -13,9 +13,11 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
 
   // Extract valid BPMs
   const validBpms = tracks.map(t => t.bpm).filter(b => typeof b === 'number' && !isNaN(b));
-  const minBpm = validBpms.length > 0 ? Math.min(...validBpms) : 120;
-  const maxBpm = validBpms.length > 0 ? Math.max(...validBpms) : 130;
+  const hasTempoData = validBpms.length > 0;
+  const minBpm = hasTempoData ? Math.min(...validBpms) : 120;
+  const maxBpm = hasTempoData ? Math.max(...validBpms) : 130;
   const bpmRange = Math.max(6, maxBpm - minBpm);
+  const metricHasData = metric === 'energy' ? hasEnergyData : hasTempoData;
 
   // SVG coordinates
   const width = 800;
@@ -107,7 +109,13 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
         </div>
       </div>
 
-      {/* Responsive Visualizer SVG */}
+      {/* Responsive Visualizer SVG - honest empty state when the metric has no data */}
+      {!metricHasData ? (
+        <div className="border border-dashed border-[#394133] rounded p-6 text-center text-xs font-mono text-[#7E8876]">
+          No {metric === 'energy' ? 'energy' : 'tempo'} data for these tracks yet - add BPM/key values to see the shape of the set.
+        </div>
+      ) : (
+      <>
       <div className="w-full overflow-hidden">
         <svg
           viewBox={`0 0 ${width} ${height}`}
@@ -115,44 +123,54 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
           preserveAspectRatio="none"
           aria-label="Set tempo and key progression chart"
         >
-          {/* Target Zone Shading: Target peak zone (60-80% of set) */}
-          <rect
-            x={padLeft + 0.60 * innerWidth}
-            y={padTop}
-            width={0.20 * innerWidth}
-            height={innerHeight}
-            fill="rgba(214, 252, 85, 0.05)"
-            stroke="rgba(214, 252, 85, 0.2)"
-            strokeDasharray="3 3"
-            rx="4"
-          />
-          <text
-            x={padLeft + 0.70 * innerWidth}
-            y={padTop + 14}
-            fill="#D6FC55"
-            fontSize="9"
-            fontFamily="JetBrains Mono"
-            textAnchor="middle"
-            letterSpacing="0.05em"
-          >
-            TARGET PEAK
-          </text>
+          {/* Target Zone Shading: Target peak zone (60-80% of set) - only when graded data exists */}
+          {metricHasData && (
+            <>
+              <rect
+                x={padLeft + 0.60 * innerWidth}
+                y={padTop}
+                width={0.20 * innerWidth}
+                height={innerHeight}
+                fill="rgba(214, 252, 85, 0.05)"
+                stroke="rgba(214, 252, 85, 0.2)"
+                strokeDasharray="3 3"
+                rx="4"
+              />
+              <text
+                x={padLeft + 0.70 * innerWidth}
+                y={padTop + 14}
+                fill="#D6FC55"
+                fontSize="9"
+                fontFamily="JetBrains Mono"
+                textAnchor="middle"
+                letterSpacing="0.05em"
+              >
+                TARGET PEAK
+              </text>
+            </>
+          )}
 
-          {/* Gridlines & Y-Axis Labels */}
+          {/* Gridlines & Y-Axis Labels - only meaningful when data exists */}
           <line x1={padLeft} y1={padTop} x2={width - padRight} y2={padTop} stroke="#252B22" strokeDasharray="2 2" />
-          <text x={padLeft - 8} y={padTop + 4} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
-            {maxBpm.toFixed(0)}
-          </text>
+          {metricHasData && (
+            <text x={padLeft - 8} y={padTop + 4} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
+              {maxBpm.toFixed(0)}
+            </text>
+          )}
 
           <line x1={padLeft} y1={padTop + innerHeight / 2} x2={width - padRight} y2={padTop + innerHeight / 2} stroke="#252B22" strokeDasharray="2 2" />
-          <text x={padLeft - 8} y={padTop + innerHeight / 2 + 3} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
-            {((maxBpm + minBpm) / 2).toFixed(0)}
-          </text>
+          {metricHasData && (
+            <text x={padLeft - 8} y={padTop + innerHeight / 2 + 3} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
+              {((maxBpm + minBpm) / 2).toFixed(0)}
+            </text>
+          )}
 
           <line x1={padLeft} y1={padTop + innerHeight} x2={width - padRight} y2={padTop + innerHeight} stroke="#252B22" strokeDasharray="2 2" />
-          <text x={padLeft - 8} y={padTop + innerHeight + 3} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
-            {minBpm.toFixed(0)}
-          </text>
+          {metricHasData && (
+            <text x={padLeft - 8} y={padTop + innerHeight + 3} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
+              {minBpm.toFixed(0)}
+            </text>
+          )}
 
           {/* Connected segments (with truthful gaps when data is missing) */}
           {segments.map((seg, sIdx) => {
@@ -177,12 +195,12 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
                                trans?.grade === 'STRETCH' ? '#EAB308' : '#D6FC55';
 
             if (!p.hasValue) {
-              // Missing value indicated as gap marker at baseline
+              // Missing value: dashed marker below the plot baseline (never on a data line)
               return (
                 <g key={i} className="cursor-pointer" onClick={() => onSelectTrack && onSelectTrack(p.track)}>
                   <circle
                     cx={p.x}
-                    cy={padTop + innerHeight}
+                    cy={padTop + innerHeight + 8}
                     r="3"
                     fill="none"
                     stroke="#EF4444"
@@ -191,7 +209,7 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
                   />
                   <text
                     x={p.x}
-                    y={padTop + innerHeight + 14}
+                    y={padTop + innerHeight + 22}
                     fill="#EF4444"
                     fontSize="8"
                     fontFamily="JetBrains Mono"
@@ -258,6 +276,8 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
         <span>Order Axis →</span>
         <span>Track {tracks.length.toString().padStart(2, '0')}</span>
       </div>
+      </>
+      )}
     </section>
   );
 }
