@@ -407,7 +407,9 @@ export function App() {
 
       const gradedPairs = res.evaluation?.gradedCount ?? 0;
       showToast(gradedPairs > 0
-        ? 'Running order built.'
+        ? ((res.evaluation?.unverifiedCount ?? 0) > 0
+          ? `Draft order built - ${res.evaluation.unverifiedCount} transition${res.evaluation.unverifiedCount > 1 ? 's' : ''} need${res.evaluation.unverifiedCount > 1 ? '' : 's'} review.`
+          : 'Running order built.')
         : 'Order preserved as imported - insufficient metadata to grade transitions.');
     } catch (err) {
       showToast(`Couldn't build the order. Your tracks are still here.`, 5000);
@@ -805,7 +807,7 @@ export function App() {
                   {evaluation
                     ? ((evaluation.gradedCount ?? 0) > 0
                       ? ((evaluation.unverifiedCount ?? 0) > 0
-                        ? `Running order ready - ${evaluation.unverifiedCount} transition${evaluation.unverifiedCount > 1 ? 's' : ''} ungraded (tempo or key needs review).`
+                        ? `Draft order built - ${evaluation.unverifiedCount} transition${evaluation.unverifiedCount > 1 ? 's' : ''} need${evaluation.unverifiedCount > 1 ? '' : 's'} review before grading.`
                         : 'Running order ready.')
                       : 'Order preserved as imported - no graded transitions yet.')
                     : 'Original order loaded - not yet sequenced.'}
