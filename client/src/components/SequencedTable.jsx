@@ -11,7 +11,7 @@ import {
   HelpCircle,
   X
 } from 'lucide-react';
-import { camelotBadgeColors, trackValueState } from '../utils/trackBadges.js';
+import { camelotBadgeColors, trackValueState, evidenceBadge, transitionDisplay } from '../utils/trackBadges.js';
 
 /**
  * Colour-coded per-track data badges: Camelot pill keyed to wheel hue, BPM
@@ -215,26 +215,11 @@ export function SequencedTable({
                       </div>
                     </td>
 
-                    {/* Evidence Status */}
+                    {/* Evidence Status (shared selector with the mobile strip) */}
                     <td className="py-3 px-3 text-left">
-                      {track.status === 'sample' && (
-                        <span className="badge-status badge-status-sample text-[11px]">Sample</span>
-                      )}
-                      {track.status === 'corroborated' && (
-                        <span className="badge-status badge-status-corroborated text-[11px]">Corroborated</span>
-                      )}
-                      {track.status === 'single_source' && (
-                        <span className="badge-status badge-status-single text-[11px]">Single source</span>
-                      )}
-                      {track.status === 'supplied' && (
-                        <span className="badge-status badge-status-supplied text-[11px]">Supplied</span>
-                      )}
-                      {track.status === 'disputed' && (
-                        <span className="badge-status badge-status-disputed text-[11px]">Disputed</span>
-                      )}
-                      {(track.status === 'missing' || track.status === 'unverified') && (
-                        <span className="badge-status badge-status-missing text-[11px]">Missing</span>
-                      )}
+                      <span className={`badge-status ${evidenceBadge(track.status).cls} text-[11px]`}>
+                        {evidenceBadge(track.status).label}
+                      </span>
                     </td>
 
                     {/* Detail action + remove from working set */}
@@ -275,21 +260,29 @@ export function SequencedTable({
                         <div className="flex items-center gap-3 pl-8">
                           <span className="text-[#394133]">↳</span>
                           <span>Suggested fit:</span>
-                          <span className={
-                            transition.grade === 'SMOOTH' ? 'text-[#86EFAC] font-semibold' :
-                            transition.grade === 'STRETCH' ? 'text-[#FDE047]' :
-                            transition.grade === 'CLASH' ? 'text-[#FCA5A5]' : 'text-[#BAC2B3]'
-                          }>
-                            {transition.relation || 'Key match'}
-                          </span>
-                          {typeof transition.bpmChange === 'number' && (
-                            <>
-                              <span>•</span>
-                              <span className="tabular-nums">
-                                {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
-                              </span>
-                            </>
-                          )}
+                          {(() => {
+                            const td = transitionDisplay(transition, track, tracks[idx + 1]);
+                            return (
+                              <>
+                                <span className={
+                                  td.tone === 'review' ? 'text-[#F59E0B] font-semibold' :
+                                  td.tone === 'SMOOTH' ? 'text-[#86EFAC] font-semibold' :
+                                  td.tone === 'STRETCH' ? 'text-[#FDE047]' :
+                                  td.tone === 'CLASH' ? 'text-[#FCA5A5]' : 'text-[#BAC2B3]'
+                                }>
+                                  {td.text}
+                                </span>
+                                {td.showBpmChange && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="tabular-nums">
+                                      {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
+                                    </span>
+                                  </>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       </td>
                     </tr>
@@ -367,11 +360,8 @@ export function SequencedTable({
               <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-[#252B22]">
                 <TrackDataBadges track={track} />
                 <div>
-                  <span className="text-[10px] text-[#7E8876] uppercase">
-                    {track.status === 'sample' ? 'Sample' :
-                     track.status === 'corroborated' ? 'Corroborated' :
-                     track.status === 'supplied' ? 'Supplied' :
-                     track.status === 'disputed' ? 'Disputed' : 'Missing'}
+                  <span className={`badge-status ${evidenceBadge(track.status).cls} text-[10px] uppercase`}>
+                    {evidenceBadge(track.status).label}
                   </span>
                 </div>
               </div>
@@ -380,17 +370,24 @@ export function SequencedTable({
               {transition && idx < tracks.length - 1 && (
                 <div className="text-[11px] font-mono text-[#7E8876] pt-1 border-t border-[#252B22]/60 flex items-center gap-2">
                   <span className="text-[#394133]">↳</span>
-                  <span className="text-[#BAC2B3]">
-                    {transition.relation || 'Key match'}
-                  </span>
-                  {typeof transition.bpmChange === 'number' && (
-                    <>
-                      <span>•</span>
-                      <span className="tabular-nums">
-                        {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
-                      </span>
-                    </>
-                  )}
+                  {(() => {
+                    const td = transitionDisplay(transition, track, tracks[idx + 1]);
+                    return (
+                      <>
+                        <span className={td.tone === 'review' ? 'text-[#F59E0B] font-semibold' : 'text-[#BAC2B3]'}>
+                          {td.text}
+                        </span>
+                        {td.showBpmChange && (
+                          <>
+                            <span>•</span>
+                            <span className="tabular-nums">
+                              {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
+                            </span>
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>
