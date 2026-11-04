@@ -8,15 +8,53 @@ import {
   Sliders,
   AlertTriangle,
   Check,
-  HelpCircle
+  HelpCircle,
+  X
 } from 'lucide-react';
+import { camelotBadgeColors, trackValueState } from '../utils/trackBadges.js';
+
+/**
+ * Colour-coded per-track data badges: Camelot pill keyed to wheel hue, BPM
+ * pill in brand neutral. Missing values show as grey dashes (never implied),
+ * values flagged for review render amber until the user confirms them.
+ */
+function TrackDataBadges({ track }) {
+  const bpmState = trackValueState(track, 'bpm');
+  const keyState = trackValueState(track, 'camelot');
+  const keyColors = camelotBadgeColors(track.camelot);
+  const base = {
+    display: 'inline-flex', alignItems: 'center', fontFamily: "'JetBrains Mono', monospace",
+    fontWeight: 700, fontSize: '0.7rem', padding: '0.15rem 0.45rem',
+    borderRadius: 'var(--radius-tag)', border: '1px solid var(--border-subtle)',
+    backgroundColor: '#171A15', color: 'var(--chalk)'
+  };
+  const review = { borderColor: '#F59E0B', color: '#FDE047' };
+  const missing = { borderColor: 'var(--border-subtle)', color: '#7E8876', borderStyle: 'dashed' };
+  return (
+    <span className="flex items-center gap-1.5 mt-1 flex-wrap">
+      <span
+        style={{ ...base, ...(bpmState === 'missing' ? missing : bpmState === 'review' ? review : {}) }}
+        title={bpmState === 'review' ? 'Tempo needs review - confirm before trusting' : bpmState === 'missing' ? 'No tempo data' : 'Tempo'}
+      >
+        {bpmState === 'missing' ? '\u2014 BPM' : `${track.bpm} BPM`}
+      </span>
+      <span
+        style={{ ...base, ...(keyState === 'missing' ? missing : keyState === 'review' ? review : (keyColors || {})) }}
+        title={keyState === 'review' ? 'Recording/key match needs review - confirm before trusting' : keyState === 'missing' ? 'No key data' : `Camelot ${track.camelot}`}
+      >
+        {keyState === 'missing' ? '\u2014' : track.camelot}
+      </span>
+    </span>
+  );
+}
 
 export function SequencedTable({
   tracks = [],
   transitions = [],
   selectedTrackId,
   onReorderTracks,
-  onSelectTrack
+  onSelectTrack,
+  onRemoveTrack
 }) {
   const [draggedIndex, setDraggedIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
@@ -88,10 +126,8 @@ export function SequencedTable({
               <th className="py-2.5 px-3 w-12 text-center">#</th>
               <th className="py-2.5 px-3 w-14 text-center">Order</th>
               <th className="py-2.5 px-4 text-left">Track</th>
-              <th className="py-2.5 px-3 w-28 text-right">Tempo</th>
-              <th className="py-2.5 px-3 w-28 text-center">Key</th>
               <th className="py-2.5 px-3 w-32 text-left">Evidence</th>
-              <th className="py-2.5 px-3 w-16 text-center">Detail</th>
+              <th className="py-2.5 px-3 w-20 text-center">Detail</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#252B22]">
@@ -174,34 +210,9 @@ export function SequencedTable({
                               </span>
                             )}
                           </p>
+                          <TrackDataBadges track={track} />
                         </div>
                       </div>
-                    </td>
-
-                    {/* Tempo */}
-                    <td className="py-3 px-3 text-right font-mono text-xs tabular-nums">
-                      {track.bpm ? (
-                        <span className="text-[#F3F0E6] font-semibold">{track.bpm}</span>
-                      ) : (
-                        <span className="text-[#7E8876]">—</span>
-                      )}
-                      <span className="text-[10px] text-[#7E8876] ml-1">BPM</span>
-                    </td>
-
-                    {/* Camelot & Key */}
-                    <td className="py-3 px-3 text-center">
-                      {track.camelot ? (
-                        <span className="badge-camelot">
-                          {track.camelot}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-[#7E8876] font-mono">—</span>
-                      )}
-                      {track.key && track.key !== track.camelot && (
-                        <span className="text-[10px] text-[#7E8876] block truncate font-mono mt-0.5">
-                          {track.key}
-                        </span>
-                      )}
                     </td>
 
                     {/* Evidence Status */}
@@ -226,26 +237,41 @@ export function SequencedTable({
                       )}
                     </td>
 
-                    {/* Detail action */}
+                    {/* Detail action + remove from working set */}
                     <td className="py-3 px-3 text-center">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectTrack && onSelectTrack(track, idx);
-                        }}
-                        className="text-[#7E8876] hover:text-[#D6FC55] p-1"
-                        title="Inspect track details"
-                        aria-label={`Inspect ${track.title}`}
-                      >
-                        <Sliders className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectTrack && onSelectTrack(track, idx);
+                          }}
+                          className="text-[#7E8876] hover:text-[#D6FC55] p-1"
+                          title="Inspect track details"
+                          aria-label={`Inspect ${track.title}`}
+                        >
+                          <Sliders className="w-3.5 h-3.5" />
+                        </button>
+                        {onRemoveTrack && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveTrack(track, idx);
+                            }}
+                            className="text-[#7E8876] hover:text-[#FCA5A5] p-1"
+                            title="Remove from this set (undoable; original playlist untouched)"
+                            aria-label={`Remove ${track.title} from this set`}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
 
                   {/* Transition connector between tracks */}
                   {transition && idx < tracks.length - 1 && (
                     <tr className="bg-[#10120F]/60">
-                      <td colSpan={7} className="py-1 px-4 text-[10px] font-mono text-[#7E8876]">
+                      <td colSpan={5} className="py-1 px-4 text-[10px] font-mono text-[#7E8876]">
                         <div className="flex items-center gap-3 pl-8">
                           <span className="text-[#394133]">↳</span>
                           <span>Suggested fit:</span>
@@ -306,8 +332,18 @@ export function SequencedTable({
                   </div>
                 </div>
 
-                {/* Move buttons for touch */}
+                {/* Move buttons for touch + remove from working set */}
                 <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  {onRemoveTrack && (
+                    <button
+                      onClick={() => onRemoveTrack(track, idx)}
+                      className="p-1.5 rounded bg-[#10120F] text-[#BAC2B3] hover:text-[#FCA5A5] min-h-[36px] min-w-[36px] flex items-center justify-center border border-[#394133]"
+                      aria-label={`Remove ${track.title} from this set`}
+                      title="Remove from this set (undoable; original playlist untouched)"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <button
                     onClick={() => moveTrack(idx, -1)}
                     disabled={idx === 0}
@@ -327,16 +363,9 @@ export function SequencedTable({
                 </div>
               </div>
 
-              {/* Data strip: BPM, Camelot, Evidence */}
+              {/* Data strip: colour-coded BPM + Camelot badges, Evidence */}
               <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-[#252B22]">
-                <div className="flex items-center gap-2">
-                  <span className="text-[#F3F0E6] font-bold tabular-nums">
-                    {track.bpm ? `${track.bpm} BPM` : 'No BPM'}
-                  </span>
-                  <span className="badge-camelot">
-                    {track.camelot || '—'}
-                  </span>
-                </div>
+                <TrackDataBadges track={track} />
                 <div>
                   <span className="text-[10px] text-[#7E8876] uppercase">
                     {track.status === 'sample' ? 'Sample' :
