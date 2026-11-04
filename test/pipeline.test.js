@@ -198,3 +198,22 @@ Floating Points,LesAlpx,128,C# minor
     assert.match(report.summaryText, /Verified 2\/4, Single-source 0, Disputed 1, Unverified 1/);
   });
 });
+
+test('Sequencer objective: suggested order never worse than original than original under solver objective', async () => {
+  const { DJSequencer } = await import('../server/core/solver.js');
+  const T = (id, bpm, camelot, extra = {}) => ({ id, artist: 'A', title: id, bpm, workingBpm: bpm, camelot, key: 'x', status: 'single_source', ...extra });
+  // Unconfirmed-octave track mid-set: graded-only score can look worse while
+  // the solver objective (incl. unverified-edge penalties) must never regress.
+  const tracks = [
+    T('t1', 124, '11B'),
+    T('t2', 62.5, '4A', { tempoNeedsReview: true, tempoSuggestion: { bpm: 125, kind: 'doubled' } }),
+    T('t3', 126, '8A'),
+    T('t4', 122, '8B'),
+    T('t5', 122, '2B')
+  ];
+  const r = new DJSequencer({}).solve(tracks);
+  assert.ok(
+    r.evaluation.objectiveCost <= r.originalEvaluation.objectiveCost + 1e-9,
+    `objective regression: ${r.originalEvaluation.objectiveCost} -> ${r.evaluation.objectiveCost}`
+  );
+});
