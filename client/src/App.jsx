@@ -21,8 +21,6 @@ import {
   parseCsvText,
   verifyTracklist,
   computeCoverageCounts,
-  runSequencer,
-  fetchSuggestions,
   requestSavePreview,
   confirmSavePlaylist,
   copyTracklistText,
@@ -31,7 +29,7 @@ import {
   SPOTIFY_403_MSG
 } from './services/api.js';
 import { applyManualOverride, revertManualOverride, replaceTrackById } from './utils/manualOverride.js';
-import { evaluateCurrentOrder } from './services/clientSequencer.js';
+import { evaluateCurrentOrder, DJSequencer } from './services/clientSequencer.js';
 import {
   initiateSpotifyLogin,
   saveStaySignedInPreference,
@@ -48,7 +46,7 @@ import {
   logoutGoogle,
   getAccountKey,
   getCrateHistory,
-  saveSetToHistory,
+  updateActiveSet,
   clearCrateHistory,
   removeSetFromHistory,
   forgetThisDevice
@@ -75,6 +73,12 @@ export function App() {
   const accountKey = getAccountKey(googleUser, authUser);
   const [crateHistory, setCrateHistory] = useState(() => getCrateHistory(accountKey));
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
+  const [activeSetId, setActiveSetId] = useState(null);
+  const [saveError, setSaveError] = useState(false);
+  const newSetIdentity = () => {
+    const id = `set_${crypto.randomUUID()}`;
+    setActiveSetId(id); setSaveError(false);
+  };
 
   // Tracks & Sequencing State
   const [tracks, setTracks] = useState([]);
@@ -112,10 +116,29 @@ export function App() {
   const [saveResult, setSaveResult] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showRedoConfirm, setShowRedoConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   // Real loading progress for the import UI: { stage: 'fetch'|'verify'|'parse', fetched, total }
   const [loadProgress, setLoadProgress] = useState(null);
   const [loadingPlaylistId, setLoadingPlaylistId] = useState(null);
+
+  // Every edit belongs to one document identity, including reorder/removal/name.
+  useEffect(() => {
+    if (!activeSetId || !tracks.length || prevAccountKeyRef.current !== accountKey) return;
+    const result = updateActiveSet({
+      id: activeSetId, name: setName, tracks: orderedTracks, originalTracks,
+      evaluation: evaluateCurrentOrder(orderedTracks, { enableEnergy })
+    }, accountKey);
+    setCrateHistory(result.history);
+    setSaveError(!result.saved);
+  }, [activeSetId, orderedTracks, originalTracks, setName, enableEnergy, accountKey]);
+
+  useEffect(() => {
+    if (!saveError) return;
+    const warn = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [saveError]);
 
   // Load Status on startup
   useEffect(() => {
@@ -130,6 +153,7 @@ export function App() {
     if (prevAccountKeyRef.current !== accountKey) {
       prevAccountKeyRef.current = accountKey;
       setCrateHistory(getCrateHistory(accountKey));
+      setActiveSetId(null); setSaveError(false);
       setTracks([]);
       setOrderedTracks([]);
       setOriginalTracks([]);
@@ -286,12 +310,15 @@ export function App() {
   };
 
   const handleLoadHistoricalSet = (historicalSet) => {
+    if (saveError && !window.confirm('Your latest changes are not saved. Load another set and discard those changes?')) return false;
+    const loadedId = historicalSet.id || `set_${crypto.randomUUID()}`;
+    setActiveSetId(loadedId); setSaveError(false);
     setOrderedTracks(historicalSet.tracks || []);
     setLastRemoved(null);
-    setOriginalTracks(historicalSet.tracks || []);
+    setOriginalTracks(historicalSet.originalTracks || historicalSet.tracks || []);
     setTracks(historicalSet.tracks || []);
     setEvaluation(evaluateCurrentOrder(historicalSet.tracks || [], { enableEnergy }));
-    setOriginalEvaluation(evaluateCurrentOrder(historicalSet.tracks || [], { enableEnergy }));
+    setOriginalEvaluation(evaluateCurrentOrder(historicalSet.originalTracks || historicalSet.tracks || [], { enableEnergy }));
     setSelectedPlaylist({ name: historicalSet.name, id: null, itemCount: historicalSet.tracks?.length || 0 });
     setSetName(historicalSet.name || 'Saved Set');
     setIsSampleSet(false);
@@ -299,15 +326,19 @@ export function App() {
     setSelectedTrackIndex(0);
     setShowHistoryDrawer(false);
     showToast(`Loaded "${historicalSet.name}".`);
+    return true;
   };
 
   const handleClearHistory = () => {
+    if (!window.confirm('Delete all saved sets? The open set will stay in this session.')) return;
+    setActiveSetId(null);
     clearCrateHistory(accountKey);
     setCrateHistory([]);
     showToast('Saved sets cleared.');
   };
 
   const handleDeleteSet = (setId) => {
+    if (setId === activeSetId) { setActiveSetId(null); }
     const updated = removeSetFromHistory(setId, accountKey);
     setCrateHistory(updated);
     showToast('Set deleted. Your other saved sets are untouched.');
@@ -341,6 +372,7 @@ export function App() {
         return;
       }
 
+      newSetIdentity();
       setTracks(verifyRes.tracks);
       setCoverageReport({ ...verifyRes.report, ...computeCoverageCounts(verifyRes.tracks) });
       // Show the imported order immediately so the playlist never "disappears";
@@ -388,6 +420,7 @@ export function App() {
       const parsed = await parseCsvText(csvContent);
       setLoadProgress({ stage: 'verify', fetched: 0, total: parsed.tracks.length || null });
       const verifyRes = await verifyTracklist(parsed.tracks, isSample, setLoadProgress);
+      newSetIdentity();
       setTracks(verifyRes.tracks);
       setCoverageReport({ ...verifyRes.report, ...computeCoverageCounts(verifyRes.tracks) });
       // Show the imported order immediately; "Build my running order" re-sequences.
@@ -415,58 +448,39 @@ export function App() {
   };
 
   // Run Sequencer
-  const handleRunSequencer = async () => {
-    if (tracks.length === 0) return;
+  const handleRunSequencer = () => {
+    if (orderedTracks.length > 0) setShowRedoConfirm(true);
+  };
+
+  const handleConfirmRedo = async () => {
+    setShowRedoConfirm(false);
+    if (orderedTracks.length === 0) return;
     setIsLoading(true);
 
     try {
-      const seqRes = await runSequencer(tracks, {
+      const solver = new DJSequencer({
         seed: 42,
         enableEnergy,
         unverifiedStrategy
       });
 
-      const res = seqRes.result;
+      const res = solver.solve(orderedTracks);
       setOrderedTracks(res.orderedTracks);
-      setOriginalTracks(res.originalTracks);
       setLastRemoved(null);
       setEvaluation(res.evaluation);
-      setOriginalEvaluation(res.originalEvaluation);
+      setOriginalEvaluation(evaluateCurrentOrder(originalTracks, { enableEnergy }));
       setViewMode('sequenced');
       setSelectedTrackIndex(0);
 
-      // Auto-save set to history keyed by account (Fix 6)
-      let historySaveFailed = false;
-      const updatedHistory = saveSetToHistory({
-        name: setName || 'My Set',
-        tracks: res.orderedTracks,
-        evaluation: res.evaluation
-      }, accountKey, {
-        onError: () => { historySaveFailed = true; }
-      });
-      setCrateHistory(updatedHistory);
-
-      // Fetch bridge & bonus suggestions if available
-      try {
-        const sugRes = await fetchSuggestions(res.evaluation, res.orderedTracks, authToken);
-        setBridgeSuggestions(sugRes.bridgeSuggestions || []);
-        setBonusTunes(sugRes.bonusTunes || []);
-      } catch (sugErr) {
-        console.warn('Suggestions note:', sugErr);
-      }
+      // Suggestions refer to old positions; do not keep stale placement advice.
+      setBridgeSuggestions([]);
+      setBonusTunes([]);
 
       const gradedPairs = res.evaluation?.gradedCount ?? 0;
-      if (historySaveFailed) {
-        // The save failure must win over the build toast, or it is
-        // overwritten within milliseconds and the user never sees it.
-        showToast('Running order built, but could not save this set - browser storage is full. Your saved sets are untouched; delete older saved sets to free space.', 7000, 'warning');
-      } else {
-        showToast(gradedPairs > 0
-          ? ((res.evaluation?.unverifiedCount ?? 0) > 0
-            ? `Draft order built - ${res.evaluation.unverifiedCount} transition${res.evaluation.unverifiedCount > 1 ? 's' : ''} need${res.evaluation.unverifiedCount > 1 ? '' : 's'} review.`
-            : 'Running order built.')
-          : 'Order preserved as imported - insufficient metadata to grade transitions.');
-      }
+      showToast(gradedPairs > 0
+        ? ((res.evaluation?.unverifiedCount ?? 0) > 0
+          ? `Draft order built - ${res.evaluation.unverifiedCount} transitions need review.` : 'Running order built.')
+        : 'Order preserved as imported - insufficient metadata to grade transitions.');
     } catch (err) {
       showToast(`Couldn't build the order. Your tracks are still here.`, 5000);
     } finally {
@@ -533,13 +547,7 @@ export function App() {
       recordingReviewTracks: (previous.recordingReviewTracks || []).filter(t => t.id !== trackId)
         .concat(replacement.recordingNeedsReview ? [replacement] : [])
     }) : null);
-    let saveFailed = false;
-    setCrateHistory(saveSetToHistory({
-      name: setName || 'My Set', tracks: updatedOrdered, evaluation: updatedEvaluation
-    }, accountKey, { onError: () => { saveFailed = true; } }));
-    showToast(saveFailed
-      ? `${message} Could not save this revision - browser storage is full or blocked. Existing saved sets are untouched.`
-      : message, saveFailed ? 7000 : 3000, saveFailed ? 'warning' : 'success');
+    showToast(message);
   };
 
   const handleApplyOverride = (trackId, overrideData) => {
@@ -652,6 +660,9 @@ export function App() {
 
   // Reset to home state
   const handleStartFresh = () => {
+    if (saveError && !window.confirm('Your latest changes could not be saved. Start a new set and discard them?')) return false;
+    setActiveSetId(null); setSaveError(false);
+    setSetName('Untitled Set');
     setTracks([]);
     setOrderedTracks([]);
     setOriginalTracks([]);
@@ -661,6 +672,8 @@ export function App() {
     setSelectedPlaylist(null);
     setSelectedTrackIndex(null);
     setIsSampleSet(false);
+    setShowRedoConfirm(false);
+    return true;
   };
 
   const currentDisplayTracks = viewMode === 'original' ? originalTracks : orderedTracks;
@@ -711,6 +724,16 @@ export function App() {
         onOpenHistory={() => setShowHistoryDrawer(true)}
       />
 
+      {saveError && <div role="alert" className="sticky top-20 z-40 mx-4 mt-4 p-3 bg-[#1B1F19] border border-[#F59E0B] rounded text-sm text-[#FDE047]">
+        Changes are active in this session, but could not be saved. Your previous saved set is untouched. Free browser storage before leaving.
+        <button type="button" className="deck-btn-secondary ml-3 text-xs" onClick={() => {
+          if (!activeSetId) newSetIdentity();
+          else {
+            const result = updateActiveSet({ id: activeSetId, name: setName, tracks: orderedTracks, originalTracks, evaluation }, accountKey);
+            setCrateHistory(result.history); setSaveError(!result.saved);
+          }
+        }}>Retry save</button>
+      </div>}
       <main className="flex-1 max-w-[1240px] w-full mx-auto p-4 sm:p-6 space-y-6 pb-28">
         {!isSetLoaded ? (
           /* Composition A: Before a Set is Loaded */
@@ -736,9 +759,9 @@ export function App() {
                   onClick={handleStartFresh}
                   className="deck-btn-ghost text-xs flex items-center gap-1.5 text-[#BAC2B3] hover:text-[#F3F0E6] p-1.5"
                   title="Return to track import"
-                  aria-label="Return to import"
+                  aria-label="New set"
                 >
-                  <ArrowLeft className="w-4 h-4" />
+                  <ArrowLeft className="w-4 h-4" /> New set
                 </button>
 
                 <div className="min-w-0">
@@ -793,6 +816,12 @@ export function App() {
                 onToggleEnergy={() => setEnableEnergy(!enableEnergy)}
               />
             )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" onClick={handleRunSequencer} disabled={isLoading || !orderedTracks.length} className="deck-btn-secondary text-xs min-h-[44px]">Redo order</button>
+              {!activeSetId && <button className="deck-btn-secondary text-xs min-h-[44px]" onClick={newSetIdentity}>Save as new set</button>}
+              <p className="text-xs text-[#BAC2B3]">Recalculate using your latest track info. You'll confirm before the current order changes.</p>
+            </div>
 
             {/* Comparison Overview (Original vs Suggested) */}
             {evaluation && originalEvaluation && (
@@ -860,7 +889,7 @@ export function App() {
                   tracks={currentDisplayTracks}
                   transitions={currentDisplayTransitions}
                   selectedTrackId={activeTrack?.id}
-                  onReorderTracks={handleReorderTracks}
+                  onReorderTracks={viewMode === 'sequenced' ? handleReorderTracks : undefined}
                   onSelectTrack={(t, idx) => setSelectedTrackIndex(idx)}
                   onRemoveTrack={viewMode === 'sequenced' ? handleRemoveTrack : undefined}
                 />
@@ -975,10 +1004,33 @@ export function App() {
         </p>
       </footer>
 
+      {showRedoConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4" onClick={() => setShowRedoConfirm(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="redo-title" className="deck-panel p-5 max-w-md w-full space-y-4" onClick={e => e.stopPropagation()} onKeyDown={e => {
+            if (e.key === 'Escape') setShowRedoConfirm(false);
+            if (e.key === 'Tab') {
+              const buttons = e.currentTarget.querySelectorAll('button');
+              if (e.shiftKey && document.activeElement === buttons[0]) { e.preventDefault(); buttons[buttons.length - 1].focus(); }
+              else if (!e.shiftKey && document.activeElement === buttons[buttons.length - 1]) { e.preventDefault(); buttons[0].focus(); }
+            }
+          }}>
+            <h2 id="redo-title" className="text-lg font-bold text-[#F3F0E6]">Replace the current order?</h2>
+            <p className="text-sm text-[#BAC2B3]">This will recalculate and replace your current running order using the latest track info. Your track edits stay, removed tracks stay out, and the original playlist is untouched.</p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" autoFocus onClick={() => setShowRedoConfirm(false)} className="deck-btn-secondary min-h-[44px]">Cancel</button>
+              <button type="button" onClick={handleConfirmRedo} className="deck-btn-primary min-h-[44px]">Yes, redo order</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modals & Drawers */}
       <HistoryDrawer
         isOpen={showHistoryDrawer}
         history={crateHistory}
+        activeSetId={activeSetId}
+        saveError={saveError}
+        onNewSet={() => { if (handleStartFresh() !== false) setShowHistoryDrawer(false); }}
         googleUser={googleUser}
         onClose={() => setShowHistoryDrawer(false)}
         onLoadSet={handleLoadHistoricalSet}

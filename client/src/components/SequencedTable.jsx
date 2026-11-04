@@ -11,7 +11,7 @@ import {
   HelpCircle,
   X
 } from 'lucide-react';
-import { camelotBadgeColors, trackValueState, evidenceBadge, transitionDisplay } from '../utils/trackBadges.js';
+import { camelotBadgeColors, trackValueState, evidenceBadge, transitionDisplay, transitionToneClass } from '../utils/trackBadges.js';
 
 /**
  * Colour-coded per-track data badges: Camelot pill keyed to wheel hue, BPM
@@ -75,6 +75,7 @@ export function SequencedTable({
   };
 
   const handleDragOver = (e, index) => {
+    if (!onReorderTracks) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     if (dragOverIndex !== index) {
@@ -84,7 +85,7 @@ export function SequencedTable({
 
   const handleDrop = (e, targetIndex) => {
     e.preventDefault();
-    if (draggedIndex === null || draggedIndex === targetIndex) {
+    if (!onReorderTracks || draggedIndex === null || draggedIndex === targetIndex) {
       setDraggedIndex(null);
       setDragOverIndex(null);
       return;
@@ -106,6 +107,7 @@ export function SequencedTable({
 
   // Keyboard / Touch Move handlers
   const moveTrack = (currentIndex, direction) => {
+    if (!onReorderTracks) return;
     const targetIndex = currentIndex + direction;
     if (targetIndex < 0 || targetIndex >= tracks.length) return;
 
@@ -143,7 +145,7 @@ export function SequencedTable({
               return (
                 <React.Fragment key={rowKey}>
                   <tr
-                    draggable
+                    draggable={!!onReorderTracks}
                     onDragStart={(e) => handleDragStart(e, idx)}
                     onDragOver={(e) => handleDragOver(e, idx)}
                     onDrop={(e) => handleDrop(e, idx)}
@@ -172,7 +174,7 @@ export function SequencedTable({
                         <div className="flex flex-col">
                           <button
                             onClick={() => moveTrack(idx, -1)}
-                            disabled={idx === 0}
+                            disabled={!onReorderTracks || idx === 0}
                             className="text-[#7E8876] hover:text-[#F3F0E6] disabled:opacity-20 inline-flex items-center justify-center min-h-[40px] min-w-[40px] rounded border border-[#394133]"
                             title="Move up"
                             aria-label={`Move track ${idx + 1} up`}
@@ -181,7 +183,7 @@ export function SequencedTable({
                           </button>
                           <button
                             onClick={() => moveTrack(idx, 1)}
-                            disabled={idx === tracks.length - 1}
+                            disabled={!onReorderTracks || idx === tracks.length - 1}
                             className="text-[#7E8876] hover:text-[#F3F0E6] disabled:opacity-20 inline-flex items-center justify-center min-h-[40px] min-w-[40px] rounded border border-[#394133]"
                             title="Move down"
                             aria-label={`Move track ${idx + 1} down`}
@@ -260,18 +262,13 @@ export function SequencedTable({
                             const td = transitionDisplay(transition, track, tracks[idx + 1]);
                             return (
                               <>
-                                <span className={
-                                  td.tone === 'review' ? 'text-[#F59E0B] font-semibold' :
-                                  td.tone === 'SMOOTH' ? 'text-[#86EFAC] font-semibold' :
-                                  td.tone === 'STRETCH' ? 'text-[#FDE047]' :
-                                  td.tone === 'CLASH' ? 'text-[#FCA5A5]' : 'text-[#BAC2B3]'
-                                }>
+                                <span className={transitionToneClass(td.tone)}>
                                   {td.text}
                                 </span>
                                 {td.showBpmChange && (
                                   <>
                                     <span>•</span>
-                                    <span className="tabular-nums">
+                                    <span className={`tabular-nums whitespace-nowrap shrink-0 ${transitionToneClass(td.tempoTone)}`}>
                                       {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
                                     </span>
                                   </>
@@ -325,7 +322,7 @@ export function SequencedTable({
                 <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                   <button
                     onClick={() => moveTrack(idx, -1)}
-                    disabled={idx === 0}
+                    disabled={!onReorderTracks || idx === 0}
                     className="p-1.5 rounded bg-[#10120F] text-[#BAC2B3] disabled:opacity-20 min-h-[44px] min-w-[44px] flex items-center justify-center border border-[#394133]"
                     aria-label={`Move track ${idx + 1} up`}
                   >
@@ -333,7 +330,7 @@ export function SequencedTable({
                   </button>
                   <button
                     onClick={() => moveTrack(idx, 1)}
-                    disabled={idx === tracks.length - 1}
+                    disabled={!onReorderTracks || idx === tracks.length - 1}
                     className="p-1.5 rounded bg-[#10120F] text-[#BAC2B3] disabled:opacity-20 min-h-[44px] min-w-[44px] flex items-center justify-center border border-[#394133]"
                     aria-label={`Move track ${idx + 1} down`}
                   >
@@ -363,19 +360,19 @@ export function SequencedTable({
 
               {/* Transition to next preview */}
               {transition && idx < tracks.length - 1 && (
-                <div className="text-[11px] font-mono text-[#7E8876] pt-1 border-t border-[#252B22]/60 flex items-center gap-2">
+                <div className="text-[11px] font-mono text-[#7E8876] pt-1 border-t border-[#252B22]/60 flex flex-wrap items-center gap-2">
                   <span className="text-[#394133]">↳</span>
                   {(() => {
                     const td = transitionDisplay(transition, track, tracks[idx + 1]);
                     return (
                       <>
-                        <span className={td.tone === 'review' ? 'text-[#F59E0B] font-semibold' : 'text-[#BAC2B3]'}>
+                        <span className={transitionToneClass(td.tone)}>
                           {td.text}
                         </span>
                         {td.showBpmChange && (
                           <>
                             <span>•</span>
-                            <span className="tabular-nums">
+                            <span className={`tabular-nums whitespace-nowrap shrink-0 ${transitionToneClass(td.tempoTone)}`}>
                               {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
                             </span>
                           </>

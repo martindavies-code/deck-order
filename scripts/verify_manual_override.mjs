@@ -59,7 +59,8 @@ try {
     assert.equal(history[0].tracks[1].workingBpm, 125);
     assert.equal(history[0].tracks[1].camelot, '4A');
     assert.deepEqual(history[0].tracks.map(t => t.id), tracks.map(t => t.id));
-    assert.deepEqual(history[1], original);
+    assert.equal(history.length, 1);
+    assert.equal(history[0].id, original.id);
     assert.equal(history[0].evaluation.gradedCount, 50);
     await rail.getByRole('button', { name: 'Reset', exact: true }).click();
     await rail.getByRole('button', { name: 'Use suggested', exact: true }).waitFor();
@@ -100,6 +101,7 @@ try {
     await rail.getByRole('button', { name: 'Cancel', exact: true }).click().catch(() => {});
     await page.evaluate(() => {
       const originalSetItem = Storage.prototype.setItem;
+      window.fixtureOriginalSetItem = originalSetItem;
       Storage.prototype.setItem = function(key, value) {
         if (key.startsWith('deck_order_crate_history_')) throw new DOMException('Fixture quota exceeded', 'QuotaExceededError');
         return originalSetItem.call(this, key, value);
@@ -110,10 +112,34 @@ try {
     await rail.locator('input[type=number]').fill('126');
     await rail.locator('input[type=text]').fill('F minor');
     await rail.getByRole('button', { name: 'Apply value', exact: true }).click();
-    await page.getByText(/Could not save this revision/).waitFor();
+    await page.getByRole('alert').waitFor();
     assert.match(await rail.innerText(), /126 BPM/);
     assert.equal(await page.evaluate(key => localStorage.getItem(key), key), savedBeforeFailure);
+    await page.getByText('Custom value applied.', { exact: true }).waitFor({ state: 'hidden' });
     await page.screenshot({ path: `/downloads/override-storage-warning-${width}.png` });
+    // Failed autosave must not let New silently discard the active session.
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.getByRole('button', { name: 'New set', exact: true }).click();
+    assert.match(await rail.innerText(), /126 BPM/);
+    assert.equal(await page.evaluate(key => localStorage.getItem(key), key), savedBeforeFailure);
+    await page.getByRole('button', { name: /Saved sets/ }).click();
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.getByRole('button', { name: 'Load set', exact: true }).first().click();
+    await page.getByRole('heading', { name: 'Saved sets', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    assert.match(await rail.innerText(), /126 BPM/);
+    assert.equal(await page.evaluate(key => localStorage.getItem(key), key), savedBeforeFailure);
+    // Retry while blocked must retain the warning and stored bytes.
+    await page.getByRole('button', { name: 'Retry save', exact: true }).click();
+    await page.getByRole('alert').waitFor();
+    assert.equal(await page.evaluate(key => localStorage.getItem(key), key), savedBeforeFailure);
+    await page.evaluate(() => { Storage.prototype.setItem = window.fixtureOriginalSetItem; });
+    await page.getByRole('button', { name: 'Retry save', exact: true }).click();
+    await page.getByRole('alert').waitFor({ state: 'hidden' });
+    const recovered = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), key);
+    assert.equal(recovered[0].tracks[1].bpm, 126);
+    assert.equal(recovered.length, 1);
+    assert.equal(recovered[0].id, original.id);
     // Real row controls: larger targets, remove in place, one-step undo.
     const remove = page.getByRole('button', { name: `Remove ${source.title} from this set`, exact: true }).filter({ visible: true });
     const up = page.getByRole('button', { name: 'Move track 2 up', exact: true }).filter({ visible: true });
