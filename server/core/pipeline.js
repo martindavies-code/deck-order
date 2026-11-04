@@ -278,6 +278,9 @@ export class VerificationPipeline {
     // If manual sources were already attached to track (e.g. from CSV or previous lookup)
     if (track.sources && track.sources.length > 0) {
       for (const s of track.sources) {
+        // A manual/CSV entry with no tempo or key is an empty placeholder,
+        // not evidence: it must not count as a corroborating source.
+        if (!(s && (s.bpm || s.camelot))) continue;
         if (!successfulHits.some(h => h.provider === s.name)) {
           successfulHits.push(s);
         }
