@@ -514,7 +514,7 @@ export function App() {
     showToast('Restored original track order.');
   };
 
-  // Change working metadata locally. No provider calls, writes or re-optimisation.
+  // Change working metadata locally. No provider calls, remote writes or re-optimisation.
   const commitTrackValue = (trackId, replacement, message) => {
     const updatedTracks = replaceTrackById(tracks, trackId, replacement);
     const updatedOrdered = replaceTrackById(orderedTracks, trackId, replacement);
@@ -525,7 +525,14 @@ export function App() {
     setOriginalTracks(updatedOriginal);
     setEvaluation(updatedEvaluation);
     setOriginalEvaluation(evaluateCurrentOrder(updatedOriginal, { enableEnergy }));
-    setCoverageReport(previous => ({ ...previous, ...computeCoverageCounts(updatedTracks) }));
+    setCoverageReport(previous => previous ? ({
+      ...previous,
+      ...computeCoverageCounts(updatedTracks),
+      tempoReviewTracks: (previous.tempoReviewTracks || []).filter(t => t.id !== trackId)
+        .concat(replacement.tempoNeedsReview ? [replacement] : []),
+      recordingReviewTracks: (previous.recordingReviewTracks || []).filter(t => t.id !== trackId)
+        .concat(replacement.recordingNeedsReview ? [replacement] : [])
+    }) : null);
     let saveFailed = false;
     setCrateHistory(saveSetToHistory({
       name: setName || 'My Set', tracks: updatedOrdered, evaluation: updatedEvaluation
