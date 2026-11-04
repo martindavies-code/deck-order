@@ -18,6 +18,9 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
   const harmonicCost = harmEval.cost !== null ? harmEval.cost : 4.0; // penalty if unverified harmonic
 
   // 2. Tempo Cost
+  // An unconfirmed octave suggestion is NOT trusted tempo: grade it like
+  // unverified data instead of confidently scoring the raw/suggested jump.
+  const tempoUnconfirmed = !!(trackA.tempoNeedsReview || trackB.tempoNeedsReview);
   const bpmA = trackA.workingBpm || trackA.bpm;
   const bpmB = trackB.workingBpm || trackB.bpm;
 
@@ -25,7 +28,9 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
   let tempoDiffPct = 0;
   let bpmChange = 0;
 
-  if (bpmA && bpmB) {
+  if (tempoUnconfirmed) {
+    tempoCost = 3; // unconfirmed tempo penalty
+  } else if (bpmA && bpmB) {
     bpmChange = Math.round((bpmB - bpmA) * 10) / 10;
     tempoDiffPct = Math.abs(bpmB - bpmA) / bpmA * 100;
 
@@ -48,7 +53,8 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
     tempoCost = 3; // unverified tempo penalty
   }
 
-  const hasTempo = typeof trackA.bpm === 'number' && typeof trackB.bpm === 'number' &&
+  const hasTempo = !tempoUnconfirmed &&
+    typeof trackA.bpm === 'number' && typeof trackB.bpm === 'number' &&
     !isNaN(trackA.bpm) && !isNaN(trackB.bpm);
 
   // 3. Energy Cost (evaluated ONLY if both tracks provide real energy)
@@ -83,7 +89,7 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
   // STRETCH: 3.0 <= total cost <= 5.0
   // CLASH: total cost > 5.0
   let grade;
-  if (harmEval.cost === null || harmEval.grade === 'UNVERIFIED') {
+  if (tempoUnconfirmed || harmEval.cost === null || harmEval.grade === 'UNVERIFIED') {
     grade = 'UNVERIFIED';
   } else {
     grade = 'SMOOTH';
@@ -106,7 +112,7 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
     grade,
     bpmChange: hasTempo ? bpmChange : null,
     tempoDiffPct: hasTempo ? Math.round(tempoDiffPct * 10) / 10 : null,
-    relation: harmEval.relation,
+    relation: tempoUnconfirmed ? `${harmEval.relation}; tempo needs review` : harmEval.relation,
     harmEval
   };
 }
