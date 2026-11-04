@@ -58,9 +58,9 @@ export function ComparisonView({
               <span className="font-mono font-bold text-[#D6FC55] tabular-nums">
                 {fmtScore(sequencedEvaluation)}
               </span>
-              {origGraded && seqGraded && costDelta > 0 && (
-                <span className="text-[10px] font-mono text-[#D6FC55] bg-[rgba(214,252,85,0.1)] px-1.5 py-0.2 rounded border border-[rgba(214,252,85,0.25)] tabular-nums">
-                  -{costDelta.toFixed(1)}
+              {origGraded && seqGraded && costDelta !== 0 && (
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border tabular-nums ${costDelta > 0 ? 'text-[#D6FC55] bg-[rgba(214,252,85,0.1)] border-[rgba(214,252,85,0.25)]' : 'text-[#F59E0B] bg-[rgba(245,158,11,0.1)] border-[rgba(245,158,11,0.3)]'}`}>
+                  {costDelta > 0 ? `-${costDelta.toFixed(1)}` : `+${Math.abs(costDelta).toFixed(1)}`}
                 </span>
               )}
             </div>
@@ -90,8 +90,14 @@ export function ComparisonView({
                 <span className="text-[10px] font-mono uppercase tracking-wider text-[#7E8876]">
                   {hasPartialData ? 'Ungraded (incomplete data)' : 'Ungraded (no data)'}
                 </span>
-                <div className="font-mono font-bold text-[#BAC2B3] tabular-nums mt-0.5">
-                  {sequencedEvaluation.unverifiedCount}
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="font-mono text-[#BAC2B3] tabular-nums">
+                    {originalEvaluation.unverifiedCount}
+                  </span>
+                  <ArrowRight className="w-3 h-3 text-[#7E8876]" />
+                  <span className="font-mono font-bold text-[#F3F0E6] tabular-nums">
+                    {sequencedEvaluation.unverifiedCount}
+                  </span>
                 </div>
               </div>
             </>
