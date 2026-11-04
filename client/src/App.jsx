@@ -439,7 +439,9 @@ export function App() {
         name: setName || 'My Set',
         tracks: res.orderedTracks,
         evaluation: res.evaluation
-      }, accountKey);
+      }, accountKey, {
+        onError: () => showToast('Could not save this set - browser storage is full. Your saved sets are untouched; delete older saved sets to free space.', 6000)
+      });
       setCrateHistory(updatedHistory);
 
       // Fetch bridge & bonus suggestions if available
