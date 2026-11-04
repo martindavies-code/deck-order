@@ -94,6 +94,10 @@ export class FreqBlogProvider {
       matchedArtist: rec.artist_name || null,
       matchedTitle: rec.track_name || null,
       mixName: rec.mix_name || null,
+      // Expose the matched record's version so cross-source version
+      // comparison (detectVersionMismatch) sees the real tag, not just the
+      // query's. Null when the catalogue record has no version tag.
+      version: rec.mix_name || null,
       source: source || rec.source || 'freqblog_catalog',
       bpmConfidence: typeof rec.bpm_confidence === 'number' ? rec.bpm_confidence : null,
       keyConfidence: typeof rec.key_confidence === 'number' ? rec.key_confidence : null,
