@@ -21,7 +21,6 @@ import {
   parseCsvText,
   verifyTracklist,
   computeCoverageCounts,
-  submitOverride,
   runSequencer,
   fetchSuggestions,
   requestSavePreview,
@@ -31,6 +30,7 @@ import {
   refreshSpotifyToken,
   SPOTIFY_403_MSG
 } from './services/api.js';
+import { applyManualOverride, revertManualOverride, replaceTrackById } from './utils/manualOverride.js';
 import { evaluateCurrentOrder } from './services/clientSequencer.js';
 import {
   initiateSpotifyLogin,
@@ -290,7 +290,8 @@ export function App() {
     setLastRemoved(null);
     setOriginalTracks(historicalSet.tracks || []);
     setTracks(historicalSet.tracks || []);
-    setEvaluation(historicalSet.evaluation || null);
+    setEvaluation(evaluateCurrentOrder(historicalSet.tracks || [], { enableEnergy }));
+    setOriginalEvaluation(evaluateCurrentOrder(historicalSet.tracks || [], { enableEnergy }));
     setSelectedPlaylist({ name: historicalSet.name, id: null, itemCount: historicalSet.tracks?.length || 0 });
     setSetName(historicalSet.name || 'Saved Set');
     setIsSampleSet(false);
@@ -513,50 +514,49 @@ export function App() {
     showToast('Restored original track order.');
   };
 
-  // Apply user manual override for a track
-  const handleApplyOverride = async (trackId, overrideData) => {
+  // Change working metadata locally. No provider calls, remote writes or re-optimisation.
+  const commitTrackValue = (trackId, replacement, message) => {
+    const updatedTracks = replaceTrackById(tracks, trackId, replacement);
+    const updatedOrdered = replaceTrackById(orderedTracks, trackId, replacement);
+    const updatedOriginal = replaceTrackById(originalTracks, trackId, replacement);
+    const updatedEvaluation = evaluateCurrentOrder(updatedOrdered, { enableEnergy });
+    setTracks(updatedTracks);
+    setOrderedTracks(updatedOrdered);
+    setOriginalTracks(updatedOriginal);
+    setEvaluation(updatedEvaluation);
+    setOriginalEvaluation(evaluateCurrentOrder(updatedOriginal, { enableEnergy }));
+    setCoverageReport(previous => previous ? ({
+      ...previous,
+      ...computeCoverageCounts(updatedTracks),
+      tempoReviewTracks: (previous.tempoReviewTracks || []).filter(t => t.id !== trackId)
+        .concat(replacement.tempoNeedsReview ? [replacement] : []),
+      recordingReviewTracks: (previous.recordingReviewTracks || []).filter(t => t.id !== trackId)
+        .concat(replacement.recordingNeedsReview ? [replacement] : [])
+    }) : null);
+    let saveFailed = false;
+    setCrateHistory(saveSetToHistory({
+      name: setName || 'My Set', tracks: updatedOrdered, evaluation: updatedEvaluation
+    }, accountKey, { onError: () => { saveFailed = true; } }));
+    showToast(saveFailed
+      ? `${message} Could not save this revision - browser storage is full or blocked. Existing saved sets are untouched.`
+      : message, saveFailed ? 7000 : 3000, saveFailed ? 'warning' : 'success');
+  };
+
+  const handleApplyOverride = (trackId, overrideData) => {
     try {
-      await submitOverride(trackId, overrideData);
-      const verifyRes = await verifyTracklist(tracks, isSampleSet);
-      setTracks(verifyRes.tracks);
-      setCoverageReport(verifyRes.report);
-
-      // Also update currently ordered tracks
-      const updatedOrdered = orderedTracks.map(t => {
-        if (t.id === trackId) {
-          return {
-            ...t,
-            bpm: overrideData.bpm || t.bpm,
-            key: overrideData.key || t.key,
-            confidence: 'user_override'
-          };
-        }
-        return t;
-      });
-      setOrderedTracks(updatedOrdered);
-
-      if (updatedOrdered.length > 0) {
-        const seqRes = await runSequencer(updatedOrdered, {
-          seed: 42,
-          enableEnergy,
-          unverifiedStrategy
-        });
-        setEvaluation(seqRes.result.evaluation);
-      }
-      showToast('Custom value applied.');
+      const track = (viewMode === 'original' ? originalTracks : orderedTracks).find(t => t.id === trackId);
+      if (!track) throw new Error('This track is no longer in the working set.');
+      commitTrackValue(trackId, applyManualOverride(track, overrideData), 'Custom value applied.');
+      return true;
     } catch (err) {
-      showToast(`Could not apply value: ${err.message}`, 5000);
+      showToast(`Could not apply value: ${err.message}`, 5000, 'warning');
+      return false;
     }
   };
 
   const handleRevertOverride = (trackId) => {
-    const original = tracks.find(t => t.id === trackId);
-    if (!original) return;
-    handleApplyOverride(trackId, {
-      bpm: original.rawBpm || original.bpm,
-      key: original.rawKey || original.key
-    });
-    showToast('Reset to source value.');
+    const track = orderedTracks.find(t => t.id === trackId);
+    if (track) commitTrackValue(trackId, revertManualOverride(track), 'Reset to source value.');
   };
 
   // Suggestion actions

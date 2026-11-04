@@ -36,11 +36,11 @@ export function InspectorRail({
   const handleSave = (e) => {
     e.preventDefault();
     if (!overrideBpm && !overrideKey) return;
-    onApplyOverride(track.id, {
-      bpm: parseFloat(overrideBpm) || track.bpm,
-      key: overrideKey || track.key
+    const applied = onApplyOverride(track.id, {
+      bpm: overrideBpm,
+      key: overrideKey
     });
-    setShowOverrideForm(false);
+    if (applied) setShowOverrideForm(false);
   };
 
   const isOverridden = track.confidence === 'user_override';
@@ -88,11 +88,22 @@ export function InspectorRail({
           </span>
         </div>
         {track.tempoNeedsReview && track.tempoSuggestion && (
-          <div className="flex justify-between">
-            <span className="text-[#7E8876]">Suggested tempo:</span>
+          <div className="space-y-2">
+            <span className="text-[#7E8876] block">Suggested tempo:</span>
             <span className="font-mono text-amber-400">
               {track.tempoSuggestion.bpm} BPM ({track.tempoSuggestion.kind} - needs review)
             </span>
+            <button type="button" onClick={() => onApplyOverride(track.id, { bpm: track.tempoSuggestion.bpm })}
+              className="deck-btn-primary text-xs min-h-[40px] w-full justify-center">
+              <Check className="w-3.5 h-3.5" /> Use suggested
+            </button>
+          </div>
+        )}
+        {track.manualOverride && (
+          <div className="space-y-1 text-[#BAC2B3]">
+            <p className="text-[#D6FC55]">Your value is active. Provider evidence is unchanged.</p>
+            <p>Source tempo: {track.manualOverride.sourceTrack.bpm ?? 'Unknown'} BPM</p>
+            <p>Source key: {track.manualOverride.sourceTrack.camelot || track.manualOverride.sourceTrack.key || 'Unknown'}</p>
           </div>
         )}
         {track.isNormalized && track.rawBpm && !track.tempoNeedsReview && (
@@ -191,14 +202,13 @@ export function InspectorRail({
               <RotateCcw className="w-3 h-3" />
               <span>Reset</span>
             </button>
-          ) : (
+          ) : null}
             <button
               onClick={() => setShowOverrideForm(!showOverrideForm)}
               className="text-[11px] text-[#D6FC55] hover:underline font-mono"
             >
               {showOverrideForm ? 'Cancel' : 'Use my value'}
             </button>
-          )}
         </div>
 
         {showOverrideForm && (
@@ -210,8 +220,8 @@ export function InspectorRail({
               <input
                 type="number"
                 step="0.1"
-                min="60"
-                max="220"
+                min="0.1"
+                max="400"
                 value={overrideBpm}
                 onChange={(e) => setOverrideBpm(e.target.value)}
                 placeholder="e.g. 128"
