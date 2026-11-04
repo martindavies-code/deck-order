@@ -101,6 +101,22 @@ export function verifyAndClearAuthState(incomingState) {
  * By default, stores tokens in sessionStorage (dies with browser session).
  * Persists to localStorage only if explicit staySignedIn flag is passed.
  */
+/**
+ * Persists the stay-signed-in choice immediately (before the OAuth redirect
+ * destroys component state). Read back by getStoredSpotifyTokens on return.
+ */
+export function saveStaySignedInPreference(staySignedIn) {
+  try {
+    if (staySignedIn) {
+      localStorage.setItem('deck_order_stay_signed_in', 'true');
+    } else {
+      localStorage.removeItem('deck_order_stay_signed_in');
+    }
+  } catch {
+    // storage unavailable; session-only tokens still work
+  }
+}
+
 export function getStoredSpotifyTokens() {
   if (typeof window === 'undefined') return { accessToken: null, refreshToken: null };
   const staySignedIn = localStorage.getItem('deck_order_stay_signed_in') === 'true';
