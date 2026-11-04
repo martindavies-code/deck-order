@@ -96,7 +96,7 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
   }
 
   return (
-    <section className="deck-panel p-4 sm:p-5 space-y-3">
+    <section className="deck-panel p-4 sm:p-5 space-y-3 scroll-mb-40">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-[#394133] gap-2">
         <div>
           <h3 className="text-sm font-bold text-[#F3F0E6] uppercase tracking-wide font-sans">
@@ -321,11 +321,12 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
       <div className="space-y-1 text-[10px] font-mono text-[#7E8876] leading-relaxed">
         <p>
           Shaded band: target peak zone ({Math.round(PEAK_ZONE_START * 100)}-{Math.round(PEAK_ZONE_END * 100)}% through the set) -
-          the sequencer nudges faster tracks toward it and slower tracks out of it.
+          the sequencer's tempo rules discourage tracks under 124 BPM inside the band and tracks over 132 BPM in the first 20%.
+          A sequencing target, not a measurement of the current set.
         </p>
         <p>
           {metric === 'energy'
-            ? 'Energy score (0-1) comes from the metadata catalogue; tracks without one are skipped and manual BPM/key entries do not add one. '
+            ? 'Energy score (0-1) comes from the metadata catalogue; tracks without one are skipped and manual BPM/key entries do not add one. The band above is a tempo-based target; it does not measure or target energy. '
             : ''}
           Ring colour grades the transition into the next track: green smooth, amber stretch, red clash, grey unverified.
           A dashed amber ring flags a tempo that still needs review; a dashed marker below the line means no value for this view.
