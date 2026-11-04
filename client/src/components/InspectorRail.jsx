@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, AlertTriangle, RotateCcw, Sliders, ExternalLink } from 'lucide-react';
+import { transitionDisplay } from '../utils/trackBadges.js';
 
 export function InspectorRail({
   track,
@@ -120,6 +121,21 @@ export function InspectorRail({
         </div>
       </div>
 
+      {/* Recording identity uncertainty: matched record carries a different ISRC */}
+      {track.recordingNeedsReview && track.recordingMismatch && (
+        <div className="p-3 rounded bg-[rgba(234,179,8,0.1)] border border-[rgba(234,179,8,0.3)] space-y-2 text-xs text-[#FDE047]">
+          <div className="flex items-center gap-1.5 font-bold">
+            <AlertTriangle className="w-3.5 h-3.5 text-[#EAB308]" />
+            <span>Recording match needs review</span>
+          </div>
+          <p className="text-[11px] text-[#BAC2B3]">
+            The matched record's ISRC ({track.recordingMismatch.matchedIsrc}) differs from this track's
+            ({track.recordingMismatch.suppliedIsrc}). Tempo and key shown are from that record -
+            confirm they belong to this recording before trusting them for sequencing.
+          </p>
+        </div>
+      )}
+
       {/* Disagreements if any */}
       {track.status === 'disputed' && (
         <div className="p-3 rounded bg-[rgba(234,179,8,0.1)] border border-[rgba(234,179,8,0.3)] space-y-2 text-xs text-[#FDE047]">
@@ -138,16 +154,24 @@ export function InspectorRail({
         <span className="text-[10px] font-mono uppercase tracking-wider text-[#7E8876] block">
           Placement in set
         </span>
-        {transitionBefore && (
-          <p className="text-[11px] text-[#BAC2B3]">
-            Incoming: <span className="font-mono text-[#F3F0E6]">{transitionBefore.relation || 'Key match'}</span> from previous track{typeof transitionBefore.bpmChange === 'number' ? ` (${transitionBefore.bpmChange > 0 ? `+${transitionBefore.bpmChange}` : transitionBefore.bpmChange} BPM)` : ''}.
-          </p>
-        )}
-        {transitionAfter && (
-          <p className="text-[11px] text-[#BAC2B3]">
-            Outgoing: Handover to next track is <span className="font-mono text-[#F3F0E6]">{transitionAfter.relation || 'Key match'}</span>{typeof transitionAfter.bpmChange === 'number' ? ` (${transitionAfter.bpmChange > 0 ? `+${transitionAfter.bpmChange}` : transitionAfter.bpmChange} BPM)` : ''}.
-          </p>
-        )}
+        {transitionBefore && (() => {
+          const td = transitionDisplay(transitionBefore, track, null);
+          return (
+            <p className="text-[11px] text-[#BAC2B3]">
+              Incoming: <span className={`font-mono ${td.tone === 'review' ? 'text-[#F59E0B]' : 'text-[#F3F0E6]'}`}>{td.text}</span>{td.tone === 'review' ? '' : ` from previous track${td.showBpmChange ? ` (${transitionBefore.bpmChange > 0 ? `+${transitionBefore.bpmChange}` : transitionBefore.bpmChange} BPM)` : ''}`}.
+            </p>
+          );
+        })()}
+        {transitionAfter && (() => {
+          const td = transitionDisplay(transitionAfter, track, null);
+          return (
+            <p className="text-[11px] text-[#BAC2B3]">
+              Outgoing: {td.tone === 'review'
+                ? <span className="font-mono text-[#F59E0B]">{td.text}.</span>
+                : <>Handover to next track is <span className="font-mono text-[#F3F0E6]">{td.text}</span>{td.showBpmChange ? ` (${transitionAfter.bpmChange > 0 ? `+${transitionAfter.bpmChange}` : transitionAfter.bpmChange} BPM)` : ''}.</>}
+            </p>
+          );
+        })()}
         {!transitionBefore && !transitionAfter && (
           <p className="text-[11px] text-[#7E8876]">Single track in current selection.</p>
         )}

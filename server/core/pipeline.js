@@ -343,6 +343,13 @@ export class VerificationPipeline {
       const trackVersion = (track.version || '').toLowerCase().trim();
       const genericVersion = !trackVersion || trackVersion === 'original mix' || trackVersion === 'original';
       const matchedVersion = hit.version || hit.mixName || null;
+      // A matched record whose ISRC differs from the track's own ISRC is a
+      // name/version match, not a proven recording: keep the values visible
+      // but flag the recording identity for review and keep the track out of
+      // confident grading until confirmed.
+      const recordingMismatch = track.isrc && hit.isrc && hit.isrc !== track.isrc
+        ? { suppliedIsrc: track.isrc, matchedIsrc: hit.isrc }
+        : null;
 
       let bpm = rawBpm;
       let workingBpm = rawBpm;
@@ -391,6 +398,10 @@ export class VerificationPipeline {
         }
       }
 
+      if (recordingMismatch) {
+        reason += ` Matched record ISRC ${recordingMismatch.matchedIsrc} differs from this track's ${recordingMismatch.suppliedIsrc}: tempo/key come from that record and need confirmation.`;
+      }
+
       return {
         ...track,
         version: genericVersion && matchedVersion ? matchedVersion : (track.version || matchedVersion || null),
@@ -400,6 +411,8 @@ export class VerificationPipeline {
         isNormalized,
         tempoSuggestion,
         tempoNeedsReview,
+        recordingNeedsReview: Boolean(recordingMismatch),
+        recordingMismatch,
         key: hit.key,
         camelot: hit.camelot,
         energy: hit.energy ?? track.energy ?? null,
@@ -455,8 +468,17 @@ export class VerificationPipeline {
     const disputedList = [];
     const unverifiedList = [];
     const tempoReviewList = [];
+    const recordingReviewList = [];
 
     for (const t of tracks) {
+      if (t.recordingNeedsReview) {
+        recordingReviewList.push({
+          id: t.id,
+          name: `${t.artist} - ${t.title}`,
+          suppliedIsrc: t.recordingMismatch?.suppliedIsrc || null,
+          matchedIsrc: t.recordingMismatch?.matchedIsrc || null
+        });
+      }
       if (t.tempoNeedsReview) {
         tempoReviewList.push({
           id: t.id,
@@ -497,7 +519,8 @@ export class VerificationPipeline {
       disputedTracks: disputedList,
       unverifiedTracks: unverifiedList,
       tempoReviewTracks: tempoReviewList,
-      isReadyForSequencing: unverified === 0 && disputed === 0 && tempoReviewList.length === 0
+      recordingReviewTracks: recordingReviewList,
+      isReadyForSequencing: unverified === 0 && disputed === 0 && tempoReviewList.length === 0 && recordingReviewList.length === 0
     };
   }
 }

@@ -628,7 +628,7 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress) 
     const processedAll = new Array(total).fill(null);
     const merged = {
       corroborated: 0, singleSource: 0, disputed: 0, missing: 0,
-      disputedTracks: [], unverifiedTracks: [], tempoReviewTracks: []
+      disputedTracks: [], unverifiedTracks: [], tempoReviewTracks: [], recordingReviewTracks: []
     };
     let checkedCount = 0;
     let consecutiveFailures = 0;
@@ -669,6 +669,7 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress) 
         merged.disputedTracks.push(...(r.disputedTracks || []));
         merged.unverifiedTracks.push(...(r.unverifiedTracks || []));
         merged.tempoReviewTracks.push(...(r.tempoReviewTracks || []));
+        merged.recordingReviewTracks.push(...(r.recordingReviewTracks || []));
         checkedCount += batch.length;
         consecutiveFailures = 0;
         if (typeof onProgress === 'function') {

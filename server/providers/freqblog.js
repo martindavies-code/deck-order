@@ -19,6 +19,21 @@ function versionTokens(s) {
 }
 
 /**
+ * Search term for provider queries. A separate version tag is search evidence
+ * too: the catalogue indexes mix names, so a bare-title search can only ever
+ * return the primary record (e.g. the original mix), which the version
+ * cross-check then rightly rejects. Appending the version text makes the
+ * matching mix record reachable; every cross-check still applies to the
+ * result. Skipped when the title already carries the distinguishing tokens
+ * (e.g. Spotify-style "Title - Remix Edit" names) to avoid double decoration.
+ */
+function withVersion(title, version) {
+  const t = norm(title);
+  const missing = versionTokens(version || '').filter(tok => !t.includes(tok));
+  return missing.length ? `${title} (${version})` : title;
+}
+
+/**
  * FreqBlog music metadata provider (https://api.freqblog.com).
  * Returns raw provider values plus match provenance; the pipeline's
  * normalizeTempo marks (never silently rewrites) octave normalization.
@@ -112,7 +127,14 @@ export class FreqBlogProvider {
 
   async lookupTrack(query) {
     if (!this.isConfigured()) return { success: false, reason: 'API key not configured' };
-    const cacheKey = `freqblog:v2:${norm(query.artist)}|${titleCore(query.title)}|${(query.isrc || '').toUpperCase()}|${norm(query.version)}`;
+    // Include a separate version tag in the search terms (see withVersion):
+    // it only widens WHICH records the search can reach; it never relaxes the
+    // cross-checks applied to whatever comes back.
+    const searchTitle = withVersion(query.title, query.version);
+    // Only version-decorated searches changed behavior: they use a fresh v3
+    // key so misses cached before this fix cannot mask it. Every unchanged
+    // query shape keeps its v2 key and its safe cached entries.
+    const cacheKey = `freqblog:${searchTitle !== query.title ? 'v3' : 'v2'}:${norm(query.artist)}|${titleCore(query.title)}|${(query.isrc || '').toUpperCase()}|${norm(query.version)}`;
     if (this.cache) {
       const hit = await this.cache.get(cacheKey);
       if (hit) return hit;
@@ -123,7 +145,7 @@ export class FreqBlogProvider {
 
     // 1) ISRC exact-identifier path via /bulk (when present), then artist/title/version cross-check
     if (query.isrc && ISRC_RE.test(query.isrc)) {
-      const item = { track: query.title, artist: query.artist, isrc: query.isrc.toUpperCase() };
+      const item = { track: searchTitle, artist: query.artist, isrc: query.isrc.toUpperCase() };
       const r = await this._call('/bulk', [item]);
       const row = r.success && r.json && Array.isArray(r.json.results) ? r.json.results[0] : null;
       const rec = row && row.found ? row.result : null;
@@ -144,7 +166,7 @@ export class FreqBlogProvider {
 
     // 2) Name search with inline on-demand analysis wait
     if (!result) {
-      const q = `/lookup?track=${encodeURIComponent(query.title)}&artist=${encodeURIComponent(query.artist)}&wait=15`;
+      const q = `/lookup?track=${encodeURIComponent(searchTitle)}&artist=${encodeURIComponent(query.artist)}&wait=15`;
       const r = await this._call(q);
       if (!r.success) {
         lastReason = r.reason;

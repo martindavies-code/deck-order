@@ -141,6 +141,34 @@ export function getCrateHistory(accountKey = 'anonymous') {
   }
 }
 
+/**
+ * Content signature of a saved set: name plus, per track IN ORDER, the
+ * identity and every substantive field that defines this revision:
+ * version/mix tag, recording identity (ISRC), tempo/key values, evidence
+ * status, confidence (including user overrides) and review flags. Array
+ * order is part of the signature, so a reordered set is a new revision; a
+ * re-save after enrichment, an override or a review-flag change differs and
+ * is kept as its own entry. Two saves with the same signature are the same
+ * revision and the repeat is skipped.
+ */
+function setSignature(name, tracks) {
+  return JSON.stringify([
+    name,
+    (tracks || []).map(t => [
+      t.id || `${t.artist} - ${t.title}`,
+      t.version ?? null,
+      t.isrc ?? null,
+      t.bpm ?? null,
+      t.key ?? null,
+      t.camelot ?? null,
+      t.status ?? null,
+      t.confidence ?? null,
+      t.recordingNeedsReview === true,
+      t.tempoNeedsReview === true
+    ])
+  ]);
+}
+
 export function saveSetToHistory(setRecord, accountKey = 'anonymous') {
   try {
     const current = getCrateHistory(accountKey);
@@ -155,6 +183,15 @@ export function saveSetToHistory(setRecord, accountKey = 'anonymous') {
       evaluation: setRecord.evaluation || null,
       source: setRecord.source || 'Manual CSV'
     };
+
+    // Identical repeat saves (e.g. a double autosave of the same revision)
+    // must not multiply entries. The existing entry already holds this exact
+    // revision, so nothing is lost by skipping the duplicate. Existing
+    // duplicates are left untouched - no destructive cleanup.
+    const sig = setSignature(entry.name, entry.tracks);
+    if (current.some(s => setSignature(s.name, s.tracks) === sig)) {
+      return current;
+    }
 
     // Keep up to 50 sets in history per account
     const updated = [entry, ...current.slice(0, 49)];
