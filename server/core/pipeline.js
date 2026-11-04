@@ -2,6 +2,7 @@ import { parseKey } from './camelot.js';
 import { GetSongBPMProvider } from '../providers/getsongbpm.js';
 import { SonovaultProvider } from '../providers/sonovault.js';
 import { SoundNetProvider } from '../providers/soundnet.js';
+import { FreqBlogProvider } from '../providers/freqblog.js';
 
 /**
  * Normalizes BPM into target working tempo band (default 90-180 BPM).
@@ -181,6 +182,7 @@ export class VerificationPipeline {
     this.getSongBPM = new GetSongBPMProvider(options.getSongBpmKey);
     this.sonovault = new SonovaultProvider(options.sonovaultKey);
     this.soundNet = new SoundNetProvider(options.soundNetKey);
+    this.freqblog = new FreqBlogProvider(options.freqblogKey, options.freqblogOptions || {});
     this.userOverrides = new Map(); // trackId -> { bpm, key, camelot, energy }
   }
 
@@ -263,6 +265,9 @@ export class VerificationPipeline {
     }
     if (this.soundNet.isConfigured()) {
       providerPromises.push(this.soundNet.lookupTrack(trackQuery));
+    }
+    if (this.freqblog.isConfigured()) {
+      providerPromises.push(this.freqblog.lookupTrack(trackQuery));
     }
 
     const results = await Promise.all(providerPromises);
