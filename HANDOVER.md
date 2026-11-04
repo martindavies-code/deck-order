@@ -1,7 +1,7 @@
 # Deck Order - Handover Notes
 
 Date: 2026-11-04
-Branch: `freqblog-version-search-fix` (pending review before merge to `main`)
+Release: `freqblog-version-search-fix` reviewed and squash-merged to `main` on 2026-11-04; client published via the GitHub Pages Actions workflow, worker deployed to Cloudflare from released `main`.
 
 ## App layout
 
