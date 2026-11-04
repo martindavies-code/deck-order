@@ -1,5 +1,9 @@
-import fs from 'node:fs';
-import path from 'node:path';
+let fs = null;
+let path = null;
+if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+  ({ default: fs } = await import('node:fs'));
+  ({ default: path } = await import('node:path'));
+}
 
 /**
  * Bounded LRU Cache with Atomic File Persistence
@@ -8,13 +12,14 @@ import path from 'node:path';
  */
 export class ProviderCache {
   constructor(options = {}) {
-    this.cacheFilePath = path.resolve(options.cacheFilePath || './cache/provider_cache.json');
+    this.cacheFilePath = path ? path.resolve(options.cacheFilePath || './cache/provider_cache.json') : null;
     this.maxCapacity = options.maxCapacity || 5000;
     this.memoryCache = new Map();
     this.loadFromDisk();
   }
 
   loadFromDisk() {
+    if (!fs || !this.cacheFilePath) return;
     try {
       if (fs.existsSync(this.cacheFilePath)) {
         const raw = fs.readFileSync(this.cacheFilePath, 'utf8');
@@ -31,6 +36,7 @@ export class ProviderCache {
   }
 
   saveToDisk() {
+    if (!fs || !this.cacheFilePath) return;
     try {
       const dir = path.dirname(this.cacheFilePath);
       if (!fs.existsSync(dir)) {
