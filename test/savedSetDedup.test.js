@@ -92,3 +92,15 @@ test('review-flag or version/ISRC change is a different revision', () => {
   h = googleAuth.saveSetToHistory(versioned, 'anonymous');
   assert.equal(h.length, 3, 'identical repeat of the new revision still dedupes');
 });
+
+test('post-removal save stores the surviving order and counts as a new revision', () => {
+  let h = googleAuth.saveSetToHistory(setA(), 'anonymous');
+  const afterRemoval = setA();
+  afterRemoval.tracks = afterRemoval.tracks.slice(1); // user removed the first track from the working set
+  h = googleAuth.saveSetToHistory(afterRemoval, 'anonymous');
+  assert.equal(h.length, 2, 'removal is a genuine revision, kept alongside the earlier one');
+  assert.deepEqual(h[0].tracks.map(t => t.id), ['t2'], 'saved set holds exactly the surviving tracks, in surviving order');
+  // an exact repeat of the reduced set still dedupes
+  h = googleAuth.saveSetToHistory(afterRemoval, 'anonymous');
+  assert.equal(h.length, 2);
+});
