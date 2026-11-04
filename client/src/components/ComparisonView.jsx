@@ -149,7 +149,7 @@ export function ComparisonView({
       {ungradedDelta !== 0 && (
         <p className="text-[11px] font-mono text-[#BAC2B3] leading-snug">
           Transition score covers a different set of handovers (ungraded {originalEvaluation.unverifiedCount} → {sequencedEvaluation.unverifiedCount}):
-          the unconfirmed track is excluded from grading until you review its tempo. Overall optimisation cost
+          the unconfirmed track is excluded from grading until you review its metadata. Overall optimisation cost
           including uncertainty penalties {fmtObj(originalEvaluation)} → {fmtObj(sequencedEvaluation)}
           {objectiveDelta > 0 ? ' (improved)' : ''} - not a measure of musical quality.
         </p>
