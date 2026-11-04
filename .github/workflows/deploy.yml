@@ -45,6 +45,7 @@ jobs:
         run: cd client && npm run build
         env:
           VITE_SPOTIFY_CLIENT_ID: ${{ vars.VITE_SPOTIFY_CLIENT_ID }}
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
 
       - name: Setup Pages
