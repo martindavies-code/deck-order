@@ -1,5 +1,18 @@
 import React, { useState } from 'react';
-import { Sliders } from 'lucide-react';
+
+// Chart semantics, kept honest with the solver (server/core/energyArc.js):
+// - Tempo view plots BPM by set position.
+// - Energy view plots the catalogue's 0-1 energy score by set position. Energy
+//   comes from the metadata provider only; manual BPM/key entries never add one.
+// - The shaded band is the arc model's target peak zone. The solver's
+//   calculateArcPositionPenalty discourages slow tracks inside 65-85% of the set
+//   and very fast tracks inside the first 20%, so the band marks where the
+//   sequencer wants the peak to land. It is a target, not a measurement.
+// - A dashed marker below the baseline means "no value for this view" (e.g. no
+//   catalogue energy score in Energy view); it never invents a value.
+
+const PEAK_ZONE_START = 0.65;
+const PEAK_ZONE_END = 0.85;
 
 export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
   const [metric, setMetric] = useState('tempo'); // 'tempo' | 'energy'
@@ -19,16 +32,30 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
   const bpmRange = Math.max(6, maxBpm - minBpm);
   const metricHasData = metric === 'energy' ? hasEnergyData : hasTempoData;
 
-  // SVG coordinates
-  const width = 800;
-  const height = 140;
-  const padLeft = 50;
-  const padRight = 30;
-  const padTop = 24;
-  const padBottom = 28;
-
-  const innerWidth = width - padLeft - padRight;
+  // SVG coordinates: one fixed slot per track so dense sets keep legible labels.
+  // The SVG keeps its aspect ratio and scrolls horizontally on narrow screens
+  // instead of squashing labels together.
+  const perTrack = 18;
+  const height = 150;
+  const padLeft = 48;
+  const padRight = 28;
+  const padTop = 40;
+  const padBottom = 32;
+  const innerWidth = Math.max(752, perTrack * (tracks.length - 1));
+  const width = padLeft + innerWidth + padRight;
   const innerHeight = height - padTop - padBottom;
+
+  const peakX = padLeft + PEAK_ZONE_START * innerWidth;
+  const peakWidth = (PEAK_ZONE_END - PEAK_ZONE_START) * innerWidth;
+
+  // Y-axis tick labels match the selected metric
+  const yLabels = metric === 'energy'
+    ? { top: '1.0', mid: '0.5', bottom: '0.0' }
+    : {
+        top: maxBpm.toFixed(0),
+        mid: ((maxBpm + minBpm) / 2).toFixed(0),
+        bottom: minBpm.toFixed(0)
+      };
 
   // Build points with truthful gaps
   const points = tracks.map((t, idx) => {
@@ -39,8 +66,9 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
     let y = null;
     if (hasValue) {
       if (metric === 'energy') {
-        // Energy scaled 0 to 1
-        y = padTop + (1 - val) * innerHeight;
+        // Energy scaled 0 to 1, clamped so an out-of-range record cannot escape the plot
+        const clamped = Math.min(1, Math.max(0, val));
+        y = padTop + (1 - clamped) * innerHeight;
       } else {
         y = padTop + (1 - ((val - minBpm) / bpmRange)) * innerHeight;
       }
@@ -68,14 +96,16 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
   }
 
   return (
-    <section className="deck-panel p-4 sm:p-5 space-y-3">
+    <section className="deck-panel p-4 sm:p-5 space-y-3 scroll-mb-40">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-[#394133] gap-2">
         <div>
           <h3 className="text-sm font-bold text-[#F3F0E6] uppercase tracking-wide font-sans">
             The shape of your set
           </h3>
           <p className="text-xs text-[#BAC2B3]">
-            Tempo is one part of the story. Listen for phrasing, vocals and room to mix.
+            {metric === 'energy'
+              ? "Energy is the catalogue's 0-1 intensity score. Tempo is one part of the story; listen for phrasing, vocals and room to mix."
+              : 'Tempo is one part of the story. Listen for phrasing, vocals and room to mix.'}
           </p>
         </div>
 
@@ -116,61 +146,54 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
         </div>
       ) : (
       <>
-      <div className="w-full overflow-hidden">
+      <div className="w-full overflow-x-auto">
         <svg
           viewBox={`0 0 ${width} ${height}`}
-          className="w-full h-32 select-none"
-          preserveAspectRatio="none"
-          aria-label="Set tempo and key progression chart"
+          style={{ width: `max(100%, ${width}px)`, height: 'auto', display: 'block' }}
+          className="select-none"
+          aria-label={metric === 'energy'
+            ? 'Catalogue energy score (0 to 1) across the set, with the target peak zone marked'
+            : 'Tempo in BPM across the set, with the target peak zone marked'}
         >
-          {/* Target Zone Shading: Target peak zone (60-80% of set) - only when graded data exists */}
-          {metricHasData && (
-            <>
-              <rect
-                x={padLeft + 0.60 * innerWidth}
-                y={padTop}
-                width={0.20 * innerWidth}
-                height={innerHeight}
-                fill="rgba(214, 252, 85, 0.05)"
-                stroke="rgba(214, 252, 85, 0.2)"
-                strokeDasharray="3 3"
-                rx="4"
-              />
-              <text
-                x={padLeft + 0.70 * innerWidth}
-                y={padTop + 14}
-                fill="#D6FC55"
-                fontSize="9"
-                fontFamily="JetBrains Mono"
-                textAnchor="middle"
-                letterSpacing="0.05em"
-              >
-                TARGET PEAK
-              </text>
-            </>
-          )}
+          {/* Target peak zone: the arc model's 65-85% peak target (see energyArc.js) */}
+          <rect
+            x={peakX}
+            y={padTop}
+            width={peakWidth}
+            height={innerHeight}
+            fill="rgba(214, 252, 85, 0.05)"
+            stroke="rgba(214, 252, 85, 0.2)"
+            strokeDasharray="3 3"
+            rx="4"
+          />
+          {/* Caption sits in the reserved band above the plot, clear of node labels */}
+          <text
+            x={peakX + peakWidth / 2}
+            y={padTop - 6}
+            fill="#D6FC55"
+            fontSize="9"
+            fontFamily="JetBrains Mono"
+            textAnchor="middle"
+            letterSpacing="0.05em"
+          >
+            TARGET PEAK
+          </text>
 
-          {/* Gridlines & Y-Axis Labels - only meaningful when data exists */}
+          {/* Gridlines & Y-Axis Labels - labelled in the selected metric's units */}
           <line x1={padLeft} y1={padTop} x2={width - padRight} y2={padTop} stroke="#252B22" strokeDasharray="2 2" />
-          {metricHasData && (
-            <text x={padLeft - 8} y={padTop + 4} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
-              {maxBpm.toFixed(0)}
-            </text>
-          )}
+          <text x={padLeft - 8} y={padTop + 4} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
+            {yLabels.top}
+          </text>
 
           <line x1={padLeft} y1={padTop + innerHeight / 2} x2={width - padRight} y2={padTop + innerHeight / 2} stroke="#252B22" strokeDasharray="2 2" />
-          {metricHasData && (
-            <text x={padLeft - 8} y={padTop + innerHeight / 2 + 3} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
-              {((maxBpm + minBpm) / 2).toFixed(0)}
-            </text>
-          )}
+          <text x={padLeft - 8} y={padTop + innerHeight / 2 + 3} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
+            {yLabels.mid}
+          </text>
 
           <line x1={padLeft} y1={padTop + innerHeight} x2={width - padRight} y2={padTop + innerHeight} stroke="#252B22" strokeDasharray="2 2" />
-          {metricHasData && (
-            <text x={padLeft - 8} y={padTop + innerHeight + 3} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
-              {minBpm.toFixed(0)}
-            </text>
-          )}
+          <text x={padLeft - 8} y={padTop + innerHeight + 3} fill="#7E8876" fontSize="9" fontFamily="JetBrains Mono" textAnchor="end">
+            {yLabels.bottom}
+          </text>
 
           {/* Connected segments (with truthful gaps when data is missing) */}
           {segments.map((seg, sIdx) => {
@@ -192,37 +215,45 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
           {points.map((p, i) => {
             const trans = evaluation.transitions[i];
             const nodeStroke = trans?.grade === 'CLASH' ? '#EF4444' :
-                               trans?.grade === 'STRETCH' ? '#EAB308' : '#D6FC55';
+                               trans?.grade === 'STRETCH' ? '#EAB308' :
+                               trans?.grade === 'UNVERIFIED' ? '#7E8876' : '#D6FC55';
 
             if (p.hasValue && p.track.tempoNeedsReview) {
-              // Unconfirmed octave suggestion: amber dashed ring, never a trusted point
+              // Unconfirmed octave suggestion: amber dashed ring, never a trusted point.
+              // Label matches the normal node placement so dense sets stay legible;
+              // the legend explains the ring.
+              const reviewLabelY = p.y - 9 >= padTop + 6 ? p.y - 9 : p.y + 17;
               return (
                 <g key={i} className="cursor-pointer" onClick={() => onSelectTrack && onSelectTrack(p.track)}>
                   <circle cx={p.x} cy={p.y} r="5" fill="none" stroke="#F59E0B" strokeWidth="1.5" strokeDasharray="2 2" />
-                  <text x={p.x} y={p.y - 10} fill="#F59E0B" fontSize="8" fontFamily="JetBrains Mono" textAnchor="middle">
-                    {(p.track.camelot || '') + ' review'}
+                  <text x={p.x} y={reviewLabelY} fill="#F59E0B" fontSize="9" fontFamily="JetBrains Mono" textAnchor="middle" fontWeight="bold">
+                    {p.track.camelot || ''}
+                  </text>
+                  <text x={p.x} y={height - 8} fill="#7E8876" fontSize="8" fontFamily="JetBrains Mono" textAnchor="middle">
+                    {i + 1}
                   </text>
                 </g>
               );
             }
 
             if (!p.hasValue) {
-              // Missing value: dashed marker below the plot baseline (never on a data line)
+              // No value for this view: neutral dashed marker below the plot baseline
+              // (never on a data line, never an invented value).
               return (
                 <g key={i} className="cursor-pointer" onClick={() => onSelectTrack && onSelectTrack(p.track)}>
                   <circle
                     cx={p.x}
-                    cy={padTop + innerHeight + 8}
-                    r="3"
+                    cy={padTop + innerHeight + 9}
+                    r="3.5"
                     fill="none"
-                    stroke="#EF4444"
+                    stroke="#7E8876"
                     strokeWidth="1.5"
                     strokeDasharray="2 2"
                   />
                   <text
                     x={p.x}
-                    y={padTop + innerHeight + 22}
-                    fill="#EF4444"
+                    y={padTop + innerHeight + 24}
+                    fill="#7E8876"
                     fontSize="8"
                     fontFamily="JetBrains Mono"
                     textAnchor="middle"
@@ -232,6 +263,10 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
                 </g>
               );
             }
+
+            // Labels sit above the node, or below it when the node reaches the
+            // reserved caption band at the top of the plot.
+            const labelY = p.y - 9 >= padTop + 6 ? p.y - 9 : p.y + 17;
 
             return (
               <g
@@ -257,7 +292,7 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
                 />
                 <text
                   x={p.x}
-                  y={p.y - 7}
+                  y={labelY}
                   fill="#BAC2B3"
                   fontSize="9"
                   fontFamily="JetBrains Mono"
@@ -268,7 +303,7 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
                 </text>
                 <text
                   x={p.x}
-                  y={height - 6}
+                  y={height - 8}
                   fill="#7E8876"
                   fontSize="8"
                   fontFamily="JetBrains Mono"
@@ -280,6 +315,22 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
             );
           })}
         </svg>
+      </div>
+
+      {/* Legend: what the band, units and markers actually mean */}
+      <div className="space-y-1 text-[10px] font-mono text-[#7E8876] leading-relaxed">
+        <p>
+          Shaded band: target peak zone ({Math.round(PEAK_ZONE_START * 100)}-{Math.round(PEAK_ZONE_END * 100)}% through the set) -
+          the sequencer's tempo rules discourage tracks under 124 BPM inside the band and tracks over 132 BPM in the first 20%.
+          A sequencing target, not a measurement of the current set.
+        </p>
+        <p>
+          {metric === 'energy'
+            ? 'Energy score (0-1) comes from the metadata catalogue; tracks without one are skipped and manual BPM/key entries do not add one. The band above is a tempo-based target; it does not measure or target energy. '
+            : ''}
+          Ring colour grades the transition into the next track: green smooth, amber stretch, red clash, grey unverified.
+          A dashed amber ring flags a tempo that still needs review; a dashed marker below the line means no value for this view.
+        </p>
       </div>
 
       {/* Axis Footer */}
