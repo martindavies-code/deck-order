@@ -151,13 +151,24 @@ export function getCrateHistory(accountKey = 'anonymous') {
  * is kept as its own entry. Two saves with the same signature are the same
  * revision and the repeat is skipped.
  */
+function trackSignatureIdentity(t) {
+  // Stable recording identity: never the per-import generated id, which
+  // changes on every import and would defeat duplicate detection across
+  // sessions. Artist + title identify the track; version/mix tag, ISRC and
+  // Spotify id (as available) remain separate signature fields below so
+  // distinct recordings of the same song stay distinct revisions.
+  const artistTitle = [t.artist, t.title].map(v => (v || '').trim()).filter(Boolean).join(' - ');
+  return artistTitle || t.id || '';
+}
+
 function setSignature(name, tracks) {
   return JSON.stringify([
     name,
     (tracks || []).map(t => [
-      t.id || `${t.artist} - ${t.title}`,
+      trackSignatureIdentity(t),
       t.version ?? null,
       t.isrc ?? null,
+      t.spotifyId ?? t.spotify_id ?? t.sourceSpotifyId ?? null,
       t.bpm ?? null,
       t.key ?? null,
       t.camelot ?? null,
