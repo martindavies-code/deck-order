@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Clock, Play, Trash2, Bookmark } from 'lucide-react';
 
 export function HistoryDrawer({
@@ -7,8 +7,12 @@ export function HistoryDrawer({
   history = [],
   onLoadSet,
   onClearHistory,
+  onDeleteSet,
   googleUser
 }) {
+  // Two-tap inline confirm guards accidental deletion of a single set.
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') onClose();
@@ -18,6 +22,10 @@ export function HistoryDrawer({
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
   }, [isOpen, onClose]);
+
+  useEffect(() => {
+    if (!isOpen) setConfirmDeleteId(null);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -56,13 +64,13 @@ export function HistoryDrawer({
             history.map((item) => (
               <div
                 key={item.id}
-                className="bg-[#10120F] border border-[#394133] hover:border-[#D6FC55] rounded-lg p-3 flex items-center justify-between gap-3 transition-colors"
+                className="bg-[#10120F] border border-[#394133] hover:border-[#D6FC55] rounded-lg p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
               >
                 <div className="min-w-0 flex-1">
                   <h4 className="text-xs font-bold text-[#F3F0E6] truncate">
                     {item.name}
                   </h4>
-                  <div className="flex items-center gap-3 mt-1 text-[11px] font-mono text-[#BAC2B3]">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] font-mono text-[#BAC2B3]">
                     <span className="flex items-center gap-1 text-[#7E8876]">
                       <Clock className="w-3 h-3" />
                       {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -76,17 +84,50 @@ export function HistoryDrawer({
                   </div>
                 </div>
 
-                <button
-                  onClick={() => {
-                    onLoadSet(item);
-                    onClose();
-                  }}
-                  className="deck-btn-secondary text-xs min-h-[36px] py-1 px-3 shrink-0"
-                  title="Load this set into the workspace"
-                >
-                  <Play className="w-3 h-3 fill-current" />
-                  <span>Load set</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto flex-wrap justify-end">
+                  <button
+                    onClick={() => {
+                      onLoadSet(item);
+                      onClose();
+                    }}
+                    className="deck-btn-secondary text-xs min-h-[36px] py-1 px-3"
+                    title="Load this set into the workspace"
+                  >
+                    <Play className="w-3 h-3 fill-current" />
+                    <span>Load set</span>
+                  </button>
+
+                  {onDeleteSet && (
+                    confirmDeleteId === item.id ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            onDeleteSet(item.id);
+                            setConfirmDeleteId(null);
+                          }}
+                          className="text-[11px] font-semibold text-[#EF4444] border border-[rgba(239,68,68,0.4)] rounded px-2 min-h-[36px] hover:bg-[rgba(239,68,68,0.12)] transition-colors"
+                        >
+                          Confirm delete
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-[11px] text-[#BAC2B3] px-2 min-h-[36px] hover:text-[#F3F0E6] transition-colors"
+                        >
+                          Keep
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(item.id)}
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center text-[#7E8876] hover:text-[#EF4444] transition-colors"
+                        aria-label={`Delete saved set ${item.name}`}
+                        title="Delete this saved set (others are kept)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
             ))
           )}

@@ -60,7 +60,7 @@ export class FreqBlogProvider {
     }
   }
 
-  _crossCheck(query, rec) {
+  _crossCheck(query, rec, { skipVersion = false } = {}) {
     const artistToken = norm(query.artist).split(' ')[0];
     const gotArtist = norm(rec.artist_name);
     if (!artistToken || !gotArtist.includes(artistToken)) {
@@ -71,7 +71,9 @@ export class FreqBlogProvider {
     if (!wantTitle || !(gotTitle.includes(wantTitle) || wantTitle.includes(gotTitle))) {
       return { ok: false, reason: `title_mismatch: wanted "${query.title}", provider has "${rec.track_name}"` };
     }
-    const wantVersion = versionTokens(query.version || '');
+    // Version tokens are only vetted when the caller cannot already prove the
+    // recording identity (skipVersion) - see the ISRC exact-identifier path.
+    const wantVersion = skipVersion ? [] : versionTokens(query.version || '');
     if (wantVersion.length) {
       const hay = `${norm(rec.mix_name)} ${norm(rec.remixer)} ${norm(rec.track_name)}`;
       const missing = wantVersion.filter(t => !hay.includes(t));
@@ -110,7 +112,7 @@ export class FreqBlogProvider {
 
   async lookupTrack(query) {
     if (!this.isConfigured()) return { success: false, reason: 'API key not configured' };
-    const cacheKey = `freqblog:${norm(query.artist)}|${titleCore(query.title)}|${(query.isrc || '').toUpperCase()}|${norm(query.version)}`;
+    const cacheKey = `freqblog:v2:${norm(query.artist)}|${titleCore(query.title)}|${(query.isrc || '').toUpperCase()}|${norm(query.version)}`;
     if (this.cache) {
       const hit = await this.cache.get(cacheKey);
       if (hit) return hit;
@@ -125,10 +127,18 @@ export class FreqBlogProvider {
       const r = await this._call('/bulk', [item]);
       const row = r.success && r.json && Array.isArray(r.json.results) ? r.json.results[0] : null;
       const rec = row && row.found ? row.result : null;
-      if (rec && rec.bpm && this._crossCheck(query, rec).ok) {
+      // The version veto is skipped ONLY when the provider record carries the
+      // exact same ISRC as the query: an identical recording identifier proves
+      // this IS the requested recording, so missing mix metadata on the
+      // catalogue record must not veto it. A different/absent record ISRC
+      // keeps the full conservative cross-check, including version.
+      const exactRecording = Boolean(
+        rec && typeof rec.isrc === 'string' && rec.isrc.toUpperCase() === query.isrc.toUpperCase()
+      );
+      if (rec && rec.bpm && this._crossCheck(query, rec, { skipVersion: exactRecording }).ok) {
         result = this._toResult(rec, 'freqblog_isrc_bulk');
       } else if (rec && rec.bpm) {
-        lastReason = this._crossCheck(query, rec).reason;
+        lastReason = this._crossCheck(query, rec, { skipVersion: exactRecording }).reason;
       }
     }
 

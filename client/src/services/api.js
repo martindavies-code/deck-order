@@ -15,6 +15,28 @@ import {
 const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
 const API_BASE = (import.meta.env?.VITE_API_BASE || '').replace(/\/+$/, '');
 
+/**
+ * Whether this deployment can reach a metadata provider for tempo/key checks:
+ * the local server in dev, or the deployed metadata worker when VITE_API_BASE
+ * was baked into a static (GitHub Pages) build.
+ */
+export const METADATA_PROVIDER_CONFIGURED = Boolean(API_BASE) || !isGitHubPages;
+
+/** Batch sizing for provider verification: one request per batch keeps each
+ * call inside its timeout (the worker processes tracks serially) and produces
+ * real per-batch progress for the UI. */
+export const VERIFY_BATCH_SIZE = 10;
+// The worker analyzes uncached tracks serially on demand; a measured cold
+// 10-track batch of niche tracks took >120s server-side. The per-batch
+// timeout must comfortably exceed that so the client never aborts a batch
+// mid-analysis. No automatic retry: the provider KV-caches only COMPLETED
+// per-track results (no in-flight dedup), so a blind retry while the first
+// attempt is still running would start duplicate provider jobs and consume
+// duplicate quota. Recovery is instead honest partial state plus a natural
+// manual re-run, which is served from the warmed cache.
+export const VERIFY_BATCH_TIMEOUT_MS = 300000;
+const VERIFY_MAX_CONSECUTIVE_FAILURES = 2;
+
 export const SPOTIFY_403_MSG =
   "Spotify refused this request. If this app is in Development Mode, only accounts on its allowlist can use it - paste or upload a tracklist instead.";
 
@@ -293,6 +315,53 @@ export function mapSpotifyTrackToItem(t) {
 }
 
 /**
+ * Formats the in-progress loading state for the import UI.
+ * Only real signals are shown: Spotify page fetching (fetched of total) and
+ * provider verification batches (checked of total). Where no total exists the
+ * indicator is indeterminate - never a fabricated percentage.
+ */
+export function formatLoadProgress(progress) {
+  if (!progress || !progress.stage) return null;
+  const fetched = Math.max(0, progress.fetched || 0);
+  const total = typeof progress.total === 'number' && progress.total > 0 ? progress.total : null;
+
+  if (progress.stage === 'fetch') {
+    if (total) {
+      return {
+        text: `Loading tracks from Spotify - ${Math.min(fetched, total)} of ${total}`,
+        determinate: true,
+        ratio: Math.min(fetched / total, 1)
+      };
+    }
+    return {
+      text: fetched > 0 ? `Loading tracks from Spotify - ${fetched} so far` : 'Loading tracks from Spotify…',
+      determinate: false,
+      ratio: null
+    };
+  }
+
+  if (progress.stage === 'verify') {
+    if (total && progress.phase === 'start' && progress.batch) {
+      return {
+        text: `Checking tempo and key - batch ${progress.batch} of ${progress.batches}, ${Math.min(fetched, total)} of ${total} done`,
+        determinate: true,
+        ratio: Math.min(fetched / total, 1)
+      };
+    }
+    if (total) {
+      return {
+        text: `Checking tempo and key - ${Math.min(fetched, total)} of ${total}`,
+        determinate: true,
+        ratio: Math.min(fetched / total, 1)
+      };
+    }
+    return { text: 'Checking tempo and key…', determinate: false, ratio: null };
+  }
+
+  return { text: 'Reading tracklist…', determinate: false, ratio: null };
+}
+
+/**
  * Formats user-facing toast notifications for playlist loading.
  * Guarantees zero usable tracks NEVER shows a success notification.
  */
@@ -367,7 +436,7 @@ export function formatPlaylistLoadToast(pl, loadedCount, totalReturned, skipped 
   };
 }
 
-export async function fetchPlaylistItems(token, playlistId) {
+export async function fetchPlaylistItems(token, playlistId, onProgress) {
   if (!isGitHubPages) {
     let proxyRes = null;
     try {
@@ -384,10 +453,14 @@ export async function fetchPlaylistItems(token, playlistId) {
       if (proxyRes.ok) {
         const proxyData = await proxyRes.json();
         const items = proxyData.items || [];
+        const totalItems = proxyData.totalItems ?? items.length;
+        if (typeof onProgress === 'function') {
+          onProgress({ stage: 'fetch', fetched: items.length, total: totalItems });
+        }
         return {
           success: true,
           items,
-          totalItems: proxyData.totalItems ?? items.length,
+          totalItems,
           skipped: proxyData.skipped ?? { episodes: 0, localFiles: 0, unavailable: 0, unsupported: 0, total: 0 }
         };
       }
@@ -443,6 +516,14 @@ export async function fetchPlaylistItems(token, playlistId) {
       }
     }
 
+    if (typeof onProgress === 'function') {
+      onProgress({
+        stage: 'fetch',
+        fetched: totalRawItems,
+        total: typeof data.total === 'number' && data.total > 0 ? data.total : null
+      });
+    }
+
     if (data.next) {
       if (!isValidSpotifyNextUrl(data.next)) {
         throw new Error(`Spotify pagination rejected: untrusted next URL "${data.next}".`);
@@ -489,7 +570,7 @@ export function computeCoverageCounts(tracks) {
   return { total, missingTempo, missingKey };
 }
 
-export async function verifyTracklist(tracks, isSampleData = false) {
+export async function verifyTracklist(tracks, isSampleData = false, onProgress) {
   // If the tracks are from the sample/demo set, mark them explicitly as SAMPLE DATA
   if (isSampleData || tracks.some(t => t.isSampleData)) {
     const processed = tracks.map(t => ({
@@ -514,60 +595,147 @@ export async function verifyTracklist(tracks, isSampleData = false) {
         unverified: missingCount,
         summaryText: `Sample data (${tracks.length} tracks)`,
         disputedTracks: [],
-        unverifiedTracks: processed.filter(t => t.status === 'missing')
+        unverifiedTracks: processed.filter(t => t.status === 'missing'),
+        providerConfigured: METADATA_PROVIDER_CONFIGURED,
+        providerUnreachable: false,
+        providerPartialFailure: false
       }
     };
   }
 
-  try {
-    const res = await fetch(`${API_BASE}/api/pipeline/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tracks }),
-      // FreqBlog lookups can wait on backfill; allow well beyond the UI paint.
-      signal: AbortSignal.timeout(20000)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const processed = data.tracks.map(t => {
-        let status = t.status;
-        if (status === 'verified') status = 'corroborated';
-        return { ...t, status };
-      });
-      return {
-        ...data,
-        tracks: processed,
-        report: {
-          ...data.report,
-          corroborated: data.report.verified || 0,
-          supplied: 0,
-          sample: 0,
-          missing: data.report.unverified || 0
-        }
-      };
-    }
-  } catch {
-    // In-browser fallback
-  }
+  const total = tracks.length;
 
-  // Pure client-side verification for user-supplied CSV
-  let supplied = 0;
-  let missing = 0;
-  const processed = tracks.map(t => {
+  // Per-track client-side marking used when the provider cannot be reached.
+  // Honest: these tracks were NOT checked against a provider.
+  const markUnchecked = (t, reason) => {
     const hasData = Boolean(t.bpm && t.camelot);
-    if (hasData) supplied++; else missing++;
     return {
       ...t,
       status: hasData ? 'supplied' : 'missing',
-      confidence: hasData ? 'supplied' : 'none'
+      confidence: hasData ? 'supplied' : 'none',
+      ...(reason && !hasData ? { reason } : {})
     };
+  };
+
+  if (METADATA_PROVIDER_CONFIGURED && total > 0) {
+    // Batched provider verification: the worker processes tracks serially, so
+    // one request per batch stays inside the timeout and yields real progress.
+    const batches = [];
+    for (let i = 0; i < total; i += VERIFY_BATCH_SIZE) {
+      batches.push(tracks.slice(i, i + VERIFY_BATCH_SIZE));
+    }
+
+    const processedAll = new Array(total).fill(null);
+    const merged = {
+      corroborated: 0, singleSource: 0, disputed: 0, missing: 0,
+      disputedTracks: [], unverifiedTracks: [], tempoReviewTracks: []
+    };
+    let checkedCount = 0;
+    let consecutiveFailures = 0;
+    let providerFailed = false;
+
+    for (let b = 0; b < batches.length; b++) {
+      if (consecutiveFailures >= VERIFY_MAX_CONSECUTIVE_FAILURES) break;
+      const batch = batches[b];
+      // Real progress while a (possibly cold, multi-minute) batch is in flight:
+      // the UI shows which batch is being analyzed, never a fake percent.
+      if (typeof onProgress === 'function') {
+        onProgress({ stage: 'verify', phase: 'start', batch: b + 1, batches: batches.length, fetched: checkedCount, total });
+      }
+      let batchErr = null;
+      try {
+        const res = await fetch(`${API_BASE}/api/pipeline/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tracks: batch }),
+          // Cold batches can take minutes; the timeout must exceed worst-case
+          // server-side analysis so the client never aborts mid-analysis.
+          signal: AbortSignal.timeout(VERIFY_BATCH_TIMEOUT_MS)
+        });
+        if (!res.ok) throw new Error(`Provider HTTP ${res.status}`);
+        const data = await res.json();
+        if (!data || !Array.isArray(data.tracks)) throw new Error('Malformed provider response');
+
+        data.tracks.forEach((t, idx) => {
+          let status = t.status;
+          if (status === 'verified') status = 'corroborated';
+          processedAll[b * VERIFY_BATCH_SIZE + idx] = { ...t, status };
+        });
+        const r = data.report || {};
+        merged.corroborated += r.verified || 0;
+        merged.singleSource += r.singleSource || 0;
+        merged.disputed += r.disputed || 0;
+        merged.missing += r.unverified || 0;
+        merged.disputedTracks.push(...(r.disputedTracks || []));
+        merged.unverifiedTracks.push(...(r.unverifiedTracks || []));
+        merged.tempoReviewTracks.push(...(r.tempoReviewTracks || []));
+        checkedCount += batch.length;
+        consecutiveFailures = 0;
+        if (typeof onProgress === 'function') {
+          onProgress({ stage: 'verify', fetched: checkedCount, total });
+        }
+      } catch (err) {
+        batchErr = err;
+      }
+      if (batchErr) {
+        consecutiveFailures++;
+        providerFailed = true;
+        console.warn(`Verification batch ${b + 1}/${batches.length} failed:`, batchErr.message);
+      }
+    }
+
+    // Any track the provider never processed is marked honestly as unchecked.
+    let fallbackSupplied = 0;
+    let fallbackMissing = 0;
+    for (let i = 0; i < total; i++) {
+      if (processedAll[i]) continue;
+      const marked = markUnchecked(tracks[i], 'Tempo/key check did not finish - the metadata provider did not respond.');
+      if (marked.status === 'supplied') fallbackSupplied++; else fallbackMissing++;
+      processedAll[i] = marked;
+    }
+    const uncheckedCount = total - checkedCount;
+
+    return {
+      success: true,
+      tracks: processedAll,
+      report: {
+        total,
+        corroborated: merged.corroborated,
+        singleSource: merged.singleSource,
+        supplied: fallbackSupplied,
+        sample: 0,
+        disputed: merged.disputed,
+        missing: merged.missing + fallbackMissing,
+        unverified: merged.missing + fallbackMissing,
+        checkedCount,
+        uncheckedCount,
+        providerConfigured: true,
+        providerUnreachable: providerFailed && checkedCount === 0,
+        providerPartialFailure: providerFailed && checkedCount > 0 && uncheckedCount > 0,
+        summaryText: providerFailed
+          ? `Checked ${checkedCount}/${total} via provider; ${uncheckedCount} unchecked (provider did not respond)`
+          : `Provider check complete (${total} tracks)`,
+        disputedTracks: merged.disputedTracks,
+        unverifiedTracks: merged.unverifiedTracks,
+        tempoReviewTracks: merged.tempoReviewTracks
+      }
+    };
+  }
+
+  // No provider configured on this deployment: pure client-side marking.
+  let supplied = 0;
+  let missing = 0;
+  const processed = tracks.map(t => {
+    const marked = markUnchecked(t);
+    if (marked.status === 'supplied') supplied++; else missing++;
+    return marked;
   });
 
   return {
     success: true,
     tracks: processed,
     report: {
-      total: tracks.length,
+      total,
       corroborated: 0,
       singleSource: 0,
       supplied,
@@ -575,6 +743,11 @@ export async function verifyTracklist(tracks, isSampleData = false) {
       disputed: 0,
       missing,
       unverified: missing,
+      checkedCount: 0,
+      uncheckedCount: 0,
+      providerConfigured: false,
+      providerUnreachable: false,
+      providerPartialFailure: false,
       summaryText: `User supplied (${supplied} valid, ${missing} missing)`,
       disputedTracks: [],
       unverifiedTracks: processed.filter(t => t.status === 'missing')
