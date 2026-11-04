@@ -13,6 +13,7 @@ import {
 } from './clientSequencer.js';
 
 const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
+const API_BASE = (import.meta.env?.VITE_API_BASE || '').replace(/\/+$/, '');
 
 export const SPOTIFY_403_MSG =
   "Spotify refused this request. If this app is in Development Mode, only accounts on its allowlist can use it - paste or upload a tracklist instead.";
@@ -81,7 +82,7 @@ export async function fetchStatus() {
   }
 
   try {
-    const res = await fetch('/api/status', { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${API_BASE}/api/status`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     return {
@@ -518,7 +519,7 @@ export async function verifyTracklist(tracks, isSampleData = false) {
   }
 
   try {
-    const res = await fetch('/api/pipeline/verify', {
+    const res = await fetch(`${API_BASE}/api/pipeline/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tracks }),
