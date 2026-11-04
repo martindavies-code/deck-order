@@ -5,7 +5,9 @@ import {
   camelotBadgeColors,
   trackValueState,
   removeTrackAt,
-  restoreTrackAt
+  restoreTrackAt,
+  evidenceBadge,
+  transitionDisplay
 } from '../client/src/utils/trackBadges.js';
 
 test('camelot hue: 12 positions spaced 30 degrees, adjacent keys adjacent hues', () => {
@@ -69,4 +71,35 @@ test('remove out of bounds is a no-op; stale undo clamps safely', () => {
   assert.equal(noop.tracks, tracks);
   const clamped = restoreTrackAt([], { id: 'z' }, 42);
   assert.deepEqual(clamped.map(t => t.id), ['z']);
+});
+
+test('evidence badge: one shared selector for desktop and mobile (regression: mobile dropped single_source)', () => {
+  assert.deepEqual(evidenceBadge('single_source'), { label: 'Single source', cls: 'badge-status-single' });
+  assert.deepEqual(evidenceBadge('corroborated').label, 'Corroborated');
+  assert.deepEqual(evidenceBadge('sample').label, 'Sample');
+  assert.deepEqual(evidenceBadge('supplied').label, 'Supplied');
+  assert.deepEqual(evidenceBadge('disputed').label, 'Disputed');
+  assert.deepEqual(evidenceBadge('unverified').label, 'Missing');
+  assert.deepEqual(evidenceBadge('missing').label, 'Missing');
+  assert.deepEqual(evidenceBadge(undefined).label, 'Missing');
+  assert.deepEqual(evidenceBadge('some_future_status').label, 'Missing', 'unknown statuses honestly render Missing');
+});
+
+test('transition display: review-flagged side suppresses confident relation and BPM change', () => {
+  const smooth = { grade: 'SMOOTH', relation: '8A to 8A - same key', bpmChange: -3.1 };
+  const flagged = { id: 'a', bpm: 121, camelot: '8A', recordingNeedsReview: true };
+  const clean = { id: 'b', bpm: 125.4, camelot: '9A' };
+  const r1 = transitionDisplay(smooth, flagged, clean);
+  assert.equal(r1.text, 'Needs review - unconfirmed tempo/key');
+  assert.equal(r1.tone, 'review');
+  assert.equal(r1.showBpmChange, false, 'no confident BPM delta next to a review flag');
+  const r2 = transitionDisplay(smooth, clean, { ...clean, tempoNeedsReview: true });
+  assert.equal(r2.tone, 'review', 'flag on either side triggers review');
+  const ok = transitionDisplay(smooth, clean, { id: 'c', bpm: 122, camelot: '10B' });
+  assert.equal(ok.text, '8A to 8A - same key');
+  assert.equal(ok.tone, 'SMOOTH');
+  assert.equal(ok.showBpmChange, true, 'clean transitions keep solver output unchanged');
+  const unverified = transitionDisplay({ grade: null, relation: 'Unknown / Unverified harmonic data', bpmChange: null }, clean, { id: 'd', bpm: null, camelot: null });
+  assert.equal(unverified.text, 'Unknown / Unverified harmonic data');
+  assert.equal(unverified.showBpmChange, false);
 });
