@@ -67,3 +67,28 @@ test('existing history is never destructively cleaned', () => {
   assert.equal(h.length, 2, 'repeat of an older revision also skipped');
   assert.equal(h[0].tracks[0].id, 't2', 'newer distinct revision still first');
 });
+
+test('user override is a substantive edit and is kept as its own revision', () => {
+  let h = googleAuth.saveSetToHistory(setA(), 'anonymous');
+  const overridden = setA();
+  overridden.tracks = overridden.tracks.map((t, i) => i === 0
+    ? { ...t, bpm: 123.5, key: 'A-Minor', confidence: 'user_override' }
+    : t);
+  h = googleAuth.saveSetToHistory(overridden, 'anonymous');
+  assert.equal(h.length, 2, 'a user override must survive as a distinct revision');
+});
+
+test('review-flag or version/ISRC change is a different revision', () => {
+  let h = googleAuth.saveSetToHistory(setA(), 'anonymous');
+  const flagged = setA();
+  flagged.tracks = flagged.tracks.map((t, i) => i === 0 ? { ...t, recordingNeedsReview: true } : t);
+  h = googleAuth.saveSetToHistory(flagged, 'anonymous');
+  assert.equal(h.length, 2, 'a review-flag change is a genuine revision');
+  const versioned = setA();
+  versioned.tracks = versioned.tracks.map((t, i) => i === 0 ? { ...t, version: 'Club Mix', isrc: 'GBXX10000001' } : t);
+  h = googleAuth.saveSetToHistory(versioned, 'anonymous');
+  assert.equal(h.length, 3, 'a version/ISRC change is a genuine revision');
+  // and an exact repeat of the latest revision is still skipped
+  h = googleAuth.saveSetToHistory(versioned, 'anonymous');
+  assert.equal(h.length, 3, 'identical repeat of the new revision still dedupes');
+});
