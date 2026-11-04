@@ -173,20 +173,20 @@ export function SequencedTable({
                           <button
                             onClick={() => moveTrack(idx, -1)}
                             disabled={idx === 0}
-                            className="text-[#7E8876] hover:text-[#F3F0E6] disabled:opacity-20 p-0.5"
+                            className="text-[#7E8876] hover:text-[#F3F0E6] disabled:opacity-20 inline-flex items-center justify-center min-h-[40px] min-w-[40px] rounded border border-[#394133]"
                             title="Move up"
                             aria-label={`Move track ${idx + 1} up`}
                           >
-                            <ChevronUp className="w-3 h-3" />
+                            <ChevronUp className="w-5 h-5" />
                           </button>
                           <button
                             onClick={() => moveTrack(idx, 1)}
                             disabled={idx === tracks.length - 1}
-                            className="text-[#7E8876] hover:text-[#F3F0E6] disabled:opacity-20 p-0.5"
+                            className="text-[#7E8876] hover:text-[#F3F0E6] disabled:opacity-20 inline-flex items-center justify-center min-h-[40px] min-w-[40px] rounded border border-[#394133]"
                             title="Move down"
                             aria-label={`Move track ${idx + 1} down`}
                           >
-                            <ChevronDown className="w-3 h-3" />
+                            <ChevronDown className="w-5 h-5" />
                           </button>
                         </div>
                       </div>
@@ -211,6 +211,14 @@ export function SequencedTable({
                             )}
                           </p>
                           <TrackDataBadges track={track} />
+                          {onRemoveTrack && (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); onRemoveTrack(track, idx); }}
+                              className="mt-2 inline-flex items-center gap-1.5 rounded border border-[#394133] px-2 text-[11px] text-[#BAC2B3] hover:text-[#FCA5A5] min-h-[40px]"
+                              title="Remove from this set (undoable; original playlist untouched)"
+                              aria-label={`Remove ${track.title} from this set`}>
+                              <X className="w-3.5 h-3.5" /> Remove track
+                            </button>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -236,19 +244,7 @@ export function SequencedTable({
                         >
                           <Sliders className="w-3.5 h-3.5" />
                         </button>
-                        {onRemoveTrack && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onRemoveTrack(track, idx);
-                            }}
-                            className="text-[#7E8876] hover:text-[#FCA5A5] p-1"
-                            title="Remove from this set (undoable; original playlist untouched)"
-                            aria-label={`Remove ${track.title} from this set`}
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+
                       </div>
                     </td>
                   </tr>
@@ -327,31 +323,21 @@ export function SequencedTable({
 
                 {/* Move buttons for touch + remove from working set */}
                 <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                  {onRemoveTrack && (
-                    <button
-                      onClick={() => onRemoveTrack(track, idx)}
-                      className="p-1.5 rounded bg-[#10120F] text-[#BAC2B3] hover:text-[#FCA5A5] min-h-[36px] min-w-[36px] flex items-center justify-center border border-[#394133]"
-                      aria-label={`Remove ${track.title} from this set`}
-                      title="Remove from this set (undoable; original playlist untouched)"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
                   <button
                     onClick={() => moveTrack(idx, -1)}
                     disabled={idx === 0}
-                    className="p-1.5 rounded bg-[#10120F] text-[#BAC2B3] disabled:opacity-20 min-h-[36px] min-w-[36px] flex items-center justify-center border border-[#394133]"
+                    className="p-1.5 rounded bg-[#10120F] text-[#BAC2B3] disabled:opacity-20 min-h-[44px] min-w-[44px] flex items-center justify-center border border-[#394133]"
                     aria-label={`Move track ${idx + 1} up`}
                   >
-                    <ChevronUp className="w-3.5 h-3.5" />
+                    <ChevronUp className="w-5 h-5" />
                   </button>
                   <button
                     onClick={() => moveTrack(idx, 1)}
                     disabled={idx === tracks.length - 1}
-                    className="p-1.5 rounded bg-[#10120F] text-[#BAC2B3] disabled:opacity-20 min-h-[36px] min-w-[36px] flex items-center justify-center border border-[#394133]"
+                    className="p-1.5 rounded bg-[#10120F] text-[#BAC2B3] disabled:opacity-20 min-h-[44px] min-w-[44px] flex items-center justify-center border border-[#394133]"
                     aria-label={`Move track ${idx + 1} down`}
                   >
-                    <ChevronDown className="w-3.5 h-3.5" />
+                    <ChevronDown className="w-5 h-5" />
                   </button>
                 </div>
               </div>
@@ -365,6 +351,15 @@ export function SequencedTable({
                   </span>
                 </div>
               </div>
+
+              {onRemoveTrack && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); onRemoveTrack(track, idx); }}
+                  className="inline-flex items-center gap-1.5 rounded border border-[#394133] px-3 text-xs text-[#BAC2B3] hover:text-[#FCA5A5] min-h-[44px]"
+                  title="Remove from this set (undoable; original playlist untouched)"
+                  aria-label={`Remove ${track.title} from this set`}>
+                  <X className="w-3.5 h-3.5" /> Remove track
+                </button>
+              )}
 
               {/* Transition to next preview */}
               {transition && idx < tracks.length - 1 && (
