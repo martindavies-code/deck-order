@@ -435,12 +435,13 @@ export function App() {
       setSelectedTrackIndex(0);
 
       // Auto-save set to history keyed by account (Fix 6)
+      let historySaveFailed = false;
       const updatedHistory = saveSetToHistory({
         name: setName || 'My Set',
         tracks: res.orderedTracks,
         evaluation: res.evaluation
       }, accountKey, {
-        onError: () => showToast('Could not save this set - browser storage is full. Your saved sets are untouched; delete older saved sets to free space.', 6000)
+        onError: () => { historySaveFailed = true; }
       });
       setCrateHistory(updatedHistory);
 
@@ -454,11 +455,17 @@ export function App() {
       }
 
       const gradedPairs = res.evaluation?.gradedCount ?? 0;
-      showToast(gradedPairs > 0
-        ? ((res.evaluation?.unverifiedCount ?? 0) > 0
-          ? `Draft order built - ${res.evaluation.unverifiedCount} transition${res.evaluation.unverifiedCount > 1 ? 's' : ''} need${res.evaluation.unverifiedCount > 1 ? '' : 's'} review.`
-          : 'Running order built.')
-        : 'Order preserved as imported - insufficient metadata to grade transitions.');
+      if (historySaveFailed) {
+        // The save failure must win over the build toast, or it is
+        // overwritten within milliseconds and the user never sees it.
+        showToast('Running order built, but could not save this set - browser storage is full. Your saved sets are untouched; delete older saved sets to free space.', 7000, 'warning');
+      } else {
+        showToast(gradedPairs > 0
+          ? ((res.evaluation?.unverifiedCount ?? 0) > 0
+            ? `Draft order built - ${res.evaluation.unverifiedCount} transition${res.evaluation.unverifiedCount > 1 ? 's' : ''} need${res.evaluation.unverifiedCount > 1 ? '' : 's'} review.`
+            : 'Running order built.')
+          : 'Order preserved as imported - insufficient metadata to grade transitions.');
+      }
     } catch (err) {
       showToast(`Couldn't build the order. Your tracks are still here.`, 5000);
     } finally {
