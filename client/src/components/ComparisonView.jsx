@@ -16,6 +16,11 @@ export function ComparisonView({
   const fmtPct = (v) => (typeof v === 'number' ? `${v}%` : 'n/a');
   const fmtScore = (ev) => ((ev.gradedCount ?? 0) > 0 ? ev.totalCost.toFixed(1) : 'n/a');
   const fmtJumps = (ev) => ((ev.gradedCount ?? 0) > 0 ? ev.clashCount : 'n/a');
+  const fmtObj = (ev) => (typeof ev.objectiveCost === 'number' ? ev.objectiveCost.toFixed(1) : 'n/a');
+  const ungradedDelta = (originalEvaluation.unverifiedCount ?? 0) - (sequencedEvaluation.unverifiedCount ?? 0);
+  const objectiveDelta = (typeof originalEvaluation.objectiveCost === 'number' && typeof sequencedEvaluation.objectiveCost === 'number')
+    ? Math.round((originalEvaluation.objectiveCost - sequencedEvaluation.objectiveCost) * 10) / 10
+    : 0;
   const origGraded = (originalEvaluation.gradedCount ?? 0) > 0;
   const seqGraded = (sequencedEvaluation.gradedCount ?? 0) > 0;
 
@@ -103,6 +108,16 @@ export function ComparisonView({
             </>
           )}
         </div>
+
+        {ungradedDelta !== 0 && (
+          <p className="text-[11px] font-mono text-[#BAC2B3] leading-snug">
+            Graded score {fmtScore(originalEvaluation)} → {fmtScore(sequencedEvaluation)} covers a different set of
+            edges (ungraded {originalEvaluation.unverifiedCount} → {sequencedEvaluation.unverifiedCount}): the
+            unconfirmed track is placed at an edge until you review its tempo. Total cost including uncertainty
+            penalties {fmtObj(originalEvaluation)} → {fmtObj(sequencedEvaluation)}
+            {objectiveDelta > 0 ? ' (improved)' : ''}; that figure is not measured musical quality.
+          </p>
+        )}
 
         {/* View Toggle & Reset */}
         <div className="flex items-center gap-2 w-full md:w-auto">
