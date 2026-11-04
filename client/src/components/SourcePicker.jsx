@@ -1,19 +1,19 @@
 import React, { useState, useRef } from 'react';
 import { ListMusic, FileText, Upload, Sparkles, Disc, Music, ArrowRight, X, Check } from 'lucide-react';
 
-export const DEMO_ELECTRONIC_CSV = `Artist,Title,Version,BPM,Key,ISRC
-Bicep,Glue,Original Mix,130,8A,GBBKS1700282
-Four Tet,Baby,Original Mix,126,F minor,GBBKS2000001
-Barry Can't Swim,Sunsleeper,Original Mix,128,11A,GBBKS2200104
-Floating Points,LesAlpx,Original Mix,128,C# minor,GBBKS1900140
-Overmono,Good Lies,Original Mix,134,4A,GBBKS2300055
-Peggy Gou,(It Goes Like) Nanana,Club Edit,130,7A,DEUM72301982
-Fred again..,Danielle (smile on my face),Original Mix,134,8A,GBAHS2200902
-Mall Grab,Liverpool Street In The Rain,Original Mix,125,5A,AUMG21800001
-Ross from Friends,The Daisy,Original Mix,128,10A,GBBKS2100312
-Bonobo,Rosewood,Original Mix,125,6A,GBBKS2100415
-Joy Orbison,flight fm,Original Mix,136,8A,GBBKS2400011
-Daphni,Sizzling,Club Mix,128,9A,CAJ421900001`;
+export const DEMO_ELECTRONIC_CSV = `Artist,Title,Version,BPM,Key
+Bicep,Glue,Original Mix,130,8A
+Four Tet,Baby,Original Mix,126,F minor
+Barry Can't Swim,Sunsleeper,Original Mix,128,11A
+Floating Points,LesAlpx,Original Mix,128,C# minor
+Overmono,Good Lies,Original Mix,134,4A
+Peggy Gou,(It Goes Like) Nanana,Club Edit,130,7A
+Fred again..,Danielle (smile on my face),Original Mix,134,8A
+Mall Grab,Liverpool Street In The Rain,Original Mix,125,5A
+Ross from Friends,The Daisy,Original Mix,128,10A
+Bonobo,Rosewood,Original Mix,125,6A
+Joy Orbison,flight fm,Original Mix,136,8A
+Daphni,Sizzling,Club Mix,128,9A`;
 
 export function SourcePicker({
   spotifyConnected,
@@ -112,6 +112,7 @@ export function SourcePicker({
             </button>
             <span className="text-xs text-[#7E8876]">
               Your original playlist stays untouched.
+            <br />Audio analysis by FreqBlog (freqblog.com)
             </span>
           </div>
 
