@@ -19,6 +19,7 @@ import {
   formatPlaylistLoadToast,
   parseCsvText,
   verifyTracklist,
+  computeCoverageCounts,
   submitOverride,
   runSequencer,
   fetchSuggestions,
@@ -31,6 +32,7 @@ import {
 } from './services/api.js';
 import {
   initiateSpotifyLogin,
+  saveStaySignedInPreference,
   getStoredCodeVerifier,
   clearStoredCodeVerifier,
   verifyAndClearAuthState,
@@ -218,6 +220,13 @@ export function App() {
     setTimeout(() => setToastMessage(null), duration);
   };
 
+  // Persist the stay-signed-in choice immediately so it survives the OAuth
+  // redirect (component state is lost when the page navigates to Spotify).
+  const handleToggleStaySignedIn = (value) => {
+    setStaySignedIn(value);
+    saveStaySignedInPreference(value);
+  };
+
   const handleConnectSpotify = async () => {
     try {
       await initiateSpotifyLogin();
@@ -304,9 +313,14 @@ export function App() {
       }
 
       setTracks(verifyRes.tracks);
-      setCoverageReport(verifyRes.report);
-      setOrderedTracks([]);
+      setCoverageReport({ ...verifyRes.report, ...computeCoverageCounts(verifyRes.tracks) });
+      // Show the imported order immediately so the playlist never "disappears";
+      // "Build my running order" re-sequences from here.
+      setOrderedTracks(verifyRes.tracks);
+      setOriginalTracks(verifyRes.tracks);
       setEvaluation(null);
+      setOriginalEvaluation(null);
+      setViewMode('original');
       setSelectedTrackIndex(null);
       showToast(toastInfo.text, toastInfo.type === 'warning' ? 5000 : 3000, toastInfo.type);
     } catch (err) {
@@ -334,9 +348,13 @@ export function App() {
       const parsed = await parseCsvText(csvContent);
       const verifyRes = await verifyTracklist(parsed.tracks, isSample);
       setTracks(verifyRes.tracks);
-      setCoverageReport(verifyRes.report);
-      setOrderedTracks([]);
+      setCoverageReport({ ...verifyRes.report, ...computeCoverageCounts(verifyRes.tracks) });
+      // Show the imported order immediately; "Build my running order" re-sequences.
+      setOrderedTracks(verifyRes.tracks);
+      setOriginalTracks(verifyRes.tracks);
       setEvaluation(null);
+      setOriginalEvaluation(null);
+      setViewMode('original');
       setSelectedTrackIndex(null);
       showToast(`Loaded ${verifyRes.tracks.length} tracks.`);
     } catch (err) {
@@ -383,7 +401,10 @@ export function App() {
         console.warn('Suggestions note:', sugErr);
       }
 
-      showToast(`Running order built.`);
+      const gradedPairs = res.evaluation?.gradedCount ?? 0;
+      showToast(gradedPairs > 0
+        ? 'Running order built.'
+        : 'Order preserved as imported - insufficient metadata to grade transitions.');
     } catch (err) {
       showToast(`Couldn't build the order. Your tracks are still here.`, 5000);
     } finally {
@@ -604,7 +625,7 @@ export function App() {
         googleUser={googleUser}
         historyCount={crateHistory.length}
         staySignedIn={staySignedIn}
-        onToggleStaySignedIn={setStaySignedIn}
+        onToggleStaySignedIn={handleToggleStaySignedIn}
         onConnectSpotify={handleConnectSpotify}
         onDisconnectSpotify={handleDisconnectSpotify}
         onLoginGoogle={handleLoginGoogle}
@@ -624,7 +645,7 @@ export function App() {
             onConnectSpotify={handleConnectSpotify}
             isLoading={isLoading}
             staySignedIn={staySignedIn}
-            onToggleStaySignedIn={setStaySignedIn}
+            onToggleStaySignedIn={handleToggleStaySignedIn}
           />
         ) : (
           /* Composition B: With a Set Loaded (Workbench) */
@@ -699,6 +720,7 @@ export function App() {
               <ComparisonView
                 originalEvaluation={originalEvaluation}
                 sequencedEvaluation={evaluation}
+                hasPartialData={!!coverageReport && (coverageReport.missingTempo < coverageReport.total || coverageReport.missingKey < coverageReport.total)}
                 viewMode={viewMode}
                 onToggleViewMode={setViewMode}
                 onRestoreOriginal={handleRestoreOriginal}
@@ -775,7 +797,13 @@ export function App() {
             <div className="max-w-[1240px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs text-[#BAC2B3] hidden sm:flex">
                 <span className="w-2 h-2 rounded-full bg-[#D6FC55]" />
-                <span>Running order ready.</span>
+                <span>
+                  {evaluation
+                    ? ((evaluation.gradedCount ?? 0) > 0
+                      ? 'Running order ready.'
+                      : 'Order preserved as imported - no graded transitions yet.')
+                    : 'Original order loaded - not yet sequenced.'}
+                </span>
               </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
