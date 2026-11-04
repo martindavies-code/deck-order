@@ -1,6 +1,7 @@
 // Isolated App regression. No real accounts, provider traffic or user storage.
 import { chromium } from 'playwright';
 import { fileURLToPath } from 'node:url';
+import { mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -11,6 +12,7 @@ const directory = before ? process.env.BASELINE_DIST : resolve(root, 'client/dis
 if (!directory) throw new Error('--before requires BASELINE_DIST pointing at the baseline client build.');
 const server = spawn('python3', ['-m', 'http.server', '8765', '--directory', directory], { stdio: 'ignore' });
 const browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), headless: true, args: ['--no-sandbox'] });
+await mkdir('/downloads', { recursive: true });
 const source = { id: 'fixture-sylvester', title: 'You Make Me Feel (Mighty Real)', artist: 'Sylvester, Michael Gray', version: 'Michael Gray Remix', isrc: 'USC4R1906927', bpm: 62.5, rawBpm: 62.5, workingBpm: 62.5, key: 'F minor', camelot: '4A', tempoNeedsReview: true, tempoSuggestion: { bpm: 125, kind: 'doubled' }, confidence: 'single_source', status: 'single_source', sources: [{ name: 'fixture-provider', bpm: 62.5 }] };
 // Only the screenshot track is real; neighbors are explicit synthetic fixtures.
 const tracks = Array.from({ length: 51 }, (_, i) => i === 1 ? source : ({ id: `fixture-${i}`, title: `Synthetic neighbor ${i}`, artist: 'Test fixture', bpm: 125, workingBpm: 125, key: 'F minor', camelot: '4A', status: 'supplied' }));
@@ -36,7 +38,6 @@ try {
     await page.getByRole('button', { name: /Saved sets/ }).click();
     await page.getByRole('button', { name: 'Load set', exact: true }).click();
     await page.locator(':is(p,h4):visible').filter({ hasText: source.title }).first().click();
-    const inspector = page.locator('.deck-panel').filter({ hasText: 'TRACK #2 OF 51' });
     // Case-insensitive rendered text matching is separate from CSS text content.
     const rail = page.locator('.deck-panel').filter({ has: page.getByText('Track #2 of 51', { exact: true }) });
     await rail.getByRole('button', { name: 'Use my value', exact: true }).click();
@@ -84,6 +85,35 @@ try {
     assert.equal(await rail.locator('input[type=text]').inputValue(), 'F');
     assert.equal(await page.evaluate(key => localStorage.getItem(key), key), snapshot);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    // Export the actual App state, including current evaluation and metadata.
+    const downloadEvent = page.waitForEvent('download');
+    await page.getByRole('button', { name: /CSV/ }).click();
+    const download = await downloadEvent;
+    const csv = await (await import('node:fs/promises')).readFile(await download.path(), 'utf8');
+    assert.match(csv, /125,"F minor","4A"/);
+    assert.equal(csv.trim().split('\n').length, 52);
+    await page.getByRole('button', { name: 'Original order', exact: true }).click();
+    await page.locator(':is(p,h4):visible').filter({ hasText: source.title }).first().click();
+    assert.match(await rail.innerText(), /125 BPM/);
+    await page.getByRole('button', { name: 'Suggested order', exact: true }).click();
+    // Storage failure changes session metadata but preserves stored revisions.
+    await rail.getByRole('button', { name: 'Cancel', exact: true }).click().catch(() => {});
+    await page.evaluate(() => {
+      const originalSetItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = function(key, value) {
+        if (key.startsWith('deck_order_crate_history_')) throw new DOMException('Fixture quota exceeded', 'QuotaExceededError');
+        return originalSetItem.call(this, key, value);
+      };
+    });
+    const savedBeforeFailure = await page.evaluate(key => localStorage.getItem(key), key);
+    await rail.getByRole('button', { name: 'Use my value', exact: true }).click();
+    await rail.locator('input[type=number]').fill('126');
+    await rail.locator('input[type=text]').fill('F minor');
+    await rail.getByRole('button', { name: 'Apply value', exact: true }).click();
+    await page.getByText(/Could not save this revision/).waitFor();
+    assert.match(await rail.innerText(), /126 BPM/);
+    assert.equal(await page.evaluate(key => localStorage.getItem(key), key), savedBeforeFailure);
+    await page.screenshot({ path: `/downloads/override-storage-warning-${width}.png` });
     // Real row controls: larger targets, remove in place, one-step undo.
     const remove = page.getByRole('button', { name: `Remove ${source.title} from this set`, exact: true }).filter({ visible: true });
     const up = page.getByRole('button', { name: 'Move track 2 up', exact: true }).filter({ visible: true });
@@ -101,12 +131,13 @@ try {
     // Order is back to the same sequence; selected track still uses saved override.
     await page.locator(':is(p,h4):visible').filter({ hasText: source.title }).first().click();
     assert.match(await rail.innerText(), /TRACK #2 OF 51/);
-    assert.match(await rail.innerText(), /125 BPM/);
-    console.log(`PASS width=${width}: manual, suggested, reset, history reload, invalid input, remove/undo, reorder targets`);
+    assert.match(await rail.innerText(), /126 BPM/);
+    console.log(`PASS width=${width}: manual, suggested, reset, history reload, invalid input, CSV, original view, storage-full, remove/undo, reorder targets`);
     await context.close();
   }
 } finally {
   await browser.close();
+  const stopped = new Promise(resolve => server.once('exit', resolve));
   server.kill();
-  await new Promise(resolve => server.once('exit', resolve));
+  await stopped;
 }
