@@ -155,6 +155,27 @@ test('verifyTracklist exposes recordingReviewTracks and tempoReviewTracks in rep
   assert.ok(Array.isArray(offlineRes.report.tempoReviewTracks), 'Offline report must contain tempoReviewTracks array');
 });
 
+test('verifyTracklist treats an AbortError-named batch failure as provider failure, not caller abort', async () => {
+  // Older engines name AbortSignal.timeout failures "AbortError". Only an
+  // actually-aborted caller signal may rethrow; a same-named batch failure
+  // must keep the honest partial-failure path.
+  const controller = new AbortController(); // never aborted
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    const err = new Error('simulated legacy timeout');
+    err.name = 'AbortError';
+    throw err;
+  };
+  try {
+    const res = await verifyTracklist([{ artist: 'A', title: 'T' }], false, null, { signal: controller.signal });
+    assert.equal(res.success, true, 'AbortError-named batch failure must not be rethrown as a caller abort');
+    assert.equal(res.report.providerUnreachable, true, 'All-failed batches degrade to honest provider-unreachable state');
+    assert.equal(res.report.checkedCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('verifyTracklist throws AbortError when AbortSignal is cancelled', async () => {
   const controller = new AbortController();
   controller.abort();
