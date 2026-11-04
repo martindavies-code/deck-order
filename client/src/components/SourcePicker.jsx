@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { ListMusic, FileText, Upload, Sparkles, Disc, Music, ArrowRight, X, Check } from 'lucide-react';
+import { formatLoadProgress } from '../services/api.js';
 
 export const DEMO_ELECTRONIC_CSV = `Artist,Title,Version,BPM,Key
 Bicep,Glue,Original Mix,130,8A
@@ -22,6 +23,8 @@ export function SourcePicker({
   onParseCsv,
   onConnectSpotify,
   isLoading,
+  loadProgress = null,
+  loadingPlaylistId = null,
   staySignedIn = false,
   onToggleStaySignedIn
 }) {
@@ -191,23 +194,32 @@ export function SourcePicker({
                       </div>
                     ) : (
                       <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-                        {playlists.map((pl) => (
-                          <button
-                            key={pl.id}
-                            onClick={() => onSelectPlaylist(pl)}
-                            className="w-full text-left p-2.5 rounded bg-[#10120F] hover:bg-[#252B22] border border-[#394133] hover:border-[#D6FC55] flex items-center justify-between gap-3 transition-colors group"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-bold text-[#F3F0E6] truncate group-hover:text-[#D6FC55]">
-                                {pl.name}
-                              </p>
-                              <p className="text-[11px] text-[#7E8876] font-mono">
-                                {pl.itemCount} tracks
-                              </p>
-                            </div>
-                            <ArrowRight className="w-3.5 h-3.5 text-[#7E8876] group-hover:text-[#D6FC55] shrink-0" />
-                          </button>
-                        ))}
+                        {playlists.map((pl) => {
+                          const isThisLoading = loadingPlaylistId === pl.id;
+                          return (
+                            <button
+                              key={pl.id}
+                              onClick={() => onSelectPlaylist(pl)}
+                              disabled={isLoading}
+                              aria-busy={isThisLoading}
+                              className="w-full text-left p-2.5 rounded bg-[#10120F] hover:bg-[#252B22] border border-[#394133] hover:border-[#D6FC55] flex items-center justify-between gap-3 transition-colors group disabled:opacity-60 disabled:cursor-wait disabled:hover:bg-[#10120F] disabled:hover:border-[#394133]"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold text-[#F3F0E6] truncate group-hover:text-[#D6FC55]">
+                                  {pl.name}
+                                </p>
+                                <p className="text-[11px] text-[#7E8876] font-mono">
+                                  {isThisLoading ? 'Loading…' : `${pl.itemCount} tracks`}
+                                </p>
+                              </div>
+                              {isThisLoading ? (
+                                <Disc className="w-3.5 h-3.5 animate-spin text-[#D6FC55] shrink-0" />
+                              ) : (
+                                <ArrowRight className="w-3.5 h-3.5 text-[#7E8876] group-hover:text-[#D6FC55] shrink-0" />
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -343,6 +355,12 @@ export function SourcePicker({
                 </div>
               </div>
             )}
+
+            {/* Real loading progress: visible immediately on click, driven by
+                actual fetch/verify signals - never a fabricated percentage. */}
+            {loadProgress && (
+              <LoadProgressIndicator progress={loadProgress} />
+            )}
           </div>
         </div>
       </div>
@@ -361,6 +379,28 @@ export function SourcePicker({
           <span className="w-5 h-5 rounded-full bg-[#1B1F19] border border-[#394133] text-[#F3F0E6] flex items-center justify-center font-mono text-[10px] font-bold">3</span>
           <span>Shape your set</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function LoadProgressIndicator({ progress }) {
+  const info = formatLoadProgress(progress);
+  if (!info) return null;
+  const pct = info.determinate ? Math.round(info.ratio * 100) : null;
+  return (
+    <div className="pt-1 space-y-1.5" role="status" aria-live="polite">
+      <p className="text-[11px] font-mono text-[#BAC2B3]">{info.text}</p>
+      <div
+        className="deck-progress"
+        {...(info.determinate
+          ? { role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': pct, 'aria-label': info.text }
+          : {})}
+      >
+        <div
+          className={`deck-progress-fill${info.determinate ? '' : ' deck-progress-indeterminate'}`}
+          style={info.determinate ? { width: `${pct}%` } : undefined}
+        />
       </div>
     </div>
   );
