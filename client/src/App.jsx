@@ -734,7 +734,7 @@ export function App() {
           }
         }}>Retry save</button>
       </div>}
-      <main className="flex-1 max-w-[1240px] w-full mx-auto p-4 sm:p-6 space-y-6 pb-28">
+      <main className="flex-1 max-w-[1240px] w-full mx-auto p-4 sm:p-6 space-y-6 pb-36 sm:pb-36">
         {!isSetLoaded ? (
           /* Composition A: Before a Set is Loaded */
           <SourcePicker
