@@ -724,7 +724,7 @@ export function App() {
         onOpenHistory={() => setShowHistoryDrawer(true)}
       />
 
-      {saveError && <div role="alert" className="mx-4 mt-4 p-3 border border-[#F59E0B] rounded text-sm text-[#FDE047]">
+      {saveError && <div role="alert" className="sticky top-20 z-40 mx-4 mt-4 p-3 bg-[#1B1F19] border border-[#F59E0B] rounded text-sm text-[#FDE047]">
         Changes are active in this session, but could not be saved. Your previous saved set is untouched. Free browser storage before leaving.
         <button type="button" className="deck-btn-secondary ml-3 text-xs" onClick={() => {
           if (!activeSetId) newSetIdentity();
