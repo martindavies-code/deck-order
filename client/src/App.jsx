@@ -75,6 +75,10 @@ export function App() {
 
   // Tracks & Sequencing State
   const [tracks, setTracks] = useState([]);
+  const metadataSourceLabel = (() => {
+    const names = [...new Set(tracks.flatMap(t => (t.sources || []).map(src => src.name || src.provider)).filter(Boolean))];
+    return names.length ? `Metadata: ${names.join(', ')}` : 'Supplied metadata';
+  })();
   const [orderedTracks, setOrderedTracks] = useState([]);
   const [originalTracks, setOriginalTracks] = useState([]);
   const [evaluation, setEvaluation] = useState(null);
@@ -687,7 +691,7 @@ export function App() {
                   </div>
 
                   <p className="text-xs text-[#BAC2B3] font-mono">
-                    {tracks.length} tracks · {isSampleSet ? 'Sample dataset' : 'Supplied metadata'}
+                    {tracks.length} tracks · {isSampleSet ? 'Sample dataset' : metadataSourceLabel}
                   </p>
                 </div>
               </div>
@@ -800,7 +804,9 @@ export function App() {
                 <span>
                   {evaluation
                     ? ((evaluation.gradedCount ?? 0) > 0
-                      ? 'Running order ready.'
+                      ? ((evaluation.unverifiedCount ?? 0) > 0
+                        ? `Running order ready - ${evaluation.unverifiedCount} transition${evaluation.unverifiedCount > 1 ? 's' : ''} ungraded (tempo or key needs review).`
+                        : 'Running order ready.')
                       : 'Order preserved as imported - no graded transitions yet.')
                     : 'Original order loaded - not yet sequenced.'}
                 </span>
