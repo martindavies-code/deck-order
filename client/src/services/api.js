@@ -476,6 +476,17 @@ export async function parseCsvText(csvContent) {
   return { success: true, tracks, count: tracks.length };
 }
 
+/**
+ * Per-dimension coverage: a handover can only be graded when both tracks
+ * carry both tempo and Camelot key.
+ */
+export function computeCoverageCounts(tracks) {
+  const total = tracks.length;
+  const missingTempo = tracks.filter(t => !(typeof t.bpm === 'number' && !isNaN(t.bpm) && t.bpm > 0)).length;
+  const missingKey = tracks.filter(t => !t.camelot).length;
+  return { total, missingTempo, missingKey };
+}
+
 export async function verifyTracklist(tracks, isSampleData = false) {
   // If the tracks are from the sample/demo set, mark them explicitly as SAMPLE DATA
   if (isSampleData || tracks.some(t => t.isSampleData)) {
