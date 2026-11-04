@@ -59,7 +59,8 @@ try {
     assert.equal(history[0].tracks[1].workingBpm, 125);
     assert.equal(history[0].tracks[1].camelot, '4A');
     assert.deepEqual(history[0].tracks.map(t => t.id), tracks.map(t => t.id));
-    assert.deepEqual(history[1], original);
+    assert.equal(history.length, 1);
+    assert.equal(history[0].id, original.id);
     assert.equal(history[0].evaluation.gradedCount, 50);
     await rail.getByRole('button', { name: 'Reset', exact: true }).click();
     await rail.getByRole('button', { name: 'Use suggested', exact: true }).waitFor();
@@ -110,10 +111,15 @@ try {
     await rail.locator('input[type=number]').fill('126');
     await rail.locator('input[type=text]').fill('F minor');
     await rail.getByRole('button', { name: 'Apply value', exact: true }).click();
-    await page.getByText(/Could not save this revision/).waitFor();
+    await page.getByRole('alert').waitFor();
     assert.match(await rail.innerText(), /126 BPM/);
     assert.equal(await page.evaluate(key => localStorage.getItem(key), key), savedBeforeFailure);
     await page.screenshot({ path: `/downloads/override-storage-warning-${width}.png` });
+    // Failed autosave must not let New silently discard the active session.
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.getByRole('button', { name: 'New set', exact: true }).click();
+    assert.match(await rail.innerText(), /126 BPM/);
+    assert.equal(await page.evaluate(key => localStorage.getItem(key), key), savedBeforeFailure);
     // Real row controls: larger targets, remove in place, one-step undo.
     const remove = page.getByRole('button', { name: `Remove ${source.title} from this set`, exact: true }).filter({ visible: true });
     const up = page.getByRole('button', { name: 'Move track 2 up', exact: true }).filter({ visible: true });
