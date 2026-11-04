@@ -16,6 +16,11 @@ export function ComparisonView({
   const fmtPct = (v) => (typeof v === 'number' ? `${v}%` : 'n/a');
   const fmtScore = (ev) => ((ev.gradedCount ?? 0) > 0 ? ev.totalCost.toFixed(1) : 'n/a');
   const fmtJumps = (ev) => ((ev.gradedCount ?? 0) > 0 ? ev.clashCount : 'n/a');
+  const fmtObj = (ev) => (typeof ev.objectiveCost === 'number' ? ev.objectiveCost.toFixed(1) : 'n/a');
+  const ungradedDelta = (originalEvaluation.unverifiedCount ?? 0) - (sequencedEvaluation.unverifiedCount ?? 0);
+  const objectiveDelta = (typeof originalEvaluation.objectiveCost === 'number' && typeof sequencedEvaluation.objectiveCost === 'number')
+    ? Math.round((originalEvaluation.objectiveCost - sequencedEvaluation.objectiveCost) * 10) / 10
+    : 0;
   const origGraded = (originalEvaluation.gradedCount ?? 0) > 0;
   const seqGraded = (sequencedEvaluation.gradedCount ?? 0) > 0;
 
@@ -58,9 +63,9 @@ export function ComparisonView({
               <span className="font-mono font-bold text-[#D6FC55] tabular-nums">
                 {fmtScore(sequencedEvaluation)}
               </span>
-              {origGraded && seqGraded && costDelta > 0 && (
-                <span className="text-[10px] font-mono text-[#D6FC55] bg-[rgba(214,252,85,0.1)] px-1.5 py-0.2 rounded border border-[rgba(214,252,85,0.25)] tabular-nums">
-                  -{costDelta.toFixed(1)}
+              {origGraded && seqGraded && costDelta !== 0 && (
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border tabular-nums ${costDelta > 0 ? 'text-[#D6FC55] bg-[rgba(214,252,85,0.1)] border-[rgba(214,252,85,0.25)]' : 'text-[#F59E0B] bg-[rgba(245,158,11,0.1)] border-[rgba(245,158,11,0.3)]'}`}>
+                  {costDelta > 0 ? `-${costDelta.toFixed(1)}` : `+${Math.abs(costDelta).toFixed(1)}`}
                 </span>
               )}
             </div>
@@ -90,8 +95,14 @@ export function ComparisonView({
                 <span className="text-[10px] font-mono uppercase tracking-wider text-[#7E8876]">
                   {hasPartialData ? 'Ungraded (incomplete data)' : 'Ungraded (no data)'}
                 </span>
-                <div className="font-mono font-bold text-[#BAC2B3] tabular-nums mt-0.5">
-                  {sequencedEvaluation.unverifiedCount}
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="font-mono text-[#BAC2B3] tabular-nums">
+                    {originalEvaluation.unverifiedCount}
+                  </span>
+                  <ArrowRight className="w-3 h-3 text-[#7E8876]" />
+                  <span className="font-mono font-bold text-[#F3F0E6] tabular-nums">
+                    {sequencedEvaluation.unverifiedCount}
+                  </span>
                 </div>
               </div>
             </>
@@ -135,6 +146,14 @@ export function ComparisonView({
           </div>
         </div>
       </div>
+      {ungradedDelta !== 0 && (
+        <p className="text-[11px] font-mono text-[#BAC2B3] leading-snug">
+          Transition score covers a different set of handovers (ungraded {originalEvaluation.unverifiedCount} → {sequencedEvaluation.unverifiedCount}):
+          the unconfirmed track is excluded from grading until you review its tempo. Overall optimisation cost
+          including uncertainty penalties {fmtObj(originalEvaluation)} → {fmtObj(sequencedEvaluation)}
+          {objectiveDelta > 0 ? ' (improved)' : ''} - not a measure of musical quality.
+        </p>
+      )}
     </div>
   );
 }

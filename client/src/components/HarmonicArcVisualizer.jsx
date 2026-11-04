@@ -194,6 +194,18 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
             const nodeStroke = trans?.grade === 'CLASH' ? '#EF4444' :
                                trans?.grade === 'STRETCH' ? '#EAB308' : '#D6FC55';
 
+            if (p.hasValue && p.track.tempoNeedsReview) {
+              // Unconfirmed octave suggestion: amber dashed ring, never a trusted point
+              return (
+                <g key={i} className="cursor-pointer" onClick={() => onSelectTrack && onSelectTrack(p.track)}>
+                  <circle cx={p.x} cy={p.y} r="5" fill="none" stroke="#F59E0B" strokeWidth="1.5" strokeDasharray="2 2" />
+                  <text x={p.x} y={p.y - 10} fill="#F59E0B" fontSize="8" fontFamily="JetBrains Mono" textAnchor="middle">
+                    {(p.track.camelot || '') + ' review'}
+                  </text>
+                </g>
+              );
+            }
+
             if (!p.hasValue) {
               // Missing value: dashed marker below the plot baseline (never on a data line)
               return (

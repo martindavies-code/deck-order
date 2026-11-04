@@ -214,24 +214,29 @@ export class DJSequencer {
     let bestTour = null;
     let bestTourCost = Infinity;
 
+    const considerTour = (tour) => {
+      let tourCost = 0;
+      for (let k = 0; k < tour.length - 1; k++) {
+        tourCost += costMatrix[tour[k]][tour[k + 1]];
+      }
+      if (tourCost < bestTourCost) {
+        bestTourCost = tourCost;
+        bestTour = tour;
+      }
+    };
+
     for (const cand of warmUpCandidates) {
       const startIndex = seqTracksOnly.indexOf(cand);
       if (startIndex === -1) continue;
 
       const greedyTour = this.buildGreedyTour(startIndex, seqTracksOnly, costMatrix);
-      const optimizedTour = this.optimizeDirected2Opt(greedyTour, costMatrix, seqTracksOnly);
-
-      // Evaluate tour cost
-      let tourCost = 0;
-      for (let k = 0; k < optimizedTour.length - 1; k++) {
-        tourCost += costMatrix[optimizedTour[k]][optimizedTour[k + 1]];
-      }
-
-      if (tourCost < bestTourCost) {
-        bestTourCost = tourCost;
-        bestTour = optimizedTour;
-      }
+      considerTour(this.optimizeDirected2Opt(greedyTour, costMatrix, seqTracksOnly));
     }
+
+    // Always consider the user's imported order as a candidate: the suggested
+    // order must never score worse than the original under the same objective.
+    const originalTour = seqTracksOnly.map((_, i) => i);
+    considerTour(this.optimizeDirected2Opt(originalTour, costMatrix, seqTracksOnly));
 
     // Map best tour back to tracks
     const sequencedTracks = bestTour.map(idx => sequencable[idx].track);

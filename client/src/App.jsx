@@ -75,6 +75,10 @@ export function App() {
 
   // Tracks & Sequencing State
   const [tracks, setTracks] = useState([]);
+  const metadataSourceLabel = (() => {
+    const names = [...new Set(tracks.flatMap(t => (t.sources || []).map(src => src.name || src.provider)).filter(Boolean))];
+    return names.length ? `Metadata: ${names.join(', ')}` : 'Supplied metadata';
+  })();
   const [orderedTracks, setOrderedTracks] = useState([]);
   const [originalTracks, setOriginalTracks] = useState([]);
   const [evaluation, setEvaluation] = useState(null);
@@ -403,7 +407,9 @@ export function App() {
 
       const gradedPairs = res.evaluation?.gradedCount ?? 0;
       showToast(gradedPairs > 0
-        ? 'Running order built.'
+        ? ((res.evaluation?.unverifiedCount ?? 0) > 0
+          ? `Draft order built - ${res.evaluation.unverifiedCount} transition${res.evaluation.unverifiedCount > 1 ? 's' : ''} need${res.evaluation.unverifiedCount > 1 ? '' : 's'} review.`
+          : 'Running order built.')
         : 'Order preserved as imported - insufficient metadata to grade transitions.');
     } catch (err) {
       showToast(`Couldn't build the order. Your tracks are still here.`, 5000);
@@ -687,7 +693,7 @@ export function App() {
                   </div>
 
                   <p className="text-xs text-[#BAC2B3] font-mono">
-                    {tracks.length} tracks · {isSampleSet ? 'Sample dataset' : 'Supplied metadata'}
+                    {tracks.length} tracks · {isSampleSet ? 'Sample dataset' : metadataSourceLabel}
                   </p>
                 </div>
               </div>
@@ -800,7 +806,9 @@ export function App() {
                 <span>
                   {evaluation
                     ? ((evaluation.gradedCount ?? 0) > 0
-                      ? 'Running order ready.'
+                      ? ((evaluation.unverifiedCount ?? 0) > 0
+                        ? `Draft order built - ${evaluation.unverifiedCount} transition${evaluation.unverifiedCount > 1 ? 's' : ''} need${evaluation.unverifiedCount > 1 ? '' : 's'} review before grading.`
+                        : 'Running order ready.')
                       : 'Order preserved as imported - no graded transitions yet.')
                     : 'Original order loaded - not yet sequenced.'}
                 </span>
