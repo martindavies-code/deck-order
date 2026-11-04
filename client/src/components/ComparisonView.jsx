@@ -6,12 +6,18 @@ export function ComparisonView({
   sequencedEvaluation,
   viewMode,
   onToggleViewMode,
-  onRestoreOriginal
+  onRestoreOriginal,
+  hasPartialData = false
 }) {
   if (!originalEvaluation || !sequencedEvaluation) return null;
 
   const costDelta = Math.round((originalEvaluation.totalCost - sequencedEvaluation.totalCost) * 10) / 10;
-  const smoothDelta = sequencedEvaluation.smoothPct - originalEvaluation.smoothPct;
+  const smoothDelta = (sequencedEvaluation.smoothPct ?? 0) - (originalEvaluation.smoothPct ?? 0);
+  const fmtPct = (v) => (typeof v === 'number' ? `${v}%` : 'n/a');
+  const fmtScore = (ev) => ((ev.gradedCount ?? 0) > 0 ? ev.totalCost.toFixed(1) : 'n/a');
+  const fmtJumps = (ev) => ((ev.gradedCount ?? 0) > 0 ? ev.clashCount : 'n/a');
+  const origGraded = (originalEvaluation.gradedCount ?? 0) > 0;
+  const seqGraded = (sequencedEvaluation.gradedCount ?? 0) > 0;
 
   return (
     <div className="deck-panel p-4 sm:p-5 space-y-4">
@@ -24,11 +30,11 @@ export function ComparisonView({
             </span>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="font-mono text-[#BAC2B3] tabular-nums">
-                {originalEvaluation.smoothPct}%
+                {fmtPct(originalEvaluation.smoothPct)}
               </span>
               <ArrowRight className="w-3 h-3 text-[#7E8876]" />
               <span className="font-mono font-bold text-[#F3F0E6] tabular-nums">
-                {sequencedEvaluation.smoothPct}%
+                {fmtPct(sequencedEvaluation.smoothPct)}
               </span>
               {smoothDelta > 0 && (
                 <span className="text-[10px] font-mono text-[#86EFAC] bg-[rgba(74,222,128,0.12)] px-1.5 py-0.2 rounded border border-[rgba(74,222,128,0.25)] tabular-nums">
@@ -46,13 +52,13 @@ export function ComparisonView({
             </span>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="font-mono text-[#BAC2B3] tabular-nums">
-                {originalEvaluation.totalCost.toFixed(1)}
+                {fmtScore(originalEvaluation)}
               </span>
               <ArrowRight className="w-3 h-3 text-[#7E8876]" />
               <span className="font-mono font-bold text-[#D6FC55] tabular-nums">
-                {sequencedEvaluation.totalCost.toFixed(1)}
+                {fmtScore(sequencedEvaluation)}
               </span>
-              {costDelta > 0 && (
+              {origGraded && seqGraded && costDelta > 0 && (
                 <span className="text-[10px] font-mono text-[#D6FC55] bg-[rgba(214,252,85,0.1)] px-1.5 py-0.2 rounded border border-[rgba(214,252,85,0.25)] tabular-nums">
                   -{costDelta.toFixed(1)}
                 </span>
@@ -68,14 +74,28 @@ export function ComparisonView({
             </span>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="font-mono text-[#FCA5A5] tabular-nums">
-                {originalEvaluation.clashCount}
+                {fmtJumps(originalEvaluation)}
               </span>
               <ArrowRight className="w-3 h-3 text-[#7E8876]" />
               <span className="font-mono font-bold text-[#F3F0E6] tabular-nums">
-                {sequencedEvaluation.clashCount}
+                {fmtJumps(sequencedEvaluation)}
               </span>
             </div>
           </div>
+
+          {sequencedEvaluation.unverifiedCount > 0 && (
+            <>
+              <div className="h-7 w-[1px] bg-[#394133] hidden sm:block" />
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-[#7E8876]">
+                  {hasPartialData ? 'Ungraded (incomplete data)' : 'Ungraded (no data)'}
+                </span>
+                <div className="font-mono font-bold text-[#BAC2B3] tabular-nums mt-0.5">
+                  {sequencedEvaluation.unverifiedCount}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* View Toggle & Reset */}

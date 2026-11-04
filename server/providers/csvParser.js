@@ -76,11 +76,18 @@ export function parseTracklistCSV(csvContent) {
           const parts = tokens[0].split(' - ');
           artist = parts[0].trim();
           title = parts.slice(1).join(' - ').trim();
-        } else {
+          rawBpm = parseFloat(tokens[1]);
+        } else if (!isNaN(parseFloat(tokens[1]))) {
+          // [Artist, BPM] - no title given
           artist = tokens[0].trim();
           title = 'Unknown';
+          rawBpm = parseFloat(tokens[1]);
+        } else {
+          // [Artist, Title] - no tempo/key given
+          artist = tokens[0].trim();
+          title = tokens[1].trim();
+          rawBpm = null;
         }
-        rawBpm = parseFloat(tokens[1]);
       }
     }
 

@@ -254,12 +254,16 @@ export function SequencedTable({
                             transition.grade === 'STRETCH' ? 'text-[#FDE047]' :
                             transition.grade === 'CLASH' ? 'text-[#FCA5A5]' : 'text-[#BAC2B3]'
                           }>
-                            {transition.harmonicRelation || 'Key match'}
+                            {transition.relation || 'Key match'}
                           </span>
-                          <span>•</span>
-                          <span className="tabular-nums">
-                            {transition.bpmDelta > 0 ? `+${transition.bpmDelta}` : transition.bpmDelta} BPM
-                          </span>
+                          {typeof transition.bpmChange === 'number' && (
+                            <>
+                              <span>•</span>
+                              <span className="tabular-nums">
+                                {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
+                              </span>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -348,12 +352,16 @@ export function SequencedTable({
                 <div className="text-[11px] font-mono text-[#7E8876] pt-1 border-t border-[#252B22]/60 flex items-center gap-2">
                   <span className="text-[#394133]">↳</span>
                   <span className="text-[#BAC2B3]">
-                    {transition.harmonicRelation || 'Key match'}
+                    {transition.relation || 'Key match'}
                   </span>
-                  <span>•</span>
-                  <span className="tabular-nums">
-                    {transition.bpmDelta > 0 ? `+${transition.bpmDelta}` : transition.bpmDelta} BPM
-                  </span>
+                  {typeof transition.bpmChange === 'number' && (
+                    <>
+                      <span>•</span>
+                      <span className="tabular-nums">
+                        {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
+                      </span>
+                    </>
+                  )}
                 </div>
               )}
             </div>

@@ -124,12 +124,12 @@ export function InspectorRail({
         </span>
         {transitionBefore && (
           <p className="text-[11px] text-[#BAC2B3]">
-            Incoming: <span className="font-mono text-[#F3F0E6]">{transitionBefore.harmonicRelation || 'Key match'}</span> from previous track ({transitionBefore.bpmDelta > 0 ? `+${transitionBefore.bpmDelta}` : transitionBefore.bpmDelta} BPM).
+            Incoming: <span className="font-mono text-[#F3F0E6]">{transitionBefore.relation || 'Key match'}</span> from previous track{typeof transitionBefore.bpmChange === 'number' ? ` (${transitionBefore.bpmChange > 0 ? `+${transitionBefore.bpmChange}` : transitionBefore.bpmChange} BPM)` : ''}.
           </p>
         )}
         {transitionAfter && (
           <p className="text-[11px] text-[#BAC2B3]">
-            Outgoing: Handover to next track is <span className="font-mono text-[#F3F0E6]">{transitionAfter.harmonicRelation || 'Key match'}</span> ({transitionAfter.bpmDelta > 0 ? `+${transitionAfter.bpmDelta}` : transitionAfter.bpmDelta} BPM).
+            Outgoing: Handover to next track is <span className="font-mono text-[#F3F0E6]">{transitionAfter.relation || 'Key match'}</span>{typeof transitionAfter.bpmChange === 'number' ? ` (${transitionAfter.bpmChange > 0 ? `+${transitionAfter.bpmChange}` : transitionAfter.bpmChange} BPM)` : ''}.
           </p>
         )}
         {!transitionBefore && !transitionAfter && (
