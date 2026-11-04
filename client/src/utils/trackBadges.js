@@ -95,17 +95,31 @@ export function evidenceBadge(status) {
  * Honest transition display. A confident relation ("8A to 8A - same key")
  * must never be shown when either side's tempo/key is flagged for review
  * (recording mismatch or tempo doubt) - the grading input is unconfirmed.
- * Otherwise the solver's own relation and BPM change pass through unchanged.
+ * Otherwise key and tempo colours use their own costs, not the overall grade.
  */
 export function transitionDisplay(transition, fromTrack, toTrack) {
   const needsReview = !!(fromTrack?.recordingNeedsReview || fromTrack?.tempoNeedsReview
     || toTrack?.recordingNeedsReview || toTrack?.tempoNeedsReview);
   if (needsReview) {
-    return { text: 'Needs review - unconfirmed tempo/key', tone: 'review', showBpmChange: false };
+    return { text: 'Needs review - unconfirmed tempo/key', tone: 'review', tempoTone: 'review', showBpmChange: false };
   }
   return {
     text: transition?.relation || 'Key match',
-    tone: transition?.grade || 'none',
-    showBpmChange: typeof transition?.bpmChange === 'number'
+    // The relation describes keys, so never colour it from the combined grade.
+    tone: transition?.harmEval?.grade || 'none',
+    // Use the existing tempo cost, including its directional-drop penalty.
+    // This changes presentation only, not the combined grade or sequencing.
+    tempoTone: typeof transition?.bpmChange === 'number' && Number.isFinite(transition?.tempoCost)
+      ? (transition.tempoCost > 5 ? 'CLASH' : transition.tempoCost > 2 ? 'STRETCH' : 'SMOOTH')
+      : 'none',
+    showBpmChange: typeof transition?.bpmChange === 'number' && Number.isFinite(transition.bpmChange)
   };
+}
+
+/** Shared by desktop connectors and mobile previews. */
+export function transitionToneClass(tone) {
+  return tone === 'review' ? 'text-[#F59E0B] font-semibold' :
+    tone === 'SMOOTH' ? 'text-[#86EFAC] font-semibold' :
+    tone === 'STRETCH' ? 'text-[#FDE047]' :
+    tone === 'CLASH' ? 'text-[#FCA5A5]' : 'text-[#BAC2B3]';
 }
