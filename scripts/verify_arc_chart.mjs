@@ -68,6 +68,7 @@ try {
     assert.ok(texts.includes('12B'.replace('12B','12A')) || texts.some(t => /^[0-9]{1,2}[AB]$/.test(t)), 'camelot labels rendered');
     const legend = await chart.locator('p').allTextContents();
     assert.ok(legend.some(t => t.includes('target peak zone (65-85%')), 'legend explains target peak zone');
+    assert.ok(legend.some(t => t.includes('under 124 BPM') && t.includes('over 132 BPM')), 'legend states the actual BPM thresholds');
     assert.ok(legend.some(t => t.includes('green smooth, amber stretch, red clash, grey unverified')), 'legend explains ring colours');
 
     // Peak band geometry matches the solver window (65-85% of the plot).
@@ -91,8 +92,33 @@ try {
     assert.equal(missingMarkers, 2, 'two tracks without catalogue energy show neutral no-data markers');
     const legendAfter = await chart.locator('p').allTextContents();
     assert.ok(legendAfter.some(t => t.includes('do not add one')), 'energy legend explains manual entries do not add energy');
+    assert.ok(legendAfter.some(t => t.includes('tempo-based target')), 'energy legend states the band is tempo-based, not an energy target');
 
     await chart.screenshot({ path: `/downloads/arc-energy-${width}.png` });
+
+    // Mobile clearance: the fixed bottom dock must never cover end-of-page
+    // content, and the chart legend must scroll fully clear of it.
+    const dockMetrics = await page.evaluate(() => {
+      const dock = document.querySelector('aside[aria-label="Export and save actions"]');
+      const main = document.querySelector('main');
+      if (!dock || !main) return null;
+      return { dockH: dock.getBoundingClientRect().height, padB: parseFloat(getComputedStyle(main).paddingBottom) };
+    });
+    if (dockMetrics) {
+      assert.ok(dockMetrics.padB >= dockMetrics.dockH + 16, `page bottom padding ${dockMetrics.padB} clears dock ${dockMetrics.dockH}`);
+    }
+    if (width === 390) {
+      await chart.evaluate(el => el.scrollIntoView({ block: 'end' }));
+      const overlap = await page.evaluate(() => {
+        const chartEl = [...document.querySelectorAll('section.deck-panel')].find(el => el.textContent.includes('The shape of your set'));
+        const legendEls = [...chartEl.querySelectorAll('p')];
+        const last = legendEls[legendEls.length - 1];
+        const dock = document.querySelector('aside[aria-label="Export and save actions"]');
+        return { legendBottom: last.getBoundingClientRect().bottom, dockTop: dock.getBoundingClientRect().top, visible: last.getBoundingClientRect().bottom <= dock.getBoundingClientRect().top };
+      });
+      assert.ok(overlap.visible, `legend bottom ${overlap.legendBottom} clears dock top ${overlap.dockTop}`);
+      await page.screenshot({ path: `/downloads/arc-legend-clearance-${width}.png` });
+    }
 
     const apiRequests = external.filter(u => !/fonts\.googleapis\.com|fonts\.gstatic\.com/.test(u));
     assert.equal(apiRequests.length, 0, `no provider/account requests, saw: ${apiRequests.join(', ')}`);
