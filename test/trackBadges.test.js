@@ -86,7 +86,7 @@ test('evidence badge: one shared selector for desktop and mobile (regression: mo
 });
 
 test('transition display: review-flagged side suppresses confident relation and BPM change', () => {
-  const smooth = { grade: 'SMOOTH', relation: '8A to 8A - same key', bpmChange: -3.1 };
+  const smooth = { grade: 'SMOOTH', harmEval: { grade: 'SMOOTH' }, tempoCost: 0, relation: '8A to 8A - same key', bpmChange: -3.1 };
   const flagged = { id: 'a', bpm: 121, camelot: '8A', recordingNeedsReview: true };
   const clean = { id: 'b', bpm: 125.4, camelot: '9A' };
   const r1 = transitionDisplay(smooth, flagged, clean);
@@ -114,4 +114,31 @@ test('removal after manual reorder: surviving order preserved, undo restores the
   const restored = restoreTrackAt(surviving, removed, index);
   assert.deepEqual(restored.map(t => t.id), ['C', 'A', 'D', 'B'], 'undo restores the prior complete order exactly');
   assert.deepEqual(manual.map(t => t.id), ['C', 'A', 'D', 'B'], 'helpers never mutate the input list');
+});
+
+
+test('key and tempo colours are independent without changing the combined grade', async () => {
+  const { calculateTransitionCost } = await import('../server/core/costMatrix.js');
+  const a = { bpm: 106, camelot: '4A' };
+  for (const [b, keyTone, tempoTone, overall] of [
+    [{ bpm: 125, camelot: '4A' }, 'SMOOTH', 'CLASH', 'CLASH'],
+    [{ bpm: 106, camelot: '10B' }, 'CLASH', 'SMOOTH', 'CLASH'],
+    [{ bpm: 106, camelot: '4A' }, 'SMOOTH', 'SMOOTH', 'SMOOTH'],
+    [{ bpm: 114, camelot: '4A' }, 'SMOOTH', 'STRETCH', 'STRETCH'],
+    [{ bpm: null, camelot: '4A' }, 'SMOOTH', 'none', 'STRETCH'],
+    [{ bpm: 125, camelot: null }, 'UNVERIFIED', 'CLASH', 'UNVERIFIED']
+  ]) {
+    const t = calculateTransitionCost(a, b);
+    const snapshot = JSON.stringify(t);
+    const display = transitionDisplay(t, a, b);
+    assert.equal(display.tone, keyTone);
+    assert.equal(display.tempoTone, tempoTone);
+    assert.equal(t.grade, overall);
+    assert.equal(JSON.stringify(t), snapshot, 'display never changes evaluation');
+    assert.equal(display.showBpmChange, b.bpm !== null);
+  }
+  const flagged = { bpm: 125, camelot: '4A', recordingNeedsReview: true };
+  const display = transitionDisplay(calculateTransitionCost(a, flagged), a, flagged);
+  assert.equal(display.tone, 'review');
+  assert.equal(display.showBpmChange, false);
 });
