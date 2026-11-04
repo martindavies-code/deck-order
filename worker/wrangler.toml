@@ -1,0 +1,17 @@
+name = "deck-order-api"
+main = "src/index.js"
+compatibility_date = "2025-11-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "FREQBLOG_KV"
+id = "9265c8c99fa3421dbcc1d4972a720890"
+
+[[durable_objects.bindings]]
+name = "QUOTA"
+class_name = "QuotaCounter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuotaCounter"]
