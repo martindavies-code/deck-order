@@ -103,3 +103,15 @@ test('transition display: review-flagged side suppresses confident relation and 
   assert.equal(unverified.text, 'Unknown / Unverified harmonic data');
   assert.equal(unverified.showBpmChange, false);
 });
+
+test('removal after manual reorder: surviving order preserved, undo restores the exact prior order', () => {
+  // User manually reordered to C, A, D, B - removal must not reshuffle the rest.
+  const manual = [{ id: 'C' }, { id: 'A' }, { id: 'D' }, { id: 'B' }];
+  const { tracks: surviving, removed, index } = removeTrackAt(manual, 1);
+  assert.equal(removed.id, 'A');
+  assert.equal(index, 1);
+  assert.deepEqual(surviving.map(t => t.id), ['C', 'D', 'B'], 'survivors keep the manual order, no re-optimisation');
+  const restored = restoreTrackAt(surviving, removed, index);
+  assert.deepEqual(restored.map(t => t.id), ['C', 'A', 'D', 'B'], 'undo restores the prior complete order exactly');
+  assert.deepEqual(manual.map(t => t.id), ['C', 'A', 'D', 'B'], 'helpers never mutate the input list');
+});
