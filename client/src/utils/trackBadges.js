@@ -67,3 +67,41 @@ export function restoreTrackAt(tracks, track, index) {
   updated.splice(Math.max(0, Math.min(index, updated.length)), 0, track);
   return updated;
 }
+
+/**
+ * Single source of truth for the evidence-status badge (label + class) so the
+ * desktop table and the mobile card strip can never drift apart. Unknown or
+ * absent statuses honestly render as Missing.
+ */
+const EVIDENCE_BADGES = {
+  sample: { label: 'Sample', cls: 'badge-status-sample' },
+  corroborated: { label: 'Corroborated', cls: 'badge-status-corroborated' },
+  single_source: { label: 'Single source', cls: 'badge-status-single' },
+  supplied: { label: 'Supplied', cls: 'badge-status-supplied' },
+  disputed: { label: 'Disputed', cls: 'badge-status-disputed' },
+  missing: { label: 'Missing', cls: 'badge-status-missing' },
+  unverified: { label: 'Missing', cls: 'badge-status-missing' }
+};
+
+export function evidenceBadge(status) {
+  return EVIDENCE_BADGES[status] || EVIDENCE_BADGES.missing;
+}
+
+/**
+ * Honest transition display. A confident relation ("8A to 8A - same key")
+ * must never be shown when either side's tempo/key is flagged for review
+ * (recording mismatch or tempo doubt) - the grading input is unconfirmed.
+ * Otherwise the solver's own relation and BPM change pass through unchanged.
+ */
+export function transitionDisplay(transition, fromTrack, toTrack) {
+  const needsReview = !!(fromTrack?.recordingNeedsReview || fromTrack?.tempoNeedsReview
+    || toTrack?.recordingNeedsReview || toTrack?.tempoNeedsReview);
+  if (needsReview) {
+    return { text: 'Needs review - unconfirmed tempo/key', tone: 'review', showBpmChange: false };
+  }
+  return {
+    text: transition?.relation || 'Key match',
+    tone: transition?.grade || 'none',
+    showBpmChange: typeof transition?.bpmChange === 'number'
+  };
+}
