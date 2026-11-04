@@ -48,6 +48,9 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
     tempoCost = 3; // unverified tempo penalty
   }
 
+  const hasTempo = typeof trackA.bpm === 'number' && typeof trackB.bpm === 'number' &&
+    !isNaN(trackA.bpm) && !isNaN(trackB.bpm);
+
   // 3. Energy Cost (evaluated ONLY if both tracks provide real energy)
   let energyCost = 0;
   const hasRealEnergy = enableEnergy &&
@@ -75,14 +78,20 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
   const totalCost = Math.round((harmonicCost + tempoCost + energyCost) * 10) / 10;
 
   // Grade classification:
+  // UNVERIFIED: harmonic data missing or invalid (cost null) - never shown as a clash
   // SMOOTH: total cost <= 2.0
   // STRETCH: 3.0 <= total cost <= 5.0
   // CLASH: total cost > 5.0
-  let grade = 'SMOOTH';
-  if (totalCost > 5.0) {
-    grade = 'CLASH';
-  } else if (totalCost > 2.0) {
-    grade = 'STRETCH';
+  let grade;
+  if (harmEval.cost === null || harmEval.grade === 'UNVERIFIED') {
+    grade = 'UNVERIFIED';
+  } else {
+    grade = 'SMOOTH';
+    if (totalCost > 5.0) {
+      grade = 'CLASH';
+    } else if (totalCost > 2.0) {
+      grade = 'STRETCH';
+    }
   }
 
   return {
@@ -95,8 +104,8 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
     energyCost,
     totalCost,
     grade,
-    bpmChange,
-    tempoDiffPct: Math.round(tempoDiffPct * 10) / 10,
+    bpmChange: hasTempo ? bpmChange : null,
+    tempoDiffPct: hasTempo ? Math.round(tempoDiffPct * 10) / 10 : null,
     relation: harmEval.relation,
     harmEval
   };
@@ -115,7 +124,9 @@ export function evaluateSequence(tracks, options = {}) {
       smoothCount: 0,
       stretchCount: 0,
       clashCount: 0,
-      smoothPct: 100,
+      unverifiedCount: 0,
+      gradedCount: 0,
+      smoothPct: null,
       bpmRange: { min: 0, max: 0, delta: 0 },
       keyCoverage: []
     };
@@ -126,6 +137,8 @@ export function evaluateSequence(tracks, options = {}) {
   let smoothCount = 0;
   let stretchCount = 0;
   let clashCount = 0;
+  let gradedCount = 0;
+  let unverifiedCount = 0;
 
   const bpms = [];
   const keysFound = new Set();
@@ -139,6 +152,14 @@ export function evaluateSequence(tracks, options = {}) {
 
     const costObj = calculateTransitionCost(tA, tB, options);
     transitions.push(costObj);
+
+    // Unverified pairs carry synthetic penalty costs for the solver only;
+    // never count them as clashes or smooth in user-facing metrics.
+    if (costObj.grade === 'UNVERIFIED') {
+      unverifiedCount++;
+      continue;
+    }
+    gradedCount++;
     totalCost += costObj.totalCost;
 
     if (costObj.grade === 'SMOOTH') smoothCount++;
@@ -151,17 +172,21 @@ export function evaluateSequence(tracks, options = {}) {
   if (lastTrack.camelot) keysFound.add(lastTrack.camelot);
 
   const totalTransitions = transitions.length;
-  const smoothPct = totalTransitions > 0 ? Math.round((smoothCount / totalTransitions) * 100) : 100;
+  // smoothPct is computed over graded transitions only; unverified pairs are
+  // reported separately, never counted as clashes or smooth.
+  const smoothPct = gradedCount > 0 ? Math.round((smoothCount / gradedCount) * 100) : null;
   const minBpm = bpms.length > 0 ? Math.min(...bpms) : 0;
   const maxBpm = bpms.length > 0 ? Math.max(...bpms) : 0;
 
   return {
     transitions,
     totalCost: Math.round(totalCost * 10) / 10,
-    averageCost: totalTransitions > 0 ? Math.round((totalCost / totalTransitions) * 10) / 10 : 0,
+    averageCost: gradedCount > 0 ? Math.round((totalCost / gradedCount) * 10) / 10 : null,
     smoothCount,
     stretchCount,
     clashCount,
+    unverifiedCount,
+    gradedCount,
     smoothPct,
     bpmRange: { min: minBpm, max: maxBpm, delta: Math.round((maxBpm - minBpm) * 10) / 10 },
     keyCoverage: Array.from(keysFound)
