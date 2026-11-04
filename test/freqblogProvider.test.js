@@ -365,3 +365,41 @@ test('cache key: only version-decorated searches move to v3, unchanged shapes ke
   assert.match(keys[1], /^freqblog:v3:/, 'separate version tag: decorated search gets a fresh v3 key');
   assert.match(keys[2], /^freqblog:v2:/, 'version already in the title: undecorated, keeps v2');
 });
+
+
+test('artist mismatch rejects leading stopword false positives ("The Prodigy" vs "The Who")', async () => {
+  const rec = { ...GOOD_REC, artist_name: 'The Who', track_name: 'Glue' };
+  const p = new FreqBlogProvider('k', { fetchImpl: stubFetch({ '/lookup': rec }) });
+  const r = await p.lookupTrack({ artist: 'The Prodigy', title: 'Glue' });
+  assert.equal(r.success, false);
+  assert.match(r.reason, /artist_mismatch/);
+});
+
+test('in-flight request deduplication (singleflight) coalesces concurrent calls into single fetch and quota unit', async () => {
+  let networkCalls = 0;
+  let quotaCalls = 0;
+  const delayedFetch = async () => {
+    networkCalls++;
+    await new Promise(r => setTimeout(r, 20));
+    return { ok: true, json: async () => GOOD_REC };
+  };
+  const reserveQuota = async (n) => {
+    quotaCalls += n;
+    return true;
+  };
+  const p = new FreqBlogProvider('k', { fetchImpl: delayedFetch, reserveQuota });
+
+  // Fire 5 concurrent requests for the exact same track
+  const promises = Array.from({ length: 5 }, () =>
+    p.lookupTrack({ artist: 'Bicep', title: 'Glue', version: 'Original Mix' })
+  );
+  const results = await Promise.all(promises);
+
+  assert.equal(networkCalls, 1, 'Only one outgoing network call made for 5 concurrent lookups');
+  assert.equal(quotaCalls, 1, 'Only one quota unit reserved for 5 concurrent lookups');
+  assert.equal(results.length, 5);
+  for (const res of results) {
+    assert.equal(res.success, true);
+    assert.equal(res.data.bpm, 130);
+  }
+});

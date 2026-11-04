@@ -54,12 +54,17 @@ export class ProviderCache {
   }
 
   buildKey(provider, query) {
-    if (query.isrc) {
-      return `${provider}:isrc:${query.isrc.trim().toUpperCase()}`;
+    if (!query || typeof query !== 'object') {
+      return `${provider || 'unknown'}:invalid`;
     }
-    const artist = (query.artist || '').toLowerCase().trim();
-    const title = (query.title || '').toLowerCase().trim();
-    const version = (query.version || '').toLowerCase().trim();
+    const cleanIsrc = typeof query.isrc === 'string' ? query.isrc.trim().toUpperCase() : '';
+    if (cleanIsrc) {
+      return `${provider}:isrc:${cleanIsrc}`;
+    }
+    const artist = (typeof query.artist === 'string' ? query.artist : '').toLowerCase().trim();
+    const rawTitle = typeof query.title === 'string' ? query.title : (typeof query.name === 'string' ? query.name : '');
+    const title = rawTitle.toLowerCase().trim();
+    const version = (typeof query.version === 'string' ? query.version : '').toLowerCase().trim();
     return `${provider}:query:${artist}:::${title}:::${version}`;
   }
 

@@ -481,7 +481,7 @@ export function App() {
     setSelectedTrackIndex(null);
     // Grade the surviving displayed order; never re-optimise on removal.
     setEvaluation(evaluateCurrentOrder(updated, { enableEnergy }));
-    showToast(`Removed "${removed.title}" from this set. The original playlist is untouched.`, 4000);
+    showToast(`Removed "${removed.title || removed.name || 'track'}" from this set. The original playlist is untouched.`, 4000);
   };
 
   // Undo the last removal, restoring the track at its original position
@@ -492,7 +492,7 @@ export function App() {
     setLastRemoved(null);
     // Grade the restored displayed order; never re-optimise on undo.
     setEvaluation(evaluateCurrentOrder(restored, { enableEnergy }));
-    showToast(`Restored "${lastRemoved.track.title}".`);
+    showToast(`Restored "${lastRemoved.track.title || lastRemoved.track.name || 'track'}".`);
   };
 
   // Restore Original Order
@@ -828,7 +828,7 @@ export function App() {
                     className="deck-panel px-4 py-2.5 mb-3 flex items-center justify-between gap-3 border-[#F59E0B]"
                   >
                     <span className="text-xs text-[#BAC2B3]">
-                      Removed <span className="font-bold text-[#F3F0E6]">{lastRemoved.track.title}</span> from this set.
+                      Removed <span className="font-bold text-[#F3F0E6]">{lastRemoved.track.title || lastRemoved.track.name || 'track'}</span> from this set.
                     </span>
                     <div className="flex items-center gap-2">
                       <button

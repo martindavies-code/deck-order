@@ -152,12 +152,15 @@ export function getCrateHistory(accountKey = 'anonymous') {
  * revision and the repeat is skipped.
  */
 function trackSignatureIdentity(t) {
+  if (!t || typeof t !== 'object') return '';
   // Stable recording identity: never the per-import generated id, which
   // changes on every import and would defeat duplicate detection across
-  // sessions. Artist + title identify the track; version/mix tag, ISRC and
+  // sessions. Artist + title (or name) identify the track; version/mix tag, ISRC and
   // Spotify id (as available) remain separate signature fields below so
   // distinct recordings of the same song stay distinct revisions.
-  const artistTitle = [t.artist, t.title].map(v => (v || '').trim()).filter(Boolean).join(' - ');
+  const title = t.title || t.name || '';
+  const artist = t.artist || '';
+  const artistTitle = [artist, title].map(v => (v || '').trim()).filter(Boolean).join(' - ');
   return artistTitle || t.id || '';
 }
 
@@ -205,9 +208,24 @@ export function saveSetToHistory(setRecord, accountKey = 'anonymous') {
     }
 
     // Keep up to 50 sets in history per account
-    const updated = [entry, ...current.slice(0, 49)];
-    localStorage.setItem(`${CRATE_HISTORY_PREFIX}${accountKey}`, JSON.stringify(updated));
-    return updated;
+    let updated = [entry, ...current.slice(0, 49)];
+    try {
+      localStorage.setItem(`${CRATE_HISTORY_PREFIX}${accountKey}`, JSON.stringify(updated));
+      return updated;
+    } catch (quotaErr) {
+      // QuotaExceededError handling: if storage is full, prune oldest sets progressively
+      // so active set persistence does not silently fail.
+      while (updated.length > 5) {
+        updated = updated.slice(0, Math.max(5, updated.length - 5));
+        try {
+          localStorage.setItem(`${CRATE_HISTORY_PREFIX}${accountKey}`, JSON.stringify(updated));
+          return updated;
+        } catch {
+          // Continue pruning if still exceeding quota
+        }
+      }
+      throw quotaErr;
+    }
   } catch (err) {
     console.warn('Could not save set to history:', err);
     return getCrateHistory(accountKey);

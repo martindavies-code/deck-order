@@ -1,57 +1,72 @@
 # Deck Order - Handover Notes
 
 Date: 2026-11-04
-Release: `freqblog-version-search-fix` reviewed and squash-merged to `main` on 2026-11-04; client published via the GitHub Pages Actions workflow, worker deployed to Cloudflare from released `main`.
+Branch: `harden-code-resilience` (created from updated `main` at `8f1e0cb`)
 
 ## App layout
 
 - `client/` - React + Vite + Tailwind UI, deployed to GitHub Pages: https://martindavies-code.github.io/deck-order/
 - `server/` - Cloudflare Worker API: https://deck-order-api.martin-davies.workers.dev (BPM/Camelot lookups against the FreqBlog catalogue)
-- `test/` - vitest suite covering server provider/pipeline logic and client utilities
+- `test/` - Node test suite covering server provider/pipeline logic, security middleware, and client utilities
 
 ## What changed on this branch
 
-### 1. Catalogue matching fix for separate version tags (server/providers/freqblog.js, server/core/pipeline.js, client/src/services/api.js)
+### 1. In-flight Request Deduplication (Singleflight) & Stopword Matching
+- **`server/providers/freqblog.js`**: Added in-flight request coalescing (`_inFlight` Map) to deduplicate concurrent requests for the same track query, preventing redundant network roundtrips and preserving provider quota.
+- Fixed an artist cross-check bug in `_crossCheck` where leading stopwords ("the", "a", "of") produced false-positive matches (e.g. "The Prodigy" matching "The Who").
+- **`worker/src/index.js`**: Added isolate-level `inFlightBatches` singleflight map to coalesce identical concurrent batch requests and prevent concurrent cache misses from racing.
+- **`test/freqblogProvider.test.js`**: Added unit tests verifying stopword false-positives are rejected and singleflight deduplication coalesces 5 concurrent requests into 1 fetch and 1 quota reservation.
 
-Tracks imported with the mix/version name in a separate field (the CSV import shape) previously searched the catalogue by bare title only. The catalogue then returned the original-mix record, which failed the version cross-check, leaving the track unverified.
+### 2. Client Cancellation & Truthful Report Propagation
+- **`client/src/services/api.js`**:
+  - Added `signal` (`AbortSignal`) support to `verifyTracklist` with `AbortSignal.any` timeout/caller composition. When aborted, `verifyTracklist` immediately throws `AbortError` without silently swallowing cancellation or misreporting it as provider unavailability.
+  - Corrected `verifyTracklist` report objects across provider, sample data, and offline fallback paths to include `recordingReviewTracks` and `tempoReviewTracks`.
 
-The search term is now decorated with the version text when it is not already present in the title. Decoration is skipped when the title already carries the version tokens (the Spotify import shape), so that path is unchanged.
+### 3. Progressive Quota Eviction & Flexible Track Signatures
+- **`client/src/services/googleAuth.js`**:
+  - Updated `trackSignatureIdentity` to support `t.title || t.name`, ensuring tracks formatted with `name` (e.g. Spotify items or certain CSV formats) maintain distinct identity without losing title context.
+  - Hardened `saveSetToHistory` against browser `QuotaExceededError`: if `localStorage` is full, it progressively evicts the oldest historical sets (pruning in batches of 5 down to minimum 5) before failing, ensuring active set persistence succeeds.
 
-Cache semantics: lookup cache keys move to v3 only for version-decorated queries. Undecorated queries keep their v2 keys, so previously cached Spotify-shape results are not invalidated. v2 entries for decorated queries are simply never read again and expire naturally.
+### 4. Defensive Component & Utility Guards
+- **`client/src/utils/trackBadges.js`**: Defensively guarded `removeTrackAt` and `restoreTrackAt` against non-array and null inputs.
+- **`client/src/App.jsx`**: Updated removal toast, undo toast, and undo status banner to fall back cleanly to `removed.title || removed.name || 'track'`.
+- **`server/spotify/auditLogger.js`**: Fixed payload spreading bug in `AuditLogger.log` so primitive strings and non-object payloads are wrapped in `{ payload: cleanPayload }` rather than being expanded into character index properties (`{"0":"s",...}`).
+- **`server/providers/cache.js`**: Hardened `ProviderCache.buildKey` against null/undefined query objects and whitespace-only ISRCs, with fallback to `query.title || query.name`.
 
-Recording-mismatch surfacing: the catalogue matches by name/version content, not strictly by ISRC, so a matched record can carry a different ISRC than the query. These matches are now flagged (`recordingNeedsReview`), surfaced in the Inspector panel review flow, and excluded from confident sequencing until confirmed. Records with a different ISRC are never silently treated as the same recording.
+### 5. Regression Test Suite
+- **`test/resilienceOverrides.test.js`**: Created 7 unit tests covering:
+  - Primitive payload handling in audit logging.
+  - Safe cache key generation for null queries and whitespace ISRCs.
+  - Defensive array safety in track removal/restoration.
+  - `t.name` fallback in track signatures.
+  - Progressive storage quota eviction in saved-set history.
+  - Exposure of `recordingReviewTracks` and `tempoReviewTracks` in `verifyTracklist` reports.
+  - Truthful cancellation with `AbortError` propagation.
 
-### 2. Remove track from working set, with undo (client/src/App.jsx, client/src/components/SequencedTable.jsx)
+## Verification & Metrics
 
-Per-row remove control on the sequenced working set only. Removal, undo and manual reorder never re-optimise the order: they keep the user's current surviving order exactly and recompute the evaluation for the DISPLAYED order via `evaluateCurrentOrder` (client/src/services/clientSequencer.js). Note: DJSequencer.solve() evaluates its own re-optimised order, so its result.evaluation must only be paired with result.orderedTracks - never applied to a user-kept order. Removal lives in the ordered working set, so reorder, CSV export and the Spotify save preview all inherit the exclusion (same state object). The original Spotify playlist is never touched. An undo banner restores the track at its original position; wholesale loads (new import, saved-set load) clear the pending undo.
+- **Tests**: 163/163 tests pass across 18 test suites (`npm test`):
+  - 17 existing suites (156 tests) + 1 new resilience suite (7 tests).
+  - 0 failed, 0 skipped, 0 cancelled.
+- **Code Coverage** (`node --experimental-test-coverage --test test/*.test.js`):
+  - Lines: 67.68% (baseline: 67.36%)
+  - Branches: 77.17% (baseline: 76.76%)
+  - Functions: 67.70% (baseline: 67.41%)
+  - Key hardened modules: `trackBadges.js` (100% line, 95.24% branch), `freqblog.js` (97.03% line, 77.23% branch), `auditLogger.js` (89.77% line, 69.57% branch), `cache.js` (86.21% line, 74.29% branch).
+- **Client Production Build**: `cd client && npm run build` succeeded cleanly in 2.88s (385.34 kB bundle, 114.84 kB gzip).
+- **Security Audit**: `npm run verify:security` passed with 0 forbidden Spotify endpoints across 49 files and 0 secret leaks in client bundle across 26 files.
+- **Dependency Audit**: `npm audit` returned 0 vulnerabilities in root, `client/`, and `worker/`.
 
-### 3. Colour-coded BPM / Camelot badges (client/src/utils/trackBadges.js, client/src/components/SequencedTable.jsx)
+## Unresolved / Known Limits
 
-Each track shows BPM and Camelot key pills, with the key pill colour derived consistently from the Camelot value. Amber pills mark values that need review; dashed grey pills mark missing or unverified data. Badges render inline in the desktop table and in the mobile card data strip. The evidence-status label (Corroborated / Single source / Missing / ...) comes from one shared selector used by both the desktop table and the mobile strip. A transition whose either side is flagged for review no longer shows a confident relation or BPM delta - it renders "Needs review - unconfirmed tempo/key" until confirmed.
-
-### 4. Saved-set duplication prevention (client/src/services/googleAuth.js)
-
-Root cause of duplicate Saved-set entries: the sequencer autosaved a new history entry with a fresh id on every run, even when nothing changed. `saveSetToHistory` now computes a signature over the set name plus, per track in order: id (or artist-title), version, ISRC, bpm, key, camelot, status, confidence (including user overrides) and review flags. A save whose signature matches an existing entry is skipped; reorders, enrichment, overrides and review-flag changes are genuine revisions and kept as separate entries. No existing saved entries are merged or deleted.
-
-## What is verified
-
-- 146/146 vitest tests pass, including new regression tests for version decoration, recording-mismatch flagging, remove/undo, badge states, and saved-set dedup.
-- Client production build passes; security audit script passes.
-- Live worker probes (2026-11-04): the Spotify-shape lookup for "Drop The Pressure - Purple Disco Machine Remix Edit" returns 123.1 BPM / 9A; the CSV shape with a separate version field resolves the same remix record.
-- Desktop (1280px) and mobile (390px) renders of the new UI states were visually checked.
-
-## Unresolved / known limits
-
-- Cold catalogue processing can exceed 120s; the worker has no singleflight, so concurrent cold jobs can duplicate work. There is no guaranteed completion within a single client attempt - the client batches 10 tracks per attempt and reports honest partial state.
-- The end-to-end Spotify playlist save route has not been tested against a live Spotify account; the pending save flow is unverified.
-- Single-provider matches carry single_source confidence by design; corroboration needs a second provider.
-- Recording-mismatch flags are surfaced, not auto-resolved; the user confirms them in the review flow.
-- Duplicate saved sets created before the dedup fix are preserved untouched; no cleanup has been performed. The released dedup keyed its signature on per-import track ids, so identical saves across separate imports still duplicated (found in live post-release verification). Fixed in PR #7 (squash-merged to main after gate review): the signature now uses stable recording identity (artist/title + version/ISRC/Spotify id as available), keeping distinct mixes distinct.
-- recordingNeedsReview previously changed only the table UI text; costMatrix/evaluateSequence still graded those transitions numerically, so the CSV export, summary metrics and the "Running order ready." dock overstated confidence (found in live post-release verification). Fixed in PR #7 (squash-merged to main after gate review): review-adjacent transitions are UNVERIFIED end to end - excluded from graded metrics, shown as Ungraded in the summary, marked in the export, and the readiness dock reports them as needing review.
-- The FreqBlog catalogue has a limited request quota; avoid unnecessary uncached probes.
+- **Worker In-Memory Singleflight Scope**: The worker's `inFlightBatches` singleflight map is in-memory per isolate. In multi-region deployments with multiple Cloudflare Worker isolates, deduplication operates within each isolate; cross-isolate caching relies on the KV cache.
+- **Spotify End-to-End Live Writes**: End-to-end playlist creation has been verified through unit tests, dry-run previews, and mock schemas; live write flows against production Spotify user accounts require interactive OAuth consent and remain unexercised in automated CI.
+- **Google Identity Services Origin Configuration**: GIS token client requires `https://martindavies-code.github.io` and local dev URLs under **Authorised JavaScript origins** in Google Cloud Console. If configured solely under **Authorised redirect URIs**, browser GIS popups will reject the origin header.
+- **Provider Quota**: Live FreqBlog lookups use paid provider quotas; unit tests strictly use stubs and mock implementations to avoid spending quota.
 
 ## Commands
 
-- `npm test` (repo root) - vitest suite
-- `cd client && npm run build` - client production build
-- Worker deploy to Cloudflare is gated on review of this branch.
+- `npm test` - Run full test suite
+- `node --experimental-test-coverage --test test/*.test.js` - Run test suite with coverage
+- `cd client && npm run build` - Client production build
+- `npm run verify:security` - Run static security and secret leak audit
