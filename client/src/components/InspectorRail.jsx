@@ -86,6 +86,14 @@ export function InspectorRail({
             {track.bpm ? `${track.bpm} BPM` : 'Unknown'}
           </span>
         </div>
+        {track.isNormalized && track.rawBpm && (
+          <div className="flex justify-between font-mono">
+            <span className="text-[#7E8876]">Source tempo:</span>
+            <span className="text-[#FCA5A5] tabular-nums" title="Shown tempo is normalised into the working range">
+              {track.rawBpm} BPM (doubled/halved)
+            </span>
+          </div>
+        )}
         <div className="flex justify-between font-mono">
           <span className="text-[#7E8876]">Key / Camelot:</span>
           <span className="text-[#D6FC55] font-bold">
