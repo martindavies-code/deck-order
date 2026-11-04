@@ -60,7 +60,8 @@ export async function fetchStatus() {
   const spotifyClientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID || null;
   const isSpotifyConfigured = Boolean(spotifyClientId);
 
-  if (isGitHubPages) {
+  // Static hosting still uses the deployed metadata worker when VITE_API_BASE is set.
+  if (isGitHubPages && !API_BASE) {
     return {
       success: true,
       spotifyEligibility: {
@@ -523,7 +524,8 @@ export async function verifyTracklist(tracks, isSampleData = false) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tracks }),
-      signal: AbortSignal.timeout(3000)
+      // FreqBlog lookups can wait on backfill; allow well beyond the UI paint.
+      signal: AbortSignal.timeout(20000)
     });
     if (res.ok) {
       const data = await res.json();
