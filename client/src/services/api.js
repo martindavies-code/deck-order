@@ -697,7 +697,10 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
         batchErr = err;
       }
       if (batchErr) {
-        if (signal?.aborted || batchErr.name === 'AbortError') {
+        // Only a caller-initiated abort is rethrown. A batch timeout
+        // (TimeoutError, or AbortError on older engines) keeps the
+        // partial-failure handling below.
+        if (signal?.aborted) {
           throw batchErr;
         }
         consecutiveFailures++;
