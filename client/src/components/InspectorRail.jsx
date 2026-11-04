@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, AlertTriangle, RotateCcw, Sliders, ExternalLink } from 'lucide-react';
-import { transitionDisplay } from '../utils/trackBadges.js';
+import { transitionDisplay, transitionToneClass } from '../utils/trackBadges.js';
 
 export function InspectorRail({
   track,
@@ -165,24 +165,27 @@ export function InspectorRail({
         <span className="text-[10px] font-mono uppercase tracking-wider text-[#7E8876] block">
           Placement in set
         </span>
-        {transitionBefore && (() => {
-          const td = transitionDisplay(transitionBefore, track, null);
+        {[['Incoming', 'From previous track', transitionBefore], ['Outgoing', 'To next track', transitionAfter]].map(([label, direction, transition]) => {
+          if (!transition) return null;
+          const td = transitionDisplay(transition, track, null);
           return (
-            <p className="text-[11px] text-[#BAC2B3]">
-              Incoming: <span className={`font-mono ${td.tone === 'review' ? 'text-[#F59E0B]' : 'text-[#F3F0E6]'}`}>{td.text}</span>{td.tone === 'review' ? '' : ` from previous track${td.showBpmChange ? ` (${transitionBefore.bpmChange > 0 ? `+${transitionBefore.bpmChange}` : transitionBefore.bpmChange} BPM)` : ''}`}.
-            </p>
+            <div key={label} className="rounded border border-[#394133] bg-[#10120F]/50 p-3 space-y-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <h4 className="text-xs font-semibold text-[#F3F0E6]">{label}</h4>
+                <span className="text-[11px] text-[#7E8876]">{direction}</span>
+              </div>
+              <p className={`text-xs leading-relaxed ${transitionToneClass(td.tone)}`}>{td.text}</p>
+              {td.showBpmChange && (
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="text-[#7E8876]">Tempo change</span>
+                  <span className={`font-mono tabular-nums whitespace-nowrap ${transitionToneClass(td.tempoTone)}`}>
+                    {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
+                  </span>
+                </div>
+              )}
+            </div>
           );
-        })()}
-        {transitionAfter && (() => {
-          const td = transitionDisplay(transitionAfter, track, null);
-          return (
-            <p className="text-[11px] text-[#BAC2B3]">
-              Outgoing: {td.tone === 'review'
-                ? <span className="font-mono text-[#F59E0B]">{td.text}.</span>
-                : <>Handover to next track is <span className="font-mono text-[#F3F0E6]">{td.text}</span>{td.showBpmChange ? ` (${transitionAfter.bpmChange > 0 ? `+${transitionAfter.bpmChange}` : transitionAfter.bpmChange} BPM)` : ''}.</>}
-            </p>
-          );
-        })()}
+        })}
         {!transitionBefore && !transitionAfter && (
           <p className="text-[11px] text-[#7E8876]">Single track in current selection.</p>
         )}
