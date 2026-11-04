@@ -3,7 +3,10 @@ import { parseKey } from '../core/camelot.js';
 const DEFAULT_BASE = 'https://api.freqblog.com';
 const ISRC_RE = /^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/i;
 // Version words that carry no remix/edit identity on their own.
-const GENERIC_VERSION_TOKENS = new Set(['mix', 'edit', 'remix', 'extended', 'club', 'original', 'radio', 'dub', 'version', 'feat', 'featuring', 'the', 'a', 'of']);
+// Only true noise words are stripped. Distinguishing tags (remix, club, radio,
+// extended, original, dub, vip, acoustic, instrumental, ...) are kept: a query
+// for 'Club Mix' must NOT match a 'Radio Mix' record by deleting the difference.
+const GENERIC_VERSION_TOKENS = new Set(['mix', 'edit', 'version', 'feat', 'featuring', 'the', 'a', 'of']);
 
 function norm(s) {
   return (s || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
