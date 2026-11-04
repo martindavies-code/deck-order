@@ -104,3 +104,39 @@ test('post-removal save stores the surviving order and counts as a new revision'
   h = googleAuth.saveSetToHistory(afterRemoval, 'anonymous');
   assert.equal(h.length, 2);
 });
+
+test('cross-import exact repeat dedupes despite fresh per-import ids', () => {
+  // Each import generates new track ids. The signature must use stable
+  // recording identity, so re-importing the same CSV and rebuilding the
+  // same order does not multiply history entries (Martin's original bug).
+  const importOne = setA();
+  let h = googleAuth.saveSetToHistory(importOne, 'anonymous');
+  assert.equal(h.length, 1);
+  const importTwo = setA();
+  importTwo.tracks = importTwo.tracks.map(t => ({ ...t, id: `reimport_${Math.random().toString(36).slice(2)}` }));
+  h = googleAuth.saveSetToHistory(importTwo, 'anonymous');
+  assert.equal(h.length, 1, 'identical content with fresh import ids must dedupe');
+});
+
+test('distinct mixes of the same song are never deduped away', () => {
+  const base = () => ({
+    name: 'Mixes',
+    tracks: [
+      { id: 'm1', artist: 'Sugar Hill', title: 'My Fire', version: 'Short Edit', isrc: 'GBENL0000001', bpm: 121, camelot: '8A', status: 'single_source' }
+    ],
+    evaluation: { smoothPct: null, totalCost: 0 }
+  });
+  let h = googleAuth.saveSetToHistory(base(), 'anonymous');
+  assert.equal(h.length, 1);
+  const otherMix = base();
+  otherMix.tracks = [{ id: 'm9', artist: 'Sugar Hill', title: 'My Fire', version: 'Club Mix', isrc: 'GBENL0000002', bpm: 121, camelot: '8A', status: 'single_source' }];
+  h = googleAuth.saveSetToHistory(otherMix, 'anonymous');
+  assert.equal(h.length, 2, 'different version/ISRC is a different recording, kept');
+  const sameMixDifferentSpotifyId = base();
+  sameMixDifferentSpotifyId.tracks = [{ ...base().tracks[0], id: 'm10', spotifyId: 'spotify:track:ABC' }];
+  h = googleAuth.saveSetToHistory(sameMixDifferentSpotifyId, 'anonymous');
+  assert.equal(h.length, 3, 'a different sourceSpotifyID (as available) is a different revision');
+  // and an exact repeat of the original mix still dedupes after all that
+  h = googleAuth.saveSetToHistory(base(), 'anonymous');
+  assert.equal(h.length, 3, 'exact repeat of the first mix still dedupes');
+});
