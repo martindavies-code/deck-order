@@ -140,3 +140,40 @@ test('distinct mixes of the same song are never deduped away', () => {
   h = googleAuth.saveSetToHistory(base(), 'anonymous');
   assert.equal(h.length, 3, 'exact repeat of the first mix still dedupes');
 });
+
+test('active document edits update only its identity; existing entries survive', () => {
+  const older = { ...setA(), id: 'older', timestamp: '2026-01-01T00:00:00Z', arbitrary: 'retain' };
+  localStorage.setItem('deck_order_crate_history_anonymous', JSON.stringify([older]));
+  const before = JSON.stringify(older);
+  const first = googleAuth.updateActiveSet({ ...setA(), id:'active' });
+  assert.equal(first.saved,true);
+  const edit = { ...setA(), id:'active', name:'Edited', tracks:setA().tracks.slice(1), originalTracks:setA().tracks };
+  const second=googleAuth.updateActiveSet(edit);
+  assert.equal(second.history.length,2);
+  assert.equal(second.history[0].name,'Edited');
+  assert.equal(second.history[0].trackCount,1);
+  assert.equal(JSON.stringify(second.history[1]),before);
+  assert.equal(second.history[0].timestamp,first.history[0].timestamp);
+  assert.deepEqual(second.history[0].originalTracks,setA().tracks);
+  // New means a different document even if contents match.
+  assert.equal(googleAuth.updateActiveSet({ ...setA(), id:'new' }).history.length,3);
+});
+
+test('active document write failure leaves all prior bytes intact and does not report saved', () => {
+  googleAuth.updateActiveSet({ ...setA(), id:'active' });
+  const bytes=localStorage.getItem('deck_order_crate_history_anonymous');
+  const write=localStorage.setItem;
+  localStorage.setItem=()=>{throw new Error('QuotaExceededError');};
+  const result=googleAuth.updateActiveSet({ ...setA(), id:'active',name:'Unsaved' });
+  assert.equal(result.saved,false);
+  assert.equal(localStorage.getItem('deck_order_crate_history_anonymous'),bytes);
+  localStorage.setItem=write;
+});
+
+test('active set identity isolates accounts and never silently trims large histories', () => {
+  const entries=Array.from({length:55},(_,i)=>({...setA(),id:`old-${i}`}));
+  localStorage.setItem('deck_order_crate_history_anonymous',JSON.stringify(entries));
+  assert.equal(googleAuth.updateActiveSet({...setA(),id:'new'}).history.length,56);
+  assert.equal(googleAuth.updateActiveSet({...setA(),id:'new'},'other').history.length,1);
+  assert.equal(googleAuth.getCrateHistory('anonymous').length,56);
+});
