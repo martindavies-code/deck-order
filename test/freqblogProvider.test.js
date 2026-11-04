@@ -132,3 +132,56 @@ test('freqblog version cross-check: club mix does not match radio mix record', a
   assert.match(r.reason, /version_mismatch/);
 });
 
+
+test('ISRC exact-identifier match: version veto skipped when provider record carries the same ISRC', async () => {
+  // Catalogue record for the requested recording, but with no mix metadata.
+  const rec = { ...GOOD_REC, isrc: 'GBENL2802692', mix_name: '', remixer: '', track_name: 'Drop The Pressure', artist_name: 'Claptone & Mylo' };
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    if (url.includes('/bulk')) return { ok: true, json: async () => ({ results: [{ found: true, result: rec }] }) };
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  const p = new FreqBlogProvider('k', { fetchImpl });
+  const r = await p.lookupTrack({
+    artist: 'Claptone, Mylo, Purple Disco Machine',
+    title: 'Drop The Pressure',
+    version: 'Purple Disco Machine Remix Edit',
+    isrc: 'GBENL2802692'
+  });
+  assert.equal(r.success, true);
+  assert.equal(r.data.bpm, 130);
+  assert.equal(r.data.source, 'freqblog_isrc_bulk');
+  assert.equal(calls.length, 1, 'accepted on the ISRC path alone, no name-search fallback');
+});
+
+test('Different record ISRC keeps the conservative version veto', async () => {
+  // Provider found A recording, but not the exact one (different ISRC):
+  // version tokens must still be vetted and reject unknown versions.
+  const rec = { ...GOOD_REC, isrc: 'GBCFB1700229', mix_name: 'Original Mix', track_name: 'Glue', artist_name: 'Bicep' };
+  const fetchImpl = async (url) => {
+    if (url.includes('/bulk')) return { ok: true, json: async () => ({ results: [{ found: true, result: rec }] }) };
+    if (url.includes('/lookup')) return { ok: true, json: async () => GOOD_REC };
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  const p = new FreqBlogProvider('k', { fetchImpl });
+  const r = await p.lookupTrack({ artist: 'Bicep', title: 'Glue', version: 'Babert Remix', isrc: 'GBBKS2000001' });
+  assert.equal(r.success, false);
+  // Both paths reject on the version veto: the /bulk record has a different
+  // ISRC (no identity proof) and the name-search record has no identity at all.
+  assert.match(r.reason, /version_mismatch/);
+});
+
+test('ISRC-exact match with a genuinely conflicting mix on the record still accepts (same recording)', async () => {
+  // Same ISRC = same recording even if the catalogue mix label disagrees;
+  // the pipeline's cross-source version comparison remains responsible for flagging it.
+  const rec = { ...GOOD_REC, isrc: 'GBENL2802692', mix_name: 'Original Mix' };
+  const fetchImpl = async (url) => {
+    if (url.includes('/bulk')) return { ok: true, json: async () => ({ results: [{ found: true, result: rec }] }) };
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  const p = new FreqBlogProvider('k', { fetchImpl });
+  const r = await p.lookupTrack({ artist: 'Bicep', title: 'Glue', version: 'Club Mix', isrc: 'GBENL2802692' });
+  assert.equal(r.success, true);
+  assert.equal(r.data.version, 'Original Mix', 'real record version exposed for downstream mismatch detection');
+});
