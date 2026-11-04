@@ -109,16 +109,6 @@ export function ComparisonView({
           )}
         </div>
 
-        {ungradedDelta !== 0 && (
-          <p className="text-[11px] font-mono text-[#BAC2B3] leading-snug">
-            Graded score {fmtScore(originalEvaluation)} → {fmtScore(sequencedEvaluation)} covers a different set of
-            edges (ungraded {originalEvaluation.unverifiedCount} → {sequencedEvaluation.unverifiedCount}): the
-            unconfirmed track is placed at an edge until you review its tempo. Total cost including uncertainty
-            penalties {fmtObj(originalEvaluation)} → {fmtObj(sequencedEvaluation)}
-            {objectiveDelta > 0 ? ' (improved)' : ''}; that figure is not measured musical quality.
-          </p>
-        )}
-
         {/* View Toggle & Reset */}
         <div className="flex items-center gap-2 w-full md:w-auto">
           {onRestoreOriginal && (
@@ -156,6 +146,14 @@ export function ComparisonView({
           </div>
         </div>
       </div>
+      {ungradedDelta !== 0 && (
+        <p className="text-[11px] font-mono text-[#BAC2B3] leading-snug">
+          Transition score covers a different set of handovers (ungraded {originalEvaluation.unverifiedCount} → {sequencedEvaluation.unverifiedCount}):
+          the unconfirmed track is excluded from grading until you review its tempo. Overall optimisation cost
+          including uncertainty penalties {fmtObj(originalEvaluation)} → {fmtObj(sequencedEvaluation)}
+          {objectiveDelta > 0 ? ' (improved)' : ''} - not a measure of musical quality.
+        </p>
+      )}
     </div>
   );
 }
