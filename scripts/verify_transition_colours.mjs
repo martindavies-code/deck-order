@@ -1,0 +1,108 @@
+// Isolated production App check. Synthetic neighbors; no user/account/provider data.
+import { chromium } from 'playwright';
+import { spawn } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { evaluateCurrentOrder, DJSequencer } from '../client/src/services/clientSequencer.js';
+const server = spawn('python3', ['-m', 'http.server', '8766', '--directory', 'client/dist'], { stdio: 'ignore' });
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
+const source = { id:'sylvester', title:'You Make Me Feel (Mighty Real) - Michael Gray Remix', artist:'Sylvester, Michael Gray', bpm:62.5, rawBpm:62.5, workingBpm:62.5, camelot:'4A', key:'F minor', tempoNeedsReview:true, tempoSuggestion:{bpm:125,kind:'doubled'}, status:'single_source' };
+const tracks = [{id:'preceding',title:'Synthetic preceding track',artist:'Test fixture',bpm:106,workingBpm:106,camelot:'4A',status:'supplied'},source,{id:'next',title:'Synthetic next track',artist:'Test fixture',bpm:125,workingBpm:125,camelot:'10B',status:'supplied'}];
+const key='deck_order_crate_history_anonymous';
+try {
+ await mkdir('/downloads',{recursive:true});
+ for (const width of [1440,390]) {
+  const context=await browser.newContext({viewport:{width,height:1000}});
+  const requests=[];
+  const page=await context.newPage();
+  await page.route('**/*',route=>{const u=new URL(route.request().url()); if(u.hostname!=='127.0.0.1'){ requests.push(u.href);return route.fulfill({status:503,body:'{}'});} return route.continue({url:route.request().url().replace('/deck-order/assets/','/assets/')}); });
+  await context.addInitScript(({key,tracks,evaluation})=>{ if (!localStorage.getItem(key)) localStorage.setItem(key,JSON.stringify([{id:'isolated',name:'Isolated colour test',timestamp:'2026-11-04T14:00:00Z',tracks,trackCount:3,evaluation}])); },{key,tracks,evaluation:evaluateCurrentOrder(tracks)});
+  await page.goto('http://127.0.0.1:8766/');
+  await page.getByRole('button',{name:/Saved sets/}).click();
+  await page.getByRole('button',{name:'Load set',exact:true}).click();
+  await page.locator('p:visible').filter({hasText:source.title}).first().click();
+  const rail=page.locator('.deck-panel').filter({has:page.getByText('Track #2 of 3',{exact:true})});
+  await rail.getByRole('button',{name:'Use my value',exact:true}).click();
+  await rail.locator('input[type=number]').fill('125');
+  await rail.locator('input[type=text]').fill('F-Minor');
+  const before=requests.length;
+  await rail.getByRole('button',{name:'Apply value',exact:true}).click();
+  await page.getByText('Custom value applied.',{exact:true}).waitFor();
+  assert.equal(requests.length,before);
+  const relation=page.getByText('4A to 4A - same key',{exact:true}).filter({visible:true}).first();
+  const delta=page.getByText('+19 BPM',{exact:true}).filter({visible:true}).first();
+  assert.equal(await relation.evaluate(el=>getComputedStyle(el).color),'rgb(134, 239, 172)');
+  assert.equal(await delta.evaluate(el=>getComputedStyle(el).color),'rgb(252, 165, 165)');
+  const history=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),key);
+  assert.equal(history[0].evaluation.transitions[0].grade,'CLASH');
+  assert.equal(history[0].evaluation.transitions[0].tempoCost,12);
+  assert.deepEqual(history[0].tracks.map(t=>t.id),tracks.map(t=>t.id));
+  await rail.scrollIntoViewIfNeeded();
+  await rail.screenshot({path:`/downloads/placement-${width}.png`});
+  // Repeated phrases now also appear in the inspector, so first visible match is the row.
+  await relation.scrollIntoViewIfNeeded();
+  await page.screenshot({path:`/downloads/transition-colours-${width}.png`});
+  console.log(JSON.stringify({width,keyColour:await relation.evaluate(el=>getComputedStyle(el).color),tempoColour:await delta.evaluate(el=>getComputedStyle(el).color),overall:history[0].evaluation.transitions[0].grade,overrideRequests:requests.length-before}));
+  // Redo is available on a saved set with no coverage report.
+  await page.getByRole('button',{name:'Redo order',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Replace the current order?'});
+  await dialog.waitFor();
+  const prior=await page.evaluate(key=>localStorage.getItem(key),key);
+  await page.screenshot({path:`/downloads/redo-confirm-${width}.png`});
+  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+  assert.equal(await page.evaluate(key=>localStorage.getItem(key),key),prior);
+  // Removal must remain excluded from the solver input and persisted output.
+  await page.getByRole('button',{name:'Remove Synthetic next track from this set',exact:true}).filter({visible:true}).click();
+  await page.getByRole('button',{name:'Redo order',exact:true}).click();
+  const requestCount=requests.length;
+  await page.getByRole('button',{name:'Yes, redo order',exact:true}).click();
+  await page.getByText('Running order built.',{exact:true}).waitFor();
+  let revised=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),key);
+  const survivors=history[0].tracks.filter(t=>t.id!=='next');
+  const expected=new DJSequencer({seed:42}).solve(survivors).orderedTracks;
+  assert.deepEqual(revised[0].tracks.map(t=>t.id),expected.map(t=>t.id));
+  assert.equal(revised[0].tracks.find(t=>t.id==='sylvester').bpm,125);
+  assert.ok(!revised[0].tracks.some(t=>t.id==='next'));
+  assert.equal(requests.length,requestCount,'redo is local, no providers or account requests');
+  const downloadEvent=page.waitForEvent('download');
+  await page.getByRole('button',{name:/Download CSV/}).click();
+  const download=await downloadEvent;
+  const csv=await (await import('node:fs/promises')).readFile(await download.path(),'utf8');
+  assert.equal(csv.trim().split('\n').length,3);
+  assert.match(csv,/125/);
+  assert.doesNotMatch(csv,/Synthetic next track/);
+  // Original remains unchanged by redo, rather than becoming the new solver input.
+  await page.getByRole('button',{name:'Original order',exact:true}).click();
+  await page.locator('p:visible').filter({hasText:'Synthetic next track'}).first().waitFor();
+  await page.getByRole('button',{name:'Suggested order',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Remove Synthetic next track from this set',exact:true}).filter({visible:true}).count(),0);
+  await page.reload();
+  await page.getByRole('button',{name:/Saved sets/}).click();
+  await page.getByRole('button',{name:'Load set',exact:true}).first().click();
+  assert.equal(await page.getByRole('button',{name:'Remove Synthetic next track from this set',exact:true}).filter({visible:true}).count(),0);
+  console.log(`PASS redo/cancel/removal/override/export/original/reload width=${width}`);
+  await page.getByRole('button',{name:/Saved sets/}).click();
+  await page.getByText('Currently editing',{exact:true}).waitFor();
+  await page.screenshot({path:`/downloads/active-set-${width}.png`});
+  await page.getByRole('button',{name:'Close',exact:true}).click();
+  const snapshot=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),key);
+  assert.equal(snapshot.length,1,'edits and redo update the same document');
+  assert.equal(snapshot[0].id,'isolated');
+  await page.getByRole('button',{name:'Isolated colour test',exact:true}).click();
+  const nameInput=page.locator('input[type=text]').filter({visible:true}).first();
+  await nameInput.fill('Renamed active set');
+  await nameInput.press('Enter');
+  let renamed=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),key);
+  assert.equal(renamed.length,1);
+  assert.equal(renamed[0].name,'Renamed active set');
+  await page.getByRole('button',{name:'New set',exact:true}).click();
+  assert.equal(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).length,key),1);
+  await page.getByRole('button',{name:/Saved sets/}).click();
+  assert.equal(await page.getByText('Currently editing',{exact:true}).count(),0);
+  await page.getByRole('button',{name:'Load set',exact:true}).click();
+  await page.getByRole('button',{name:/Saved sets/}).click();
+  await page.getByText('Currently editing',{exact:true}).waitFor();
+  console.log(`PASS active identity/rename/New/reload width=${width}`);
+  await context.close();
+ }
+} finally { await browser.close(); server.kill(); }
