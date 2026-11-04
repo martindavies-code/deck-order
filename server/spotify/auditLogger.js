@@ -67,10 +67,13 @@ class AuditLogger {
   log(action, payload) {
     const timestamp = new Date().toISOString();
     const cleanPayload = this.redact(payload);
+    const details = (cleanPayload && typeof cleanPayload === 'object' && !Array.isArray(cleanPayload))
+      ? cleanPayload
+      : { payload: cleanPayload };
     const entry = JSON.stringify({
       timestamp,
       action,
-      ...cleanPayload
+      ...details
     }) + '\n';
 
     try {

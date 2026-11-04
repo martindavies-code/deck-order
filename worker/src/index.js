@@ -12,6 +12,7 @@ import { VerificationPipeline } from '../../server/core/pipeline.js';
 
 const MONTHLY_CAP = 1000;
 const PER_IP_HOURLY_CAP = 120;
+const inFlightBatches = new Map();
 
 function corsHeaders(request) {
   const origin = request.headers.get('Origin') || '';
@@ -132,6 +133,13 @@ export default {
         return Response.json({ success: false, error: 'no_tracks' }, { status: 400, headers: cors });
       }
 
+      // In-flight batch deduplication (singleflight) to prevent duplicate provider work and quota usage
+      const batchKey = tracks.map(t => `${t.artist || ''}|${t.title || ''}|${t.isrc || ''}|${t.version || ''}`).join(';;');
+      if (inFlightBatches.has(batchKey)) {
+        const cachedRes = await inFlightBatches.get(batchKey);
+        return Response.json(cachedRes.data, { status: cachedRes.status, headers: cors });
+      }
+
       const quotaId = env.QUOTA.idFromName('global');
       const quotaStub = env.QUOTA.get(quotaId);
       const clientIp = request.headers.get('CF-Connecting-IP') || 'anon';
@@ -152,12 +160,21 @@ export default {
         freqblogKey: env.FREQBLOG_API_KEY,
         freqblogOptions: { cache: kvCache, reserveQuota }
       });
-      try {
-        const result = await pipeline.processPlaylist(tracks);
-        return Response.json({ success: true, ...result }, { headers: cors });
-      } catch (err) {
-        return Response.json({ success: false, error: `pipeline_error:${err.message}` }, { status: 502, headers: cors });
-      }
+
+      const executionPromise = (async () => {
+        try {
+          const result = await pipeline.processPlaylist(tracks);
+          return { status: 200, data: { success: true, ...result } };
+        } catch (err) {
+          return { status: 502, data: { success: false, error: `pipeline_error:${err.message}` } };
+        } finally {
+          inFlightBatches.delete(batchKey);
+        }
+      })();
+
+      inFlightBatches.set(batchKey, executionPromise);
+      const outcome = await executionPromise;
+      return Response.json(outcome.data, { status: outcome.status, headers: cors });
     }
 
     return new Response('not found', { status: 404, headers: cors });

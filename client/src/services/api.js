@@ -570,9 +570,18 @@ export function computeCoverageCounts(tracks) {
   return { total, missingTempo, missingKey };
 }
 
-export async function verifyTracklist(tracks, isSampleData = false, onProgress) {
+export async function verifyTracklist(tracks, isSampleData = false, onProgress, options = {}) {
+  let opts = options;
+  let sampleFlag = isSampleData;
+  let progressFn = onProgress;
+  if (typeof isSampleData === 'object' && isSampleData !== null) {
+    opts = isSampleData;
+    sampleFlag = Boolean(opts.isSampleData);
+    progressFn = opts.onProgress || onProgress;
+  }
+  const signal = opts?.signal;
   // If the tracks are from the sample/demo set, mark them explicitly as SAMPLE DATA
-  if (isSampleData || tracks.some(t => t.isSampleData)) {
+  if (sampleFlag || tracks.some(t => t.isSampleData)) {
     const processed = tracks.map(t => ({
       ...t,
       status: (t.bpm && t.camelot) ? 'sample' : 'missing',
@@ -596,6 +605,8 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress) 
         summaryText: `Sample data (${tracks.length} tracks)`,
         disputedTracks: [],
         unverifiedTracks: processed.filter(t => t.status === 'missing'),
+        tempoReviewTracks: [],
+        recordingReviewTracks: [],
         providerConfigured: METADATA_PROVIDER_CONFIGURED,
         providerUnreachable: false,
         providerPartialFailure: false
@@ -635,12 +646,17 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress) 
     let providerFailed = false;
 
     for (let b = 0; b < batches.length; b++) {
+      if (signal?.aborted) {
+        const err = new Error('Verification cancelled');
+        err.name = 'AbortError';
+        throw err;
+      }
       if (consecutiveFailures >= VERIFY_MAX_CONSECUTIVE_FAILURES) break;
       const batch = batches[b];
       // Real progress while a (possibly cold, multi-minute) batch is in flight:
       // the UI shows which batch is being analyzed, never a fake percent.
-      if (typeof onProgress === 'function') {
-        onProgress({ stage: 'verify', phase: 'start', batch: b + 1, batches: batches.length, fetched: checkedCount, total });
+      if (typeof progressFn === 'function') {
+        progressFn({ stage: 'verify', phase: 'start', batch: b + 1, batches: batches.length, fetched: checkedCount, total });
       }
       let batchErr = null;
       try {
@@ -650,7 +666,9 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress) 
           body: JSON.stringify({ tracks: batch }),
           // Cold batches can take minutes; the timeout must exceed worst-case
           // server-side analysis so the client never aborts mid-analysis.
-          signal: AbortSignal.timeout(VERIFY_BATCH_TIMEOUT_MS)
+          signal: (typeof AbortSignal.any === 'function' && signal)
+            ? AbortSignal.any([signal, AbortSignal.timeout(VERIFY_BATCH_TIMEOUT_MS)])
+            : (signal || AbortSignal.timeout(VERIFY_BATCH_TIMEOUT_MS))
         });
         if (!res.ok) throw new Error(`Provider HTTP ${res.status}`);
         const data = await res.json();
@@ -672,13 +690,19 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress) 
         merged.recordingReviewTracks.push(...(r.recordingReviewTracks || []));
         checkedCount += batch.length;
         consecutiveFailures = 0;
-        if (typeof onProgress === 'function') {
-          onProgress({ stage: 'verify', fetched: checkedCount, total });
+        if (typeof progressFn === 'function') {
+          progressFn({ stage: 'verify', fetched: checkedCount, total });
         }
       } catch (err) {
         batchErr = err;
       }
       if (batchErr) {
+        // Only a caller-initiated abort is rethrown. A batch timeout
+        // (TimeoutError, or AbortError on older engines) keeps the
+        // partial-failure handling below.
+        if (signal?.aborted) {
+          throw batchErr;
+        }
         consecutiveFailures++;
         providerFailed = true;
         console.warn(`Verification batch ${b + 1}/${batches.length} failed:`, batchErr.message);
@@ -718,7 +742,8 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress) 
           : `Provider check complete (${total} tracks)`,
         disputedTracks: merged.disputedTracks,
         unverifiedTracks: merged.unverifiedTracks,
-        tempoReviewTracks: merged.tempoReviewTracks
+        tempoReviewTracks: merged.tempoReviewTracks,
+        recordingReviewTracks: merged.recordingReviewTracks
       }
     };
   }
@@ -751,7 +776,9 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress) 
       providerPartialFailure: false,
       summaryText: `User supplied (${supplied} valid, ${missing} missing)`,
       disputedTracks: [],
-      unverifiedTracks: processed.filter(t => t.status === 'missing')
+      unverifiedTracks: processed.filter(t => t.status === 'missing'),
+      tempoReviewTracks: [],
+      recordingReviewTracks: []
     }
   };
 }

@@ -46,6 +46,7 @@ export class FreqBlogProvider {
     this.cache = options.cache || null;               // { async get(k), async set(k, v, ttlSeconds) }
     this.reserveQuota = options.reserveQuota || null; // async (n) => boolean
     this.cacheTtlSeconds = options.cacheTtlSeconds || 30 * 24 * 3600;
+    this._inFlight = new Map();                       // In-flight singleflight request deduplication
   }
 
   isConfigured() { return Boolean(this.apiKey); }
@@ -76,9 +77,11 @@ export class FreqBlogProvider {
   }
 
   _crossCheck(query, rec, { skipVersion = false } = {}) {
-    const artistToken = norm(query.artist).split(' ')[0];
+    const artistTokens = norm(query.artist).split(' ').filter(t => t && !GENERIC_VERSION_TOKENS.has(t));
+    const primaryToken = artistTokens[0] || norm(query.artist).split(' ')[0];
     const gotArtist = norm(rec.artist_name);
-    if (!artistToken || !gotArtist.includes(artistToken)) {
+    const gotTokens = new Set(gotArtist.split(' ').filter(Boolean));
+    if (!primaryToken || (!gotTokens.has(primaryToken) && !gotArtist.includes(primaryToken))) {
       return { ok: false, reason: `artist_mismatch: wanted "${query.artist}", provider has "${rec.artist_name}"` };
     }
     const wantTitle = titleCore(query.title);
@@ -140,47 +143,60 @@ export class FreqBlogProvider {
       if (hit) return hit;
     }
 
-    let result = null;
-    let lastReason = 'no_match';
-
-    // 1) ISRC exact-identifier path via /bulk (when present), then artist/title/version cross-check
-    if (query.isrc && ISRC_RE.test(query.isrc)) {
-      const item = { track: searchTitle, artist: query.artist, isrc: query.isrc.toUpperCase() };
-      const r = await this._call('/bulk', [item]);
-      const row = r.success && r.json && Array.isArray(r.json.results) ? r.json.results[0] : null;
-      const rec = row && row.found ? row.result : null;
-      // The version veto is skipped ONLY when the provider record carries the
-      // exact same ISRC as the query: an identical recording identifier proves
-      // this IS the requested recording, so missing mix metadata on the
-      // catalogue record must not veto it. A different/absent record ISRC
-      // keeps the full conservative cross-check, including version.
-      const exactRecording = Boolean(
-        rec && typeof rec.isrc === 'string' && rec.isrc.toUpperCase() === query.isrc.toUpperCase()
-      );
-      if (rec && rec.bpm && this._crossCheck(query, rec, { skipVersion: exactRecording }).ok) {
-        result = this._toResult(rec, 'freqblog_isrc_bulk');
-      } else if (rec && rec.bpm) {
-        lastReason = this._crossCheck(query, rec, { skipVersion: exactRecording }).reason;
-      }
+    if (this._inFlight.has(cacheKey)) {
+      return await this._inFlight.get(cacheKey);
     }
 
-    // 2) Name search with inline on-demand analysis wait
-    if (!result) {
-      const q = `/lookup?track=${encodeURIComponent(searchTitle)}&artist=${encodeURIComponent(query.artist)}&wait=15`;
-      const r = await this._call(q);
-      if (!r.success) {
-        lastReason = r.reason;
-      } else if (r.json && r.json.bpm) {
-        const check = this._crossCheck(query, r.json);
-        if (check.ok) result = this._toResult(r.json, r.json.source || 'freqblog_lookup');
-        else lastReason = check.reason;
-      } else {
-        lastReason = 'analysis_queued_or_missing';
-      }
-    }
+    const promise = (async () => {
+      try {
+        let result = null;
+        let lastReason = 'no_match';
 
-    const out = result ? { success: true, data: result } : { success: false, reason: lastReason };
-    if (this.cache) await this.cache.set(cacheKey, out, this.cacheTtlSeconds);
-    return out;
+        // 1) ISRC exact-identifier path via /bulk (when present), then artist/title/version cross-check
+        if (query.isrc && ISRC_RE.test(query.isrc)) {
+          const item = { track: searchTitle, artist: query.artist, isrc: query.isrc.toUpperCase() };
+          const r = await this._call('/bulk', [item]);
+          const row = r.success && r.json && Array.isArray(r.json.results) ? r.json.results[0] : null;
+          const rec = row && row.found ? row.result : null;
+          // The version veto is skipped ONLY when the provider record carries the
+          // exact same ISRC as the query: an identical recording identifier proves
+          // this IS the requested recording, so missing mix metadata on the
+          // catalogue record must not veto it. A different/absent record ISRC
+          // keeps the full conservative cross-check, including version.
+          const exactRecording = Boolean(
+            rec && typeof rec.isrc === 'string' && rec.isrc.toUpperCase() === query.isrc.toUpperCase()
+          );
+          if (rec && rec.bpm && this._crossCheck(query, rec, { skipVersion: exactRecording }).ok) {
+            result = this._toResult(rec, 'freqblog_isrc_bulk');
+          } else if (rec && rec.bpm) {
+            lastReason = this._crossCheck(query, rec, { skipVersion: exactRecording }).reason;
+          }
+        }
+
+        // 2) Name search with inline on-demand analysis wait
+        if (!result) {
+          const q = `/lookup?track=${encodeURIComponent(searchTitle)}&artist=${encodeURIComponent(query.artist)}&wait=15`;
+          const r = await this._call(q);
+          if (!r.success) {
+            lastReason = r.reason;
+          } else if (r.json && r.json.bpm) {
+            const check = this._crossCheck(query, r.json);
+            if (check.ok) result = this._toResult(r.json, r.json.source || 'freqblog_lookup');
+            else lastReason = check.reason;
+          } else {
+            lastReason = 'analysis_queued_or_missing';
+          }
+        }
+
+        const out = result ? { success: true, data: result } : { success: false, reason: lastReason };
+        if (this.cache) await this.cache.set(cacheKey, out, this.cacheTtlSeconds);
+        return out;
+      } finally {
+        this._inFlight.delete(cacheKey);
+      }
+    })();
+
+    this._inFlight.set(cacheKey, promise);
+    return await promise;
   }
 }

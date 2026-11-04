@@ -53,7 +53,9 @@ export function trackValueState(track, field) {
  * source playlist (Spotify) - that list is client-side only.
  */
 export function removeTrackAt(tracks, index) {
-  if (index < 0 || index >= tracks.length) return { tracks, removed: null, index: -1 };
+  if (!Array.isArray(tracks) || index < 0 || index >= tracks.length) {
+    return { tracks: Array.isArray(tracks) ? tracks : [], removed: null, index: -1 };
+  }
   const updated = tracks.filter((_, i) => i !== index);
   return { tracks: updated, removed: tracks[index], index };
 }
@@ -63,6 +65,8 @@ export function removeTrackAt(tracks, index) {
  * list bounds so a stale undo can never corrupt the order).
  */
 export function restoreTrackAt(tracks, track, index) {
+  if (!Array.isArray(tracks)) return track ? [track] : [];
+  if (!track) return [...tracks];
   const updated = [...tracks];
   updated.splice(Math.max(0, Math.min(index, updated.length)), 0, track);
   return updated;

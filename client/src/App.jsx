@@ -435,11 +435,14 @@ export function App() {
       setSelectedTrackIndex(0);
 
       // Auto-save set to history keyed by account (Fix 6)
+      let historySaveFailed = false;
       const updatedHistory = saveSetToHistory({
         name: setName || 'My Set',
         tracks: res.orderedTracks,
         evaluation: res.evaluation
-      }, accountKey);
+      }, accountKey, {
+        onError: () => { historySaveFailed = true; }
+      });
       setCrateHistory(updatedHistory);
 
       // Fetch bridge & bonus suggestions if available
@@ -452,11 +455,17 @@ export function App() {
       }
 
       const gradedPairs = res.evaluation?.gradedCount ?? 0;
-      showToast(gradedPairs > 0
-        ? ((res.evaluation?.unverifiedCount ?? 0) > 0
-          ? `Draft order built - ${res.evaluation.unverifiedCount} transition${res.evaluation.unverifiedCount > 1 ? 's' : ''} need${res.evaluation.unverifiedCount > 1 ? '' : 's'} review.`
-          : 'Running order built.')
-        : 'Order preserved as imported - insufficient metadata to grade transitions.');
+      if (historySaveFailed) {
+        // The save failure must win over the build toast, or it is
+        // overwritten within milliseconds and the user never sees it.
+        showToast('Running order built, but could not save this set - browser storage is full. Your saved sets are untouched; delete older saved sets to free space.', 7000, 'warning');
+      } else {
+        showToast(gradedPairs > 0
+          ? ((res.evaluation?.unverifiedCount ?? 0) > 0
+            ? `Draft order built - ${res.evaluation.unverifiedCount} transition${res.evaluation.unverifiedCount > 1 ? 's' : ''} need${res.evaluation.unverifiedCount > 1 ? '' : 's'} review.`
+            : 'Running order built.')
+          : 'Order preserved as imported - insufficient metadata to grade transitions.');
+      }
     } catch (err) {
       showToast(`Couldn't build the order. Your tracks are still here.`, 5000);
     } finally {
@@ -481,7 +490,7 @@ export function App() {
     setSelectedTrackIndex(null);
     // Grade the surviving displayed order; never re-optimise on removal.
     setEvaluation(evaluateCurrentOrder(updated, { enableEnergy }));
-    showToast(`Removed "${removed.title}" from this set. The original playlist is untouched.`, 4000);
+    showToast(`Removed "${removed.title || removed.name || 'track'}" from this set. The original playlist is untouched.`, 4000);
   };
 
   // Undo the last removal, restoring the track at its original position
@@ -492,7 +501,7 @@ export function App() {
     setLastRemoved(null);
     // Grade the restored displayed order; never re-optimise on undo.
     setEvaluation(evaluateCurrentOrder(restored, { enableEnergy }));
-    showToast(`Restored "${lastRemoved.track.title}".`);
+    showToast(`Restored "${lastRemoved.track.title || lastRemoved.track.name || 'track'}".`);
   };
 
   // Restore Original Order
@@ -828,7 +837,7 @@ export function App() {
                     className="deck-panel px-4 py-2.5 mb-3 flex items-center justify-between gap-3 border-[#F59E0B]"
                   >
                     <span className="text-xs text-[#BAC2B3]">
-                      Removed <span className="font-bold text-[#F3F0E6]">{lastRemoved.track.title}</span> from this set.
+                      Removed <span className="font-bold text-[#F3F0E6]">{lastRemoved.track.title || lastRemoved.track.name || 'track'}</span> from this set.
                     </span>
                     <div className="flex items-center gap-2">
                       <button

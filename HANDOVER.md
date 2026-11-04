@@ -50,8 +50,26 @@ Root cause of duplicate Saved-set entries: the sequencer autosaved a new history
 - recordingNeedsReview previously changed only the table UI text; costMatrix/evaluateSequence still graded those transitions numerically, so the CSV export, summary metrics and the "Running order ready." dock overstated confidence (found in live post-release verification). Fixed in PR #7 (squash-merged to main after gate review): review-adjacent transitions are UNVERIFIED end to end - excluded from graded metrics, shown as Ungraded in the summary, marked in the export, and the readiness dock reports them as needing review.
 - The FreqBlog catalogue has a limited request quota; avoid unnecessary uncached probes.
 
+## Branch: harden-code-resilience (2026-11-04, reviewed with corrections)
+
+Resilience hardening on top of the PR #7 release, authored by Antigravity, reviewed and corrected before release:
+
+- In-flight singleflight dedup of identical concurrent catalogue lookups (`server/providers/freqblog.js` `_inFlight`, per provider instance) and of identical concurrent verification batches (`worker/src/index.js` `inFlightBatches`, per Worker isolate only - cross-isolate dedup still relies on the KV cache). One fetch and one quota unit per unique in-flight query.
+- `_crossCheck` artist match no longer keys on a leading stopword ("The Prodigy" vs "The Who" false positive fixed); primary artist token is now stopword-free and matched token-wise.
+- `verifyTracklist` accepts a caller `AbortSignal` (AbortSignal.any composed with the per-batch timeout, with fallback). Only a caller-initiated abort (`signal.aborted`) is rethrown as AbortError; a batch timeout keeps the honest partial-failure path even on engines that name timeouts "AbortError". Note: no UI passes a signal yet - this is a dormant capability.
+- `verifyTracklist` report objects now expose `recordingReviewTracks` and `tempoReviewTracks` on the success, sample-data and offline-fallback paths.
+- `trackSignatureIdentity` falls back to `t.title || t.name`. This also fixes a latent false-duplicate: name-only tracks previously collapsed to an artist-only identity, so different songs by one artist could dedupe as repeats. Title-based signatures are unchanged, so PR #7 dedup semantics and existing saved sets are unaffected.
+- Storage-full save handling, CORRECTED IN REVIEW: the branch originally evicted the user's oldest saved sets silently on QuotaExceededError. That was rejected. On a failed save, existing sets are left untouched, the caller is notified via an `onError` callback, and the app shows a persistent warning toast: "Running order built, but could not save this set - browser storage is full. Your saved sets are untouched; delete older saved sets to free space." The failure toast must be the LAST toast shown in the run handler - a plain success toast after it overwrites it within milliseconds (caught in review with headless-Chrome screenshots). A failed save returns the unchanged history. Verified visually (desktop 1440px + mobile 390px) with a stubbed QuotaExceededError: toast readable and unclipped, seeded history byte-identical before/after.
+- Defensive guards: `removeTrackAt`/`restoreTrackAt` tolerate non-array/null inputs; audit logger wraps primitive payloads instead of character-spreading them; provider cache `buildKey` tolerates null queries and whitespace-only ISRCs.
+- Removal/undo toasts fall back to `track.title || track.name || 'track'`.
+
+Verified on this branch (independent re-run, node v22): `npm test` 164/164 pass (154 from released main + 2 freqblog singleflight/stopword tests + 8 resilience tests - one rewritten in review to pin no-eviction, one added to pin that an AbortError-named batch failure is NOT treated as caller abort); client production build clean; `npm run verify:security` ALL PASS. Coverage percentages vary by invocation; treat exact figures as indicative only.
+
+Known limits added by this branch: worker singleflight is per-isolate memory; live Spotify playlist writes remain untested against a real account; provider quota is preserved by tests using stubs only; a storage-full save requires the user to free space (no automatic cleanup by design).
+
 ## Commands
 
-- `npm test` (repo root) - vitest suite
+- `npm test` (repo root) - Node test-runner suite (`node --test test/*.test.js`); needs root AND client dependencies installed (`jose` comes from client/)
 - `cd client && npm run build` - client production build
+- `npm run verify:security` - static security and secret-leak audit
 - Worker deploy to Cloudflare is gated on review of this branch.
