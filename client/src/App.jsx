@@ -31,6 +31,7 @@ import {
   refreshSpotifyToken,
   SPOTIFY_403_MSG
 } from './services/api.js';
+import { evaluateCurrentOrder } from './services/clientSequencer.js';
 import {
   initiateSpotifyLogin,
   saveStaySignedInPreference,
@@ -466,16 +467,9 @@ export function App() {
   // Reorder Tracks (drag-drop or keyboard move)
   const handleReorderTracks = async (newOrderedList) => {
     setOrderedTracks(newOrderedList);
-    try {
-      const seqRes = await runSequencer(newOrderedList, {
-        seed: 42,
-        enableEnergy,
-        unverifiedStrategy: 'keep_relative_position'
-      });
-      setEvaluation(seqRes.result.evaluation);
-    } catch (err) {
-      console.warn('Re-evaluation note:', err);
-    }
+    // Grade the displayed order, not a re-optimised one: the solver's own
+    // evaluation describes its returned order, which is not what is on screen.
+    setEvaluation(evaluateCurrentOrder(newOrderedList, { enableEnergy }));
   };
 
   // Remove one track from the working set (undoable; source playlist untouched)
@@ -485,16 +479,8 @@ export function App() {
     setOrderedTracks(updated);
     setLastRemoved({ track: removed, index: removedIndex });
     setSelectedTrackIndex(null);
-    try {
-      const seqRes = await runSequencer(updated, {
-        seed: 42,
-        enableEnergy,
-        unverifiedStrategy: 'keep_relative_position'
-      });
-      setEvaluation(seqRes.result.evaluation);
-    } catch (err) {
-      console.warn('Re-evaluation note:', err);
-    }
+    // Grade the surviving displayed order; never re-optimise on removal.
+    setEvaluation(evaluateCurrentOrder(updated, { enableEnergy }));
     showToast(`Removed "${removed.title}" from this set. The original playlist is untouched.`, 4000);
   };
 
@@ -504,16 +490,8 @@ export function App() {
     const restored = restoreTrackAt(orderedTracks, lastRemoved.track, lastRemoved.index);
     setOrderedTracks(restored);
     setLastRemoved(null);
-    try {
-      const seqRes = await runSequencer(restored, {
-        seed: 42,
-        enableEnergy,
-        unverifiedStrategy: 'keep_relative_position'
-      });
-      setEvaluation(seqRes.result.evaluation);
-    } catch (err) {
-      console.warn('Re-evaluation note:', err);
-    }
+    // Grade the restored displayed order; never re-optimise on undo.
+    setEvaluation(evaluateCurrentOrder(restored, { enableEnergy }));
     showToast(`Restored "${lastRemoved.track.title}".`);
   };
 
