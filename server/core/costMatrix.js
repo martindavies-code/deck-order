@@ -145,6 +145,7 @@ export function evaluateSequence(tracks, options = {}) {
   let clashCount = 0;
   let gradedCount = 0;
   let unverifiedCount = 0;
+  let objectiveCost = 0;
 
   const bpms = [];
   const keysFound = new Set();
@@ -161,6 +162,7 @@ export function evaluateSequence(tracks, options = {}) {
 
     // Unverified pairs carry synthetic penalty costs for the solver only;
     // never count them as clashes or smooth in user-facing metrics.
+    objectiveCost += costObj.totalCost;
     if (costObj.grade === 'UNVERIFIED') {
       unverifiedCount++;
       continue;
@@ -187,6 +189,10 @@ export function evaluateSequence(tracks, options = {}) {
   return {
     transitions,
     totalCost: Math.round(totalCost * 10) / 10,
+    // objectiveCost includes synthetic unverified-tempo/harmonic penalties:
+    // this is the quantity the solver minimizes. totalCost is graded-only
+    // and can move the other way when ungraded transitions are consolidated.
+    objectiveCost: Math.round(objectiveCost * 10) / 10,
     averageCost: gradedCount > 0 ? Math.round((totalCost / gradedCount) * 10) / 10 : null,
     smoothCount,
     stretchCount,
