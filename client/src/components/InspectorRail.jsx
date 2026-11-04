@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, AlertTriangle, RotateCcw, Sliders, ExternalLink } from 'lucide-react';
+import { transitionDisplay } from '../utils/trackBadges.js';
 
 export function InspectorRail({
   track,
@@ -153,16 +154,24 @@ export function InspectorRail({
         <span className="text-[10px] font-mono uppercase tracking-wider text-[#7E8876] block">
           Placement in set
         </span>
-        {transitionBefore && (
-          <p className="text-[11px] text-[#BAC2B3]">
-            Incoming: <span className="font-mono text-[#F3F0E6]">{transitionBefore.relation || 'Key match'}</span> from previous track{typeof transitionBefore.bpmChange === 'number' ? ` (${transitionBefore.bpmChange > 0 ? `+${transitionBefore.bpmChange}` : transitionBefore.bpmChange} BPM)` : ''}.
-          </p>
-        )}
-        {transitionAfter && (
-          <p className="text-[11px] text-[#BAC2B3]">
-            Outgoing: Handover to next track is <span className="font-mono text-[#F3F0E6]">{transitionAfter.relation || 'Key match'}</span>{typeof transitionAfter.bpmChange === 'number' ? ` (${transitionAfter.bpmChange > 0 ? `+${transitionAfter.bpmChange}` : transitionAfter.bpmChange} BPM)` : ''}.
-          </p>
-        )}
+        {transitionBefore && (() => {
+          const td = transitionDisplay(transitionBefore, track, null);
+          return (
+            <p className="text-[11px] text-[#BAC2B3]">
+              Incoming: <span className={`font-mono ${td.tone === 'review' ? 'text-[#F59E0B]' : 'text-[#F3F0E6]'}`}>{td.text}</span>{td.tone === 'review' ? '' : ` from previous track${td.showBpmChange ? ` (${transitionBefore.bpmChange > 0 ? `+${transitionBefore.bpmChange}` : transitionBefore.bpmChange} BPM)` : ''}`}.
+            </p>
+          );
+        })()}
+        {transitionAfter && (() => {
+          const td = transitionDisplay(transitionAfter, track, null);
+          return (
+            <p className="text-[11px] text-[#BAC2B3]">
+              Outgoing: {td.tone === 'review'
+                ? <span className="font-mono text-[#F59E0B]">{td.text}.</span>
+                : <>Handover to next track is <span className="font-mono text-[#F3F0E6]">{td.text}</span>{td.showBpmChange ? ` (${transitionAfter.bpmChange > 0 ? `+${transitionAfter.bpmChange}` : transitionAfter.bpmChange} BPM)` : ''}.</>}
+            </p>
+          );
+        })()}
         {!transitionBefore && !transitionAfter && (
           <p className="text-[11px] text-[#7E8876]">Single track in current selection.</p>
         )}
