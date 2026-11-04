@@ -48,6 +48,7 @@ import {
   getCrateHistory,
   saveSetToHistory,
   clearCrateHistory,
+  removeSetFromHistory,
   forgetThisDevice
 } from './services/googleAuth.js';
 import { Copy, Download, Disc, Check, ArrowLeft, Edit2, AlertCircle } from 'lucide-react';
@@ -75,15 +76,19 @@ export function App() {
 
   // Tracks & Sequencing State
   const [tracks, setTracks] = useState([]);
-  const metadataSourceLabel = (() => {
-    const names = [...new Set(tracks.flatMap(t => (t.sources || []).map(src => src.name || src.provider)).filter(Boolean))];
-    return names.length ? `Metadata: ${names.join(', ')}` : 'Supplied metadata';
-  })();
   const [orderedTracks, setOrderedTracks] = useState([]);
   const [originalTracks, setOriginalTracks] = useState([]);
   const [evaluation, setEvaluation] = useState(null);
   const [originalEvaluation, setOriginalEvaluation] = useState(null);
   const [coverageReport, setCoverageReport] = useState(null);
+  const metadataSourceLabel = (() => {
+    const names = [...new Set(tracks.flatMap(t => (t.sources || []).map(src => src.name || src.provider)).filter(Boolean))];
+    if (names.length) return `Metadata: ${names.join(', ')}`;
+    // No provider metadata on any track: say what actually happened.
+    if (tracks.some(t => (typeof t.bpm === 'number' && t.bpm > 0) || t.camelot)) return 'Supplied metadata';
+    if (coverageReport?.providerUnreachable || coverageReport?.providerPartialFailure) return 'Metadata check incomplete';
+    return 'No tempo/key metadata';
+  })();
 
   // Active track selection for Inspector
   const [selectedTrackIndex, setSelectedTrackIndex] = useState(null);
@@ -102,6 +107,9 @@ export function App() {
   const [toastMessage, setToastMessage] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Real loading progress for the import UI: { stage: 'fetch'|'verify'|'parse', fetched, total }
+  const [loadProgress, setLoadProgress] = useState(null);
+  const [loadingPlaylistId, setLoadingPlaylistId] = useState(null);
 
   // Load Status on startup
   useEffect(() => {
@@ -291,15 +299,24 @@ export function App() {
     showToast('Saved sets cleared.');
   };
 
+  const handleDeleteSet = (setId) => {
+    const updated = removeSetFromHistory(setId, accountKey);
+    setCrateHistory(updated);
+    showToast('Set deleted. Your other saved sets are untouched.');
+  };
+
   // Ingest Spotify Playlist
   const handleSelectPlaylist = async (pl) => {
     setIsLoading(true);
+    setLoadingPlaylistId(pl.id);
+    setLoadProgress({ stage: 'fetch', fetched: 0, total: pl.itemCount || null });
     setSelectedPlaylist(pl);
     setSetName(pl.name);
     setIsSampleSet(false);
     try {
-      const data = await fetchPlaylistItems(authToken, pl.id);
-      const verifyRes = await verifyTracklist(data.items, false);
+      const data = await fetchPlaylistItems(authToken, pl.id, setLoadProgress);
+      setLoadProgress({ stage: 'verify', fetched: 0, total: data.items.length || null });
+      const verifyRes = await verifyTracklist(data.items, false, setLoadProgress);
       const loadedCount = verifyRes.tracks.length;
       const totalReturned = data.totalItems ?? loadedCount;
       const skipped = data.skipped || { episodes: 0, localFiles: 0, unavailable: 0, unsupported: 0, total: 0 };
@@ -326,7 +343,14 @@ export function App() {
       setOriginalEvaluation(null);
       setViewMode('original');
       setSelectedTrackIndex(null);
-      showToast(toastInfo.text, toastInfo.type === 'warning' ? 5000 : 3000, toastInfo.type);
+      const rep = verifyRes.report || {};
+      if (rep.providerUnreachable) {
+        showToast(`Loaded ${loadedCount} tracks, but the tempo/key check did not finish - the metadata provider did not respond. Reload the playlist to try again.`, 7000, 'warning');
+      } else if (rep.providerPartialFailure) {
+        showToast(`Loaded ${loadedCount} tracks. Tempo/key checked for ${rep.checkedCount} of ${rep.total}; ${rep.uncheckedCount} still missing - reload the playlist to retry.`, 7000, 'warning');
+      } else {
+        showToast(toastInfo.text, toastInfo.type === 'warning' ? 5000 : 3000, toastInfo.type);
+      }
     } catch (err) {
       if (err.status === 403 || err.message?.includes('403')) {
         showToast(SPOTIFY_403_MSG, 6000, 'error');
@@ -337,12 +361,15 @@ export function App() {
       }
     } finally {
       setIsLoading(false);
+      setLoadProgress(null);
+      setLoadingPlaylistId(null);
     }
   };
 
   // Ingest CSV / Demo Tracklist
   const handleParseCsv = async (csvContent, isSample = false) => {
     setIsLoading(true);
+    setLoadProgress({ stage: 'parse', fetched: 0, total: null });
     setIsSampleSet(isSample);
     const title = isSample ? 'Demo Electronic Set' : 'Imported Tracklist';
     setSelectedPlaylist({ name: title, id: null, itemCount: 0 });
@@ -350,7 +377,8 @@ export function App() {
 
     try {
       const parsed = await parseCsvText(csvContent);
-      const verifyRes = await verifyTracklist(parsed.tracks, isSample);
+      setLoadProgress({ stage: 'verify', fetched: 0, total: parsed.tracks.length || null });
+      const verifyRes = await verifyTracklist(parsed.tracks, isSample, setLoadProgress);
       setTracks(verifyRes.tracks);
       setCoverageReport({ ...verifyRes.report, ...computeCoverageCounts(verifyRes.tracks) });
       // Show the imported order immediately; "Build my running order" re-sequences.
@@ -360,11 +388,19 @@ export function App() {
       setOriginalEvaluation(null);
       setViewMode('original');
       setSelectedTrackIndex(null);
-      showToast(`Loaded ${verifyRes.tracks.length} tracks.`);
+      const rep = verifyRes.report || {};
+      if (rep.providerUnreachable) {
+        showToast('Tempo/key check did not finish - the metadata provider did not respond. Showing your supplied values.', 6000, 'warning');
+      } else if (rep.providerPartialFailure) {
+        showToast(`Loaded ${verifyRes.tracks.length} tracks. Tempo/key check incomplete for ${rep.uncheckedCount} track${rep.uncheckedCount === 1 ? '' : 's'} - re-import to retry.`, 6000, 'warning');
+      } else {
+        showToast(`Loaded ${verifyRes.tracks.length} tracks.`);
+      }
     } catch (err) {
       showToast(`Import issue: ${err.message}`, 5000);
     } finally {
       setIsLoading(false);
+      setLoadProgress(null);
     }
   };
 
@@ -650,6 +686,8 @@ export function App() {
             onParseCsv={handleParseCsv}
             onConnectSpotify={handleConnectSpotify}
             isLoading={isLoading}
+            loadProgress={loadProgress}
+            loadingPlaylistId={loadingPlaylistId}
             staySignedIn={staySignedIn}
             onToggleStaySignedIn={handleToggleStaySignedIn}
           />
@@ -884,6 +922,7 @@ export function App() {
         onClose={() => setShowHistoryDrawer(false)}
         onLoadSet={handleLoadHistoricalSet}
         onClearHistory={handleClearHistory}
+        onDeleteSet={handleDeleteSet}
       />
 
       {showDisputeModal && (
