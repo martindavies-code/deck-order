@@ -23,7 +23,7 @@ Recording-mismatch surfacing: the catalogue matches by name/version content, not
 
 ### 2. Remove track from working set, with undo (client/src/App.jsx, client/src/components/SequencedTable.jsx)
 
-Per-row remove control on the sequenced working set only. Removal and undo never re-optimise the order: they keep the user's current surviving order exactly (manual reorders included) and only recompute the evaluation. Removal lives in the ordered working set, so reorder, CSV export and the Spotify save preview all inherit the exclusion (same state object). The original Spotify playlist is never touched. An undo banner restores the track at its original position; wholesale loads (new import, saved-set load) clear the pending undo.
+Per-row remove control on the sequenced working set only. Removal, undo and manual reorder never re-optimise the order: they keep the user's current surviving order exactly and recompute the evaluation for the DISPLAYED order via `evaluateCurrentOrder` (client/src/services/clientSequencer.js). Note: DJSequencer.solve() evaluates its own re-optimised order, so its result.evaluation must only be paired with result.orderedTracks - never applied to a user-kept order. Removal lives in the ordered working set, so reorder, CSV export and the Spotify save preview all inherit the exclusion (same state object). The original Spotify playlist is never touched. An undo banner restores the track at its original position; wholesale loads (new import, saved-set load) clear the pending undo.
 
 ### 3. Colour-coded BPM / Camelot badges (client/src/utils/trackBadges.js, client/src/components/SequencedTable.jsx)
 
@@ -35,7 +35,7 @@ Root cause of duplicate Saved-set entries: the sequencer autosaved a new history
 
 ## What is verified
 
-- 143/143 vitest tests pass, including new regression tests for version decoration, recording-mismatch flagging, remove/undo, badge states, and saved-set dedup.
+- 146/146 vitest tests pass, including new regression tests for version decoration, recording-mismatch flagging, remove/undo, badge states, and saved-set dedup.
 - Client production build passes; security audit script passes.
 - Live worker probes (2026-11-04): the Spotify-shape lookup for "Drop The Pressure - Purple Disco Machine Remix Edit" returns 123.1 BPM / 9A; the CSV shape with a separate version field resolves the same remix record.
 - Desktop (1280px) and mobile (390px) renders of the new UI states were visually checked.
