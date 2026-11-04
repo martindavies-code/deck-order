@@ -172,6 +172,7 @@ export class DJSequencer {
     if (!rawTracks || rawTracks.length === 0) {
       return {
         orderedTracks: [],
+        originalTracks: [],
         evaluation: evaluateSequence([]),
         originalEvaluation: evaluateSequence([]),
         unverifiedCount: 0,
@@ -197,6 +198,7 @@ export class DJSequencer {
       const evaluation = evaluateSequence(rawTracks, { enableEnergy: this.enableEnergy });
       return {
         orderedTracks: rawTracks,
+        originalTracks: rawTracks,
         evaluation,
         originalEvaluation: evaluation,
         unverifiedCount: unverified.length,
