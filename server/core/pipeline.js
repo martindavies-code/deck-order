@@ -9,6 +9,12 @@ import { FreqBlogProvider } from '../providers/freqblog.js';
  * Resolves half-time / double-time ambiguities explicitly while tracking
  * provenance and marking whether the value was normalized.
  */
+const BPM_TOLERANCE_PCT = 2; // percent tolerance for tempo agreement
+function bpmWithin(a, b, tolPct = BPM_TOLERANCE_PCT) {
+  if (typeof a !== 'number' || typeof b !== 'number' || a <= 0 || b <= 0) return false;
+  return (Math.abs(a - b) / ((a + b) / 2)) * 100 <= tolPct;
+}
+
 export function normalizeTempo(rawBpm, minBpm = 90, maxBpm = 180) {
   if (typeof rawBpm !== 'number' || isNaN(rawBpm) || rawBpm <= 0) {
     return {
@@ -236,13 +242,28 @@ export class VerificationPipeline {
 
     // 2. If track already came from Manual CSV without additional sources to compare
     if (track.source === 'manual_csv' && track.status === 'verified' && (!track.sources || track.sources.length < 2)) {
-      const norm = normalizeTempo(track.bpm, this.minBpm, this.maxBpm);
+      const rawBpm = track.rawBpm || track.bpm;
+      const norm = normalizeTempo(rawBpm, this.minBpm, this.maxBpm);
+      // The supplied value stays raw. An octave-adjusted value is only a
+      // flagged suggestion, never silently trusted for grading/sequencing.
+      let tempoSuggestion = null;
+      let tempoNeedsReview = false;
+      if (norm.isNormalized) {
+        tempoSuggestion = {
+          bpm: norm.workingBpm,
+          kind: norm.workingBpm > rawBpm ? 'doubled' : 'halved',
+          basis: `${this.minBpm}-${this.maxBpm} BPM working-range heuristic`
+        };
+        tempoNeedsReview = true;
+      }
       return {
         ...track,
-        bpm: norm.workingBpm,
-        rawBpm: track.rawBpm || track.bpm,
-        workingBpm: norm.workingBpm,
-        isNormalized: norm.isNormalized,
+        bpm: rawBpm,
+        rawBpm,
+        workingBpm: rawBpm,
+        isNormalized: false,
+        tempoSuggestion,
+        tempoNeedsReview,
         confidence: 'manual'
       };
     }
@@ -314,26 +335,79 @@ export class VerificationPipeline {
     // Case B: Exactly 1 source found
     if (successfulHits.length === 1) {
       const hit = successfulHits[0];
-      const norm = normalizeTempo(hit.bpm, this.minBpm, this.maxBpm);
+      const rawBpm = hit.rawBpm || hit.bpm;
+      const norm = normalizeTempo(rawBpm, this.minBpm, this.maxBpm);
+      const suppliedBpm = typeof track.bpm === 'number' && track.bpm > 0 ? track.bpm : null;
       // A generic placeholder version (e.g. parser default 'Original Mix')
       // is not real version identity: show the matched record's tag instead.
       const trackVersion = (track.version || '').toLowerCase().trim();
       const genericVersion = !trackVersion || trackVersion === 'original mix' || trackVersion === 'original';
       const matchedVersion = hit.version || hit.mixName || null;
+
+      let bpm = rawBpm;
+      let workingBpm = rawBpm;
+      let isNormalized = false;
+      let tempoSuggestion = null;
+      let tempoNeedsReview = false;
+      let status = 'single_source';
+      let disputeDetails = null;
+      let reason = 'Only one source available. Can be cross-checked via CSV or confirmed.';
+
+      if (norm.isNormalized) {
+        const kind = norm.workingBpm > rawBpm ? 'doubled' : 'halved';
+        if (suppliedBpm && bpmWithin(suppliedBpm, norm.workingBpm)) {
+          // Supplied BPM corroborates the octave-adjusted value within 2%:
+          // explicit sourced comparison, normalization may be trusted.
+          bpm = norm.workingBpm;
+          workingBpm = norm.workingBpm;
+          isNormalized = true;
+          reason = `Tempo ${kind} from raw ${rawBpm} BPM, corroborated by supplied ${suppliedBpm} BPM within 2%.`;
+        } else if (suppliedBpm && bpmWithin(suppliedBpm, rawBpm)) {
+          // Supplied BPM confirms the raw measurement; no normalization.
+          bpm = rawBpm;
+          workingBpm = rawBpm;
+          isNormalized = false;
+        } else if (suppliedBpm) {
+          // Supplied BPM matches neither raw nor octave-adjusted: conflict.
+          status = 'disputed';
+          disputeDetails = {
+            type: 'bpm_conflict',
+            supplied: suppliedBpm,
+            raw: rawBpm,
+            suggested: norm.workingBpm
+          };
+          reason = `Supplied ${suppliedBpm} BPM matches neither the raw ${rawBpm} BPM nor the octave-adjusted ${norm.workingBpm} BPM.`;
+        } else {
+          // Unconfirmed octave: keep the raw measurement raw and offer the
+          // adjusted value only as a visibly flagged suggestion, excluded
+          // from confident grading/sequencing until the user confirms.
+          tempoSuggestion = {
+            bpm: norm.workingBpm,
+            kind,
+            basis: `${this.minBpm}-${this.maxBpm} BPM working-range heuristic`
+          };
+          tempoNeedsReview = true;
+          reason = `Raw tempo ${rawBpm} BPM is outside the ${this.minBpm}-${this.maxBpm} BPM working range. Suggested ${kind} value ${norm.workingBpm} BPM needs review before it is trusted.`;
+        }
+      }
+
       return {
         ...track,
         version: genericVersion && matchedVersion ? matchedVersion : (track.version || matchedVersion || null),
-        bpm: norm.workingBpm,
-        rawBpm: hit.rawBpm || hit.bpm,
-        workingBpm: norm.workingBpm,
-        isNormalized: norm.isNormalized,
+        bpm,
+        rawBpm,
+        workingBpm,
+        isNormalized,
+        tempoSuggestion,
+        tempoNeedsReview,
         key: hit.key,
         camelot: hit.camelot,
         energy: hit.energy ?? track.energy ?? null,
-        status: 'single_source',
+        status,
         confidence: hit.confidence || 'single_source',
+        disputeDetails,
         sources: successfulHits,
-        reason: 'Only one source available. Can be cross-checked via CSV or confirmed.'
+        reason
       };
     }
 
@@ -380,8 +454,17 @@ export class VerificationPipeline {
 
     const disputedList = [];
     const unverifiedList = [];
+    const tempoReviewList = [];
 
     for (const t of tracks) {
+      if (t.tempoNeedsReview) {
+        tempoReviewList.push({
+          id: t.id,
+          name: `${t.artist} - ${t.title}`,
+          suggestion: t.tempoSuggestion || null,
+          rawBpm: t.rawBpm ?? t.bpm ?? null
+        });
+      }
       if (t.status === 'verified') {
         verified++;
       } else if (t.status === 'single_source') {
@@ -413,7 +496,8 @@ export class VerificationPipeline {
       summaryText: `Verified ${verified}/${total}, Single-source ${singleSource}, Disputed ${disputed}, Unverified ${unverified}`,
       disputedTracks: disputedList,
       unverifiedTracks: unverifiedList,
-      isReadyForSequencing: unverified === 0 && disputed === 0
+      tempoReviewTracks: tempoReviewList,
+      isReadyForSequencing: unverified === 0 && disputed === 0 && tempoReviewList.length === 0
     };
   }
 }
