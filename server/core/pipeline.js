@@ -315,8 +315,14 @@ export class VerificationPipeline {
     if (successfulHits.length === 1) {
       const hit = successfulHits[0];
       const norm = normalizeTempo(hit.bpm, this.minBpm, this.maxBpm);
+      // A generic placeholder version (e.g. parser default 'Original Mix')
+      // is not real version identity: show the matched record's tag instead.
+      const trackVersion = (track.version || '').toLowerCase().trim();
+      const genericVersion = !trackVersion || trackVersion === 'original mix' || trackVersion === 'original';
+      const matchedVersion = hit.version || hit.mixName || null;
       return {
         ...track,
+        version: genericVersion && matchedVersion ? matchedVersion : (track.version || matchedVersion || null),
         bpm: norm.workingBpm,
         rawBpm: hit.rawBpm || hit.bpm,
         workingBpm: norm.workingBpm,
