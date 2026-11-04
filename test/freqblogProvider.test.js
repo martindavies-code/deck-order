@@ -80,12 +80,55 @@ test('quota reserve failure blocks outgoing calls', async () => {
   assert.equal(called, 0);
 });
 
-test('pipeline single-source path keeps raw bpm and marks octave normalization', async () => {
+test('pipeline single-source unconfirmed octave: raw stays raw, suggestion flagged', async () => {
   const halfTime = { ...GOOD_REC, bpm: 62.5 };
   const pipe = new VerificationPipeline({ freqblogKey: 'k', freqblogOptions: { fetchImpl: stubFetch({ '/lookup': halfTime }) } });
-  const { tracks } = await pipe.processPlaylist([{ id: 't1', artist: 'Bicep', title: 'Glue', version: 'Original Mix' }]);
+  const { tracks, report } = await pipe.processPlaylist([{ id: 't1', artist: 'Bicep', title: 'Glue', version: 'Original Mix' }]);
   assert.equal(tracks[0].status, 'single_source');
+  assert.equal(tracks[0].bpm, 62.5);
   assert.equal(tracks[0].rawBpm, 62.5);
-  assert.equal(tracks[0].isNormalized, true);
-  assert.equal(tracks[0].workingBpm, 125);
+  assert.equal(tracks[0].workingBpm, 62.5);
+  assert.equal(tracks[0].isNormalized, false);
+  assert.equal(tracks[0].tempoNeedsReview, true);
+  assert.equal(tracks[0].tempoSuggestion.bpm, 125);
+  assert.equal(tracks[0].tempoSuggestion.kind, 'doubled');
+  assert.equal(report.isReadyForSequencing, false);
+  assert.equal(report.tempoReviewTracks.length, 1);
 });
+
+test('pipeline single-source octave corroborated by supplied bpm: normalized, trusted', async () => {
+  const halfTime = { ...GOOD_REC, bpm: 62.5 };
+  const pipe = new VerificationPipeline({ freqblogKey: 'k', freqblogOptions: { fetchImpl: stubFetch({ '/lookup': halfTime }) } });
+  const { tracks, report } = await pipe.processPlaylist([{ id: 't1', artist: 'Bicep', title: 'Glue', bpm: 124, version: 'Original Mix' }]);
+  assert.equal(tracks[0].isNormalized, true);
+  assert.equal(tracks[0].bpm, 125);
+  assert.equal(tracks[0].workingBpm, 125);
+  assert.equal(tracks[0].tempoNeedsReview, false);
+  assert.equal(report.isReadyForSequencing, true);
+});
+
+test('pipeline single-source supplied bpm confirms raw: no normalization', async () => {
+  const halfTime = { ...GOOD_REC, bpm: 62.5 };
+  const pipe = new VerificationPipeline({ freqblogKey: 'k', freqblogOptions: { fetchImpl: stubFetch({ '/lookup': halfTime }) } });
+  const { tracks } = await pipe.processPlaylist([{ id: 't1', artist: 'Bicep', title: 'Glue', bpm: 63, version: 'Original Mix' }]);
+  assert.equal(tracks[0].isNormalized, false);
+  assert.equal(tracks[0].bpm, 62.5);
+  assert.equal(tracks[0].tempoNeedsReview, false);
+});
+
+test('pipeline single-source supplied bpm matches neither: disputed', async () => {
+  const halfTime = { ...GOOD_REC, bpm: 62.5 };
+  const pipe = new VerificationPipeline({ freqblogKey: 'k', freqblogOptions: { fetchImpl: stubFetch({ '/lookup': halfTime }) } });
+  const { tracks, report } = await pipe.processPlaylist([{ id: 't1', artist: 'Bicep', title: 'Glue', bpm: 100, version: 'Original Mix' }]);
+  assert.equal(tracks[0].status, 'disputed');
+  assert.equal(report.isReadyForSequencing, false);
+});
+
+test('freqblog version cross-check: club mix does not match radio mix record', async () => {
+  const rec = { ...GOOD_REC, mix_name: 'Radio Mix' };
+  const p = new FreqBlogProvider('k', { fetchImpl: stubFetch({ '/lookup': rec }) });
+  const r = await p.lookupTrack({ artist: 'Bicep', title: 'Glue', version: 'Club Mix' });
+  assert.equal(r.success, false);
+  assert.match(r.reason, /version_mismatch/);
+});
+
