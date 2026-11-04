@@ -81,14 +81,20 @@ export function CoverageReport({
           {/* Per-dimension coverage: grading needs tempo AND key on both tracks of a handover */}
           {report.total > 0 && (report.missing || report.unverified || 0) > 0 && (report.sample || 0) === 0 && (
             <p className="text-[11px] text-[#BAC2B3] max-w-xl leading-relaxed">
-              {typeof report.missingTempo === 'number' && typeof report.missingKey === 'number'
-                ? (report.missingTempo >= report.total && report.missingKey >= report.total
-                  ? 'No tempo or key data for these tracks, so handovers cannot be graded yet. Spotify does not share BPM or key, and no metadata provider is configured on this static deployment. '
-                  : `Tempo known for ${report.total - report.missingTempo} of ${report.total} tracks; key known for ${report.total - report.missingKey} of ${report.total}. A handover can only be graded when both tracks have both values. `)
-                : 'Some tracks are missing tempo or key data; a handover can only be graded when both tracks have both values. '}
-              You can paste a tracklist with BPM and key columns (for example an export from your DJ
-              software), set custom values per track in the inspector, or run the local server with
-              metadata providers configured.
+              {report.providerUnreachable
+                ? `The tempo/key check did not finish: the metadata provider did not respond, so ${report.uncheckedCount || report.total} of ${report.total} track${(report.uncheckedCount || report.total) === 1 ? ' is' : 's are'} unchecked. Reload the playlist to try again. `
+                : report.providerPartialFailure
+                ? `The metadata provider stopped responding partway through: tempo/key checked for ${report.checkedCount} of ${report.total} tracks; ${report.uncheckedCount} still unchecked. Reload the playlist to retry. `
+                : (typeof report.missingTempo === 'number' && typeof report.missingKey === 'number'
+                  ? (report.missingTempo >= report.total && report.missingKey >= report.total
+                    ? (report.providerConfigured === false
+                      ? 'No tempo or key data for these tracks, so handovers cannot be graded yet. Spotify does not share BPM or key, and no metadata provider is configured on this static deployment. '
+                      : 'No tempo or key data was found for these tracks, so handovers cannot be graded yet. Spotify does not share BPM or key, and the metadata provider has no catalogue entry for them. ')
+                    : `Tempo known for ${report.total - report.missingTempo} of ${report.total} tracks; key known for ${report.total - report.missingKey} of ${report.total}. A handover can only be graded when both tracks have both values. `)
+                  : 'Some tracks are missing tempo or key data; a handover can only be graded when both tracks have both values. ')}
+              {(report.providerUnreachable || report.providerPartialFailure)
+                ? 'You can also set custom values per track in the inspector.'
+                : 'You can paste a tracklist with BPM and key columns (for example an export from your DJ software), set custom values per track in the inspector, or run the local server with metadata providers configured.'}
             </p>
           )}
         </div>
