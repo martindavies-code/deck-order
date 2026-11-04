@@ -171,6 +171,24 @@ export function clearCrateHistory(accountKey = 'anonymous') {
 }
 
 /**
+ * Removes one saved set by id, preserving every other set for the account.
+ * Returns the updated history array; unknown ids are a no-op.
+ */
+export function removeSetFromHistory(setId, accountKey = 'anonymous') {
+  try {
+    const current = getCrateHistory(accountKey);
+    const updated = current.filter(s => s.id !== setId);
+    if (updated.length !== current.length) {
+      localStorage.setItem(`${CRATE_HISTORY_PREFIX}${accountKey}`, JSON.stringify(updated));
+    }
+    return updated;
+  } catch (err) {
+    console.warn('Could not remove set from history:', err);
+    return getCrateHistory(accountKey);
+  }
+}
+
+/**
  * Forget This Device:
  * Permanently removes all local storage and session storage data associated
  * with Deck Order and Spotify sessions so a shared-device visitor leaves no trace.
