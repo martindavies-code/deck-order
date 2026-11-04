@@ -3,6 +3,7 @@ import { Header } from './components/Header.jsx';
 import { SourcePicker } from './components/SourcePicker.jsx';
 import { CoverageReport } from './components/CoverageReport.jsx';
 import { SequencedTable } from './components/SequencedTable.jsx';
+import { removeTrackAt, restoreTrackAt } from './utils/trackBadges.js';
 import { ComparisonView } from './components/ComparisonView.jsx';
 import { HarmonicArcVisualizer } from './components/HarmonicArcVisualizer.jsx';
 import { InspectorRail } from './components/InspectorRail.jsx';
@@ -92,6 +93,10 @@ export function App() {
 
   // Active track selection for Inspector
   const [selectedTrackIndex, setSelectedTrackIndex] = useState(null);
+  // Last track removed from the working set, kept for one-step undo. Removal
+  // only ever touches the local working set (orderedTracks) - never the
+  // source Spotify playlist.
+  const [lastRemoved, setLastRemoved] = useState(null);
 
   // Settings
   const [unverifiedStrategy, setUnverifiedStrategy] = useState('keep_relative_position');
@@ -281,6 +286,7 @@ export function App() {
 
   const handleLoadHistoricalSet = (historicalSet) => {
     setOrderedTracks(historicalSet.tracks || []);
+    setLastRemoved(null);
     setOriginalTracks(historicalSet.tracks || []);
     setTracks(historicalSet.tracks || []);
     setEvaluation(historicalSet.evaluation || null);
@@ -338,6 +344,7 @@ export function App() {
       // Show the imported order immediately so the playlist never "disappears";
       // "Build my running order" re-sequences from here.
       setOrderedTracks(verifyRes.tracks);
+      setLastRemoved(null);
       setOriginalTracks(verifyRes.tracks);
       setEvaluation(null);
       setOriginalEvaluation(null);
@@ -383,6 +390,7 @@ export function App() {
       setCoverageReport({ ...verifyRes.report, ...computeCoverageCounts(verifyRes.tracks) });
       // Show the imported order immediately; "Build my running order" re-sequences.
       setOrderedTracks(verifyRes.tracks);
+      setLastRemoved(null);
       setOriginalTracks(verifyRes.tracks);
       setEvaluation(null);
       setOriginalEvaluation(null);
@@ -419,6 +427,7 @@ export function App() {
       const res = seqRes.result;
       setOrderedTracks(res.orderedTracks);
       setOriginalTracks(res.originalTracks);
+      setLastRemoved(null);
       setEvaluation(res.evaluation);
       setOriginalEvaluation(res.originalEvaluation);
       setViewMode('sequenced');
@@ -467,6 +476,45 @@ export function App() {
     } catch (err) {
       console.warn('Re-evaluation note:', err);
     }
+  };
+
+  // Remove one track from the working set (undoable; source playlist untouched)
+  const handleRemoveTrack = async (track, index) => {
+    const { tracks: updated, removed, index: removedIndex } = removeTrackAt(orderedTracks, index);
+    if (!removed) return;
+    setOrderedTracks(updated);
+    setLastRemoved({ track: removed, index: removedIndex });
+    setSelectedTrackIndex(null);
+    try {
+      const seqRes = await runSequencer(updated, {
+        seed: 42,
+        enableEnergy,
+        unverifiedStrategy: 'keep_relative_position'
+      });
+      setEvaluation(seqRes.result.evaluation);
+    } catch (err) {
+      console.warn('Re-evaluation note:', err);
+    }
+    showToast(`Removed "${removed.title}" from this set. The original playlist is untouched.`, 4000);
+  };
+
+  // Undo the last removal, restoring the track at its original position
+  const handleUndoRemove = async () => {
+    if (!lastRemoved) return;
+    const restored = restoreTrackAt(orderedTracks, lastRemoved.track, lastRemoved.index);
+    setOrderedTracks(restored);
+    setLastRemoved(null);
+    try {
+      const seqRes = await runSequencer(restored, {
+        seed: 42,
+        enableEnergy,
+        unverifiedStrategy: 'keep_relative_position'
+      });
+      setEvaluation(seqRes.result.evaluation);
+    } catch (err) {
+      console.warn('Re-evaluation note:', err);
+    }
+    showToast(`Restored "${lastRemoved.track.title}".`);
   };
 
   // Restore Original Order
@@ -796,12 +844,38 @@ export function App() {
                   </span>
                 </div>
 
+                {lastRemoved && viewMode === 'sequenced' && (
+                  <div
+                    role="status"
+                    className="deck-panel px-4 py-2.5 mb-3 flex items-center justify-between gap-3 border-[#F59E0B]"
+                  >
+                    <span className="text-xs text-[#BAC2B3]">
+                      Removed <span className="font-bold text-[#F3F0E6]">{lastRemoved.track.title}</span> from this set.
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleUndoRemove}
+                        className="deck-btn-secondary text-xs"
+                      >
+                        Undo
+                      </button>
+                      <button
+                        onClick={() => setLastRemoved(null)}
+                        className="text-[#7E8876] hover:text-[#F3F0E6] text-xs px-2 py-1"
+                        aria-label="Dismiss undo"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <SequencedTable
                   tracks={currentDisplayTracks}
                   transitions={currentDisplayTransitions}
                   selectedTrackId={activeTrack?.id}
                   onReorderTracks={handleReorderTracks}
                   onSelectTrack={(t, idx) => setSelectedTrackIndex(idx)}
+                  onRemoveTrack={viewMode === 'sequenced' ? handleRemoveTrack : undefined}
                 />
 
                 {/* Suggestions Drawer (Bridge & Bonus) */}
