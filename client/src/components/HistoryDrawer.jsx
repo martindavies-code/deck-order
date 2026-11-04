@@ -8,7 +8,10 @@ export function HistoryDrawer({
   onLoadSet,
   onClearHistory,
   onDeleteSet,
-  googleUser
+  googleUser,
+  activeSetId,
+  saveError,
+  onNewSet
 }) {
   // Two-tap inline confirm guards accidental deletion of a single set.
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -49,16 +52,18 @@ export function HistoryDrawer({
               Saved sets
             </h3>
             <p className="text-xs text-[#BAC2B3]">
-              {googleUser ? `Synced with ${googleUser.email}` : 'Stored locally in browser'}
+              Stored locally in this browser
             </p>
           </div>
         </div>
+
+        {onNewSet && <button type="button" onClick={onNewSet} className="deck-btn-secondary text-xs min-h-[44px] self-start">New set</button>}
 
         {/* History List */}
         <div className="flex-1 overflow-y-auto space-y-2 pr-1 my-2">
           {history.length === 0 ? (
             <div className="text-center py-10 text-xs text-[#7E8876] bg-[#10120F] rounded border border-[#394133] p-4">
-              No saved sets yet. When you sequence a tracklist, it will be saved here so you can revisit it later.
+              No saved sets yet. Import a tracklist to start a new set. Changes save here automatically.
             </div>
           ) : (
             history.map((item) => (
@@ -69,11 +74,12 @@ export function HistoryDrawer({
                 <div className="min-w-0 flex-1">
                   <h4 className="text-xs font-bold text-[#F3F0E6] truncate">
                     {item.name}
+                    {item.id === activeSetId && <span className="ml-2 inline-block text-[10px] text-[#D6FC55] border border-[#394133] rounded px-1.5 py-0.5">Currently editing{saveError ? ' - unsaved changes' : ''}</span>}
                   </h4>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] font-mono text-[#BAC2B3]">
                     <span className="flex items-center gap-1 text-[#7E8876]">
                       <Clock className="w-3 h-3" />
-                      {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(item.updatedAt || item.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} {new Date(item.updatedAt || item.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}
                     </span>
                     <span>{item.trackCount} tracks</span>
                     {typeof item.smoothPct === 'number' && (
@@ -87,8 +93,7 @@ export function HistoryDrawer({
                 <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto flex-wrap justify-end">
                   <button
                     onClick={() => {
-                      onLoadSet(item);
-                      onClose();
+                      if (onLoadSet(item) !== false) onClose();
                     }}
                     className="deck-btn-secondary text-xs min-h-[36px] py-1 px-3"
                     title="Load this set into the workspace"
