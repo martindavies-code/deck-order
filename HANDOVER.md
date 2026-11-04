@@ -27,15 +27,15 @@ Per-row remove control on the sequenced working set only. Removal lives in the o
 
 ### 3. Colour-coded BPM / Camelot badges (client/src/utils/trackBadges.js, client/src/components/SequencedTable.jsx)
 
-Each track shows BPM and Camelot key pills, with the key pill colour derived consistently from the Camelot value. Amber pills mark values that need review; dashed grey pills mark missing or unverified data. Badges render inline in the desktop table and in the mobile card data strip.
+Each track shows BPM and Camelot key pills, with the key pill colour derived consistently from the Camelot value. Amber pills mark values that need review; dashed grey pills mark missing or unverified data. Badges render inline in the desktop table and in the mobile card data strip. The evidence-status label (Corroborated / Single source / Missing / ...) comes from one shared selector used by both the desktop table and the mobile strip. A transition whose either side is flagged for review no longer shows a confident relation or BPM delta - it renders "Needs review - unconfirmed tempo/key" until confirmed.
 
 ### 4. Saved-set duplication prevention (client/src/services/googleAuth.js)
 
-Root cause of duplicate Saved-set entries: the sequencer autosaved a new history entry with a fresh id on every run, even when nothing changed. `saveSetToHistory` now computes a signature (set name plus per-track id/bpm/camelot/status) and skips the save when the most recent entry is identical. Genuinely different revisions are kept as separate entries. No existing saved entries are merged or deleted.
+Root cause of duplicate Saved-set entries: the sequencer autosaved a new history entry with a fresh id on every run, even when nothing changed. `saveSetToHistory` now computes a signature over the set name plus, per track in order: id (or artist-title), version, ISRC, bpm, key, camelot, status, confidence (including user overrides) and review flags. A save whose signature matches an existing entry is skipped; reorders, enrichment, overrides and review-flag changes are genuine revisions and kept as separate entries. No existing saved entries are merged or deleted.
 
 ## What is verified
 
-- 137/137 vitest tests pass, including new regression tests for version decoration, recording-mismatch flagging, remove/undo, badge states, and saved-set dedup.
+- 141/141 vitest tests pass, including new regression tests for version decoration, recording-mismatch flagging, remove/undo, badge states, and saved-set dedup.
 - Client production build passes; security audit script passes.
 - Live worker probes (2026-11-04): the Spotify-shape lookup for "Drop The Pressure - Purple Disco Machine Remix Edit" returns 123.1 BPM / 9A; the CSV shape with a separate version field resolves the same remix record.
 - Desktop (1280px) and mobile (390px) renders of the new UI states were visually checked.
