@@ -113,7 +113,7 @@ test('googleAuth trackSignatureIdentity supports t.name when t.title is absent',
   assert.equal(h.length, 2, 'Distinct tracks identified by name must not be treated as duplicates');
 });
 
-test('googleAuth saveSetToHistory progressively evicts oldest sets on QuotaExceededError', () => {
+test('googleAuth saveSetToHistory preserves existing sets and reports failure on QuotaExceededError', () => {
   // First, populate history with 10 sets
   for (let i = 0; i < 10; i++) {
     googleAuth.saveSetToHistory({
@@ -125,18 +125,20 @@ test('googleAuth saveSetToHistory progressively evicts oldest sets on QuotaExcee
   const initial = googleAuth.getCrateHistory('user_quota');
   assert.equal(initial.length, 10);
 
-  // Now simulate storage nearing quota: setFailOnSize allows ~1200 bytes,
-  // which can fit ~6 sets but fails on 11 sets
+  // Simulate storage nearing quota so the next write fails
   mockStorage.setFailOnSize(1400);
 
-  // Adding an 11th set should trigger QuotaExceededError and cause progressive pruning
+  let reported = null;
   const updated = googleAuth.saveSetToHistory({
     name: 'Set 11 (Newest)',
     tracks: [{ artist: 'Artist', title: 'Track 11' }]
-  }, 'user_quota');
+  }, 'user_quota', { onError: (err) => { reported = err; } });
 
-  assert.ok(updated.length <= 6, 'Oldest sets should be evicted to fit within storage limits');
-  assert.equal(updated[0].name, 'Set 11 (Newest)', 'Newest set must be retained');
+  assert.ok(reported, 'Save failure must be reported to the caller');
+  const after = googleAuth.getCrateHistory('user_quota');
+  assert.equal(after.length, 10, 'Existing saved sets must never be deleted to make room');
+  assert.deepEqual(after.map(st => st.name), initial.map(st => st.name), 'Existing history order and content preserved');
+  assert.equal(updated.length, 10, 'Unchanged history is returned when the save fails');
 });
 
 test('verifyTracklist exposes recordingReviewTracks and tempoReviewTracks in report', async () => {
