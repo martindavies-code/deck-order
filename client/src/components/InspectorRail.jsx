@@ -120,6 +120,21 @@ export function InspectorRail({
         </div>
       </div>
 
+      {/* Recording identity uncertainty: matched record carries a different ISRC */}
+      {track.recordingNeedsReview && track.recordingMismatch && (
+        <div className="p-3 rounded bg-[rgba(234,179,8,0.1)] border border-[rgba(234,179,8,0.3)] space-y-2 text-xs text-[#FDE047]">
+          <div className="flex items-center gap-1.5 font-bold">
+            <AlertTriangle className="w-3.5 h-3.5 text-[#EAB308]" />
+            <span>Recording match needs review</span>
+          </div>
+          <p className="text-[11px] text-[#BAC2B3]">
+            The matched record's ISRC ({track.recordingMismatch.matchedIsrc}) differs from this track's
+            ({track.recordingMismatch.suppliedIsrc}). Tempo and key shown are from that record -
+            confirm they belong to this recording before trusting them for sequencing.
+          </p>
+        </div>
+      )}
+
       {/* Disagreements if any */}
       {track.status === 'disputed' && (
         <div className="p-3 rounded bg-[rgba(234,179,8,0.1)] border border-[rgba(234,179,8,0.3)] space-y-2 text-xs text-[#FDE047]">
