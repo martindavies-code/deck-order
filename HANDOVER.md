@@ -102,3 +102,17 @@ Later explicit user request supersedes per-edit history revisions: the active se
 Final local checks:173 tests pass, client build/security pass. Updated full override App regression checks same-document saving (not a new entry), failure alert and cancelling New after save failure. New App regression checks same ID/count after redo/removal/rename, active indicator, New preserving history, reload, original reference, CSV and unchanged grades at1440/390. Dependency files and Worker source unchanged. No production account/storage/provider writes.
 
 Failure-state refinement: the save-failure alert is sticky while working lower in the page, rather than above the fold. App regression now waits for the temporary success toast to disappear before capturing it, tests cancelled Load as well as cancelled New, verifies a still-blocked Retry changes no stored bytes, then restores the isolated storage stub and verifies successful Retry saves126BPM to the same ID/count and removes the warning. Passed1440/390.
+
+## Branch: fix-arc-chart (2026-11-04, pending review)
+
+User-reported legibility and honesty problems with the set-shape chart on a dense (50-51 track) set. Rework in client/src/components/HarmonicArcVisualizer.jsx:
+
+- Crowding: the fixed 800px viewBox was stretched with preserveAspectRatio="none", squashing key labels into each other and into the TARGET PEAK caption. The chart now gives every track a fixed 18-unit slot, keeps its aspect ratio and scrolls horizontally on narrow screens. Labels sit above nodes, moving below a node only when it reaches the reserved top band, so they cannot hit the caption.
+- Target peak honesty: the shaded band now matches the solver's actual arc window (65-85% of the set - calculateArcPositionPenalty in server/core/energyArc.js) instead of the old 60-80% decoration. A legend explains it in words: the sequencer nudges faster tracks toward the zone and slower tracks out of it. It is a target, not a measurement of the current set.
+- Energy view honesty: the y-axis now labels the real 0-1 catalogue energy scale (it previously showed BPM numbers while plotting energy). Tracks without a catalogue energy score show a neutral dashed marker below the line instead of an unexplained red "?" - this was the reported inspector-vs-chart mismatch: BPM/key supplied by hand do not add an energy score, because energy comes from the metadata catalogue only. The legend states this. Energy values clamp to 0-1.
+- Node ring colours now distinguish UNVERIFIED transitions (grey) from SMOOTH (green); the legend covers every state. The tempo-needs-review node now uses the standard label placement (its long "review" label collided with neighbours on dense sets).
+- scripts/verify_arc_chart.mjs: isolated production-App regression at 1440/390 - axis units per metric, band geometry, no-data marker count, legend text, zero external API requests, screenshot capture.
+
+Verified: 173/173 tests, client build, security check, verify_transition_colours.mjs (released regression) unchanged pass, arc chart script passes at both widths. Synthetic data only; no user storage, account or provider calls.
+
+Limits: horizontal scroll on narrow screens is the chosen density trade-off; live Spotify save remains untested; energy remains catalogue-only (no manual entry).
