@@ -276,3 +276,27 @@ export function forgetThisDevice() {
     sessionKeys.forEach(k => sessionStorage.removeItem(k));
   }
 }
+
+/** Update one explicit document identity. Never merge or trim other saved sets. */
+export function updateActiveSet(setRecord, accountKey = 'anonymous', { onError } = {}) {
+  const current = getCrateHistory(accountKey);
+  try {
+    if (!setRecord.id) throw new Error('Active set identity is required');
+    const previous = current.find(s => s.id === setRecord.id);
+    const entry = {
+      ...previous, ...setRecord,
+      timestamp: previous?.timestamp || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      name: setRecord.name || 'Untitled Set',
+      trackCount: setRecord.tracks?.length || 0,
+      smoothPct: setRecord.evaluation?.smoothPct ?? 0,
+      totalCost: setRecord.evaluation?.totalCost ?? 0
+    };
+    const updated = previous ? current.map(s => s.id === entry.id ? entry : s) : [entry, ...current];
+    localStorage.setItem(`${CRATE_HISTORY_PREFIX}${accountKey}`, JSON.stringify(updated));
+    return { history: updated, saved: true };
+  } catch (error) {
+    if (typeof onError === 'function') onError(error);
+    return { history: current, saved: false };
+  }
+}
