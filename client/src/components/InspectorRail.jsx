@@ -86,11 +86,19 @@ export function InspectorRail({
             {track.bpm ? `${track.bpm} BPM` : 'Unknown'}
           </span>
         </div>
-        {track.isNormalized && track.rawBpm && (
-          <div className="flex justify-between font-mono">
+        {track.tempoNeedsReview && track.tempoSuggestion && (
+          <div className="flex justify-between">
+            <span className="text-[#7E8876]">Suggested tempo:</span>
+            <span className="font-mono text-amber-400">
+              {track.tempoSuggestion.bpm} BPM ({track.tempoSuggestion.kind} - needs review)
+            </span>
+          </div>
+        )}
+        {track.isNormalized && track.rawBpm && !track.tempoNeedsReview && (
+          <div className="flex justify-between">
             <span className="text-[#7E8876]">Source tempo:</span>
-            <span className="text-[#FCA5A5] tabular-nums" title="Shown tempo is normalised into the working range">
-              {track.rawBpm} BPM (doubled/halved)
+            <span className="font-mono text-[#F3F0E6]">
+              {track.rawBpm} BPM (doubled/halved, corroborated)
             </span>
           </div>
         )}
