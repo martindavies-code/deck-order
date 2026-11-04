@@ -183,7 +183,7 @@ function setSignature(name, tracks) {
   ]);
 }
 
-export function saveSetToHistory(setRecord, accountKey = 'anonymous') {
+export function saveSetToHistory(setRecord, accountKey = 'anonymous', { onError } = {}) {
   try {
     const current = getCrateHistory(accountKey);
     const entry = {
@@ -208,23 +208,17 @@ export function saveSetToHistory(setRecord, accountKey = 'anonymous') {
     }
 
     // Keep up to 50 sets in history per account
-    let updated = [entry, ...current.slice(0, 49)];
+    const updated = [entry, ...current.slice(0, 49)];
     try {
       localStorage.setItem(`${CRATE_HISTORY_PREFIX}${accountKey}`, JSON.stringify(updated));
       return updated;
     } catch (quotaErr) {
-      // QuotaExceededError handling: if storage is full, prune oldest sets progressively
-      // so active set persistence does not silently fail.
-      while (updated.length > 5) {
-        updated = updated.slice(0, Math.max(5, updated.length - 5));
-        try {
-          localStorage.setItem(`${CRATE_HISTORY_PREFIX}${accountKey}`, JSON.stringify(updated));
-          return updated;
-        } catch {
-          // Continue pruning if still exceeding quota
-        }
-      }
-      throw quotaErr;
+      // Storage full (or write blocked): never delete the user's existing
+      // saved sets to make room. Leave history untouched and surface the
+      // failure so the user can free space themselves.
+      console.warn('Could not save set to history (storage full or blocked):', quotaErr);
+      if (typeof onError === 'function') onError(quotaErr);
+      return current;
     }
   } catch (err) {
     console.warn('Could not save set to history:', err);
