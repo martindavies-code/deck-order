@@ -111,7 +111,7 @@ export function parseTracklistCSV(csvContent) {
       id: `manual_${i}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       artist: artist || 'Unknown Artist',
       title: title || 'Unknown Title',
-      version: version || 'Original Mix',
+      version: version || '',
       isrc: isrc || null,
       rawBpm: bpm,
       bpm: bpm,
