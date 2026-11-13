@@ -1026,6 +1026,9 @@ export async function requestSavePreview(sourcePlaylist, orderedTracks) {
     .map(t => t.uri || t.spotifyUri)
     .filter(uri => Boolean(uri && uri.startsWith('spotify:track:')));
 
+  const skippedCount = orderedTracks.length - uris.length;
+  const isSampleData = orderedTracks.length > 0 && orderedTracks.every(t => t.isSampleData);
+
   const manifest = {
     operationId,
     sourceSnapshot: {
@@ -1041,6 +1044,8 @@ export async function requestSavePreview(sourcePlaylist, orderedTracks) {
     },
     totalTracks: orderedTracks.length,
     validUrisCount: uris.length,
+    skippedCount,
+    isSampleData,
     urisManifest: uris,
     isDryRun: true,
     previewSummary: `This will create playlist "${targetName}" with ${uris.length} tracks in this order.`

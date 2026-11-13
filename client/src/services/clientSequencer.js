@@ -26,6 +26,45 @@ export function evaluateCurrentOrder(tracks, options = {}) {
   return evaluation;
 }
 
+/**
+ * Insert selected bridge/bonus suggestions into the running order.
+ * Bridges land right after the track their gap starts on (insertAfterIndex),
+ * bonus tunes append at the end. When several bridges target the same gap,
+ * they keep the order the user saw them in (no reversal). Pure: returns a
+ * new list, never mutates the inputs.
+ */
+export function insertSuggestionsIntoOrder(orderedTracks, selectedBridges, selectedBonus, stamp = Date.now()) {
+  const updatedList = [...orderedTracks];
+  const groups = new Map(); // insertAfterIndex (or null) -> items in displayed order
+  for (const item of selectedBridges) {
+    const key = item.insertAfterIndex === undefined || item.insertAfterIndex === null ? null : item.insertAfterIndex;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  const positionsDesc = [...groups.keys()].sort(
+    (a, b) => (b === null ? updatedList.length : b) - (a === null ? updatedList.length : a)
+  );
+  let seq = 0;
+  for (const pos of positionsDesc) {
+    const items = groups.get(pos);
+    const targetAfter = pos === null ? updatedList.length : Math.min(updatedList.length, pos + 1);
+    const inserts = items.map(item => ({
+      ...item,
+      id: `bridge_${stamp}_${seq++}_${item.id || 'track'}`,
+      selected: false
+    }));
+    updatedList.splice(targetAfter, 0, ...inserts);
+  }
+  selectedBonus.forEach((item, idx) => {
+    updatedList.push({
+      ...item,
+      id: `bonus_${stamp}_${idx}_${item.id || 'track'}`,
+      selected: false
+    });
+  });
+  return updatedList;
+}
+
 export async function generateOfflineSuggestions(evaluation, orderedTracks) {
   if (!Array.isArray(orderedTracks) || orderedTracks.length === 0) {
     return { success: true, gaps: [], bridgeSuggestions: [], bonusTunes: [] };
