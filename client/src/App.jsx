@@ -139,6 +139,15 @@ export function App() {
 
   const toastTimerRef = useRef(null);
   const evalCacheRef = useRef({ tracks: null, enableEnergy: null, value: null });
+  const suggestionRequestRef = useRef(0);
+  // Suggestions are advice about this exact order and metadata, not a later edit.
+  useEffect(() => {
+    suggestionRequestRef.current += 1;
+    setBridgeSuggestions([]);
+    setBonusTunes([]);
+    setIsFindingSuggestions(false);
+  }, [orderedTracks, accountKey]);
+
 
   const getCachedEvaluation = (tracksList, energyFlag) => {
     if (evalCacheRef.current.tracks === tracksList && evalCacheRef.current.enableEnergy === energyFlag && evalCacheRef.current.value) {
@@ -735,9 +744,11 @@ export function App() {
   const handleFindSuggestions = async () => {
     if (orderedTracks.length < 2 || isFindingSuggestions) return;
     setIsFindingSuggestions(true);
+    const requestId = ++suggestionRequestRef.current;
     try {
       const currentEval = getCachedEvaluation(orderedTracks, enableEnergy);
       const res = await fetchSuggestions(currentEval, orderedTracks, authToken);
+      if (requestId !== suggestionRequestRef.current) return;
       const bridges = Array.isArray(res?.bridgeSuggestions) ? res.bridgeSuggestions : [];
       const bonus = Array.isArray(res?.bonusTunes) ? res.bonusTunes : [];
       setBridgeSuggestions(bridges);
@@ -748,9 +759,10 @@ export function App() {
         showToast(`Found ${bridges.length} bridge and ${bonus.length} bonus option(s).`);
       }
     } catch (err) {
+      if (requestId !== suggestionRequestRef.current) return;
       showToast(`Could not load suggestions: ${err.message}`, 4000, 'warning');
     } finally {
-      setIsFindingSuggestions(false);
+      if (requestId === suggestionRequestRef.current) setIsFindingSuggestions(false);
     }
   };
 
