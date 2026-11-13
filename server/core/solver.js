@@ -232,7 +232,8 @@ export class DJSequencer {
 
     // If fewer than 2 sequencable tracks, honor locked anchors if any and evaluate
     if (sequencable.length < 2) {
-      const anchoredRaw = pinLockedEndpoints(rawTracks);
+      const anchoredRaw = pinLockedEndpoints(this.unverifiedStrategy === 'exclude'
+        ? sequencable.map(s => s.track) : rawTracks);
       const evaluation = evaluateSequence(anchoredRaw, { enableEnergy: this.enableEnergy });
       return {
         orderedTracks: anchoredRaw,
