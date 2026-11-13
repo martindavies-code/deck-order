@@ -183,3 +183,14 @@ Implements the 5 workflow and export improvements approved in the hardening/impr
 - **Remaining limits**:
   - Live Spotify OAuth PKCE, live Spotify playlist fetch/write, live Worker/FreqBlog lookups, and physical Rekordbox/Serato `.m3u8` hardware import were not exercised against live accounts.
 
+
+## Independent app-improvements review (13 November 2026)
+
+Follow-up to f68be53, scoped fixes on review-app-improvements:
+- Suggestion advice is invalidated on working-order/metadata/account changes, including late async responses. This prevents inserting a bridge at an old gap after reorder/removal/override. Narrow 320px suggestions now wrap without horizontal overflow.
+- JSON restore preserves nested source evidence and reset-to-source data instead of silently nulling it below depth 4. Excessive nesting and malformed metadata fail before storage changes. Backup deduplication includes endpoint locks, original order and manual choices. Restore supports 51+ document-style saved sets (bounded at 1000 sets and 5 MB).
+- Exclude-unverified applies consistently when zero or one tracks can be sequenced, not only for larger sets.
+- Root package-lock.json matches package.json again, so clean npm ci works. No dependency major upgrades.
+- Added five unit regressions and scripts/verify_review.mjs for isolated synthetic desktop/mobile/narrow UI and stale-advice regression. Playwright is optional verification tooling, not a production dependency.
+
+Verified locally: 209 unit tests, security check, client production build, clean root/client npm ci; arc-chart regression at 1440/390; new suggestion/edit regression at 1440/390/320 with no page errors or horizontal overflow. Screenshots inspected. Synthetic fixtures only, no live account, Spotify writes or catalogue quota used. Live Spotify save remains unverified, and M3U8 export contains Spotify web references or filename hints, not audio files or proof of DJ-software compatibility. Worker hardening from fd92953 still needs a separate Cloudflare deployment; Pages deployment does not publish the Worker.
