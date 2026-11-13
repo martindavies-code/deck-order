@@ -1,5 +1,9 @@
 import crypto from 'node:crypto';
 import { auditLogger } from './auditLogger.js';
+import { SPOTIFY_ID_RE, SPOTIFY_TRACK_URI_RE } from '../middleware/security.js';
+import { generatePlainTextTracklist, generateCSVExport } from '../../client/src/services/formatters.js';
+
+export { generatePlainTextTracklist, generateCSVExport };
 
 /**
  * Spotify Safe Playlist Writer
@@ -100,11 +104,19 @@ export class SafePlaylistWriter {
       throw new Error('Save aborted: Safety constraint requires explicit user confirmation.');
     }
 
+    const uris = Array.isArray(manifest?.urisManifest) ? manifest.urisManifest : [];
+    if (uris.length === 0) {
+      throw new Error('Save aborted: No valid Spotify track URIs to save.');
+    }
+    if (!uris.every(uri => typeof uri === 'string' && SPOTIFY_TRACK_URI_RE.test(uri))) {
+      throw new Error('Save aborted: Save manifest contains an invalid Spotify track URI.');
+    }
+
     auditLogger.log('PLAYLIST_SAVE_STARTED', {
       operationId: manifest.operationId,
       sourceSnapshot: manifest.sourceSnapshot,
       targetPlaylist: manifest.targetPlaylist,
-      uriCount: manifest.urisManifest.length
+      uriCount: uris.length
     });
 
     // 1. Create NEW private playlist (POST /me/playlists)
@@ -119,7 +131,10 @@ export class SafePlaylistWriter {
       body: createPayload
     });
 
-    const playlistId = newPlaylist.id;
+    const playlistId = newPlaylist?.id;
+    if (!SPOTIFY_ID_RE.test(String(playlistId || ''))) {
+      throw new Error('Spotify did not return a valid playlist ID.');
+    }
     const playlistUrl = newPlaylist.external_urls?.spotify;
 
     auditLogger.log('PLAYLIST_CREATED_SUCCESS', {
@@ -129,7 +144,6 @@ export class SafePlaylistWriter {
     });
 
     // 2. Batched addition of items: max 100 URIs per request
-    const uris = manifest.urisManifest;
     const batchSize = 100;
     let addedCount = 0;
 
@@ -193,43 +207,4 @@ export class SafePlaylistWriter {
       playlistName: manifest.targetPlaylist.name
     };
   }
-}
-
-/**
- * Text and CSV export formatters (Phase 5.4)
- */
-export function generatePlainTextTracklist(orderedTracks) {
-  return orderedTracks
-    .map(t => `${t.artist} - ${t.title}${t.version && t.version !== 'Original Mix' ? ` (${t.version})` : ''}`)
-    .join('\n');
-}
-
-export function generateCSVExport(orderedTracks, evaluation) {
-  const transitions = evaluation?.transitions || [];
-  const headers = ['Order', 'Artist', 'Title', 'Version', 'BPM', 'Key', 'Camelot', 'Energy', 'Source', 'Status', 'Transition Grade', 'Transition Relation'];
-  const rows = [headers.join(',')];
-
-  orderedTracks.forEach((t, idx) => {
-    const tr = transitions[idx];
-    const grade = tr?.grade || (idx === orderedTracks.length - 1 ? 'END' : 'N/A');
-    const relation = tr?.relation ? `"${tr.relation.replace(/"/g, '""')}"` : 'N/A';
-    const energy = t.energy !== null && t.energy !== undefined ? t.energy : '';
-
-    rows.push([
-      idx + 1,
-      `"${(t.artist || '').replace(/"/g, '""')}"`,
-      `"${(t.title || '').replace(/"/g, '""')}"`,
-      `"${(t.version || '').replace(/"/g, '""')}"`,
-      t.bpm || '',
-      `"${(t.key || '').replace(/"/g, '""')}"`,
-      `"${t.camelot || ''}"`,
-      energy,
-      `"${(t.source || '').replace(/"/g, '""')}"`,
-      `"${t.status || ''}"`,
-      `"${grade}"`,
-      relation
-    ].join(','));
-  });
-
-  return rows.join('\n');
 }

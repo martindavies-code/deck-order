@@ -8,10 +8,13 @@ import { parseTracklistCSV } from '../providers/csvParser.js';
 import { auditLogger } from '../spotify/auditLogger.js';
 import {
   createRateLimiter,
+  extractBearerToken,
+  isValidSpotifyId,
   validateVerifyPayload,
   validateCsvPayload,
   validateSequencePayload,
   validateSaveConfirmPayload,
+  validateOverridePayload,
   errorHandler
 } from '../middleware/security.js';
 import { ValidationError, SpotifyAuthError } from '../core/errors.js';
@@ -119,10 +122,9 @@ export function createApiRouter(config = {}) {
 
   // Spotify Playlists
   router.get('/spotify/playlists', async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return next(new SpotifyAuthError('Missing Spotify authorization header'));
+    const token = extractBearerToken(req.headers.authorization);
+    if (!token) return next(new SpotifyAuthError('Missing or malformed Spotify authorization header'));
 
-    const token = authHeader.replace('Bearer ', '');
     const client = new SpotifyClient({
       accessToken: token,
       clientId: config.spotifyClientId,
@@ -139,10 +141,12 @@ export function createApiRouter(config = {}) {
 
   // Spotify Playlist Items
   router.get('/spotify/playlists/:id/items', async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return next(new SpotifyAuthError('Missing Spotify authorization header'));
+    const token = extractBearerToken(req.headers.authorization);
+    if (!token) return next(new SpotifyAuthError('Missing or malformed Spotify authorization header'));
+    if (!isValidSpotifyId(req.params.id)) {
+      return next(new ValidationError('Invalid Spotify playlist ID format.'));
+    }
 
-    const token = authHeader.replace('Bearer ', '');
     const client = new SpotifyClient({
       accessToken: token,
       clientId: config.spotifyClientId,
@@ -175,15 +179,18 @@ export function createApiRouter(config = {}) {
     }
   });
 
-  // Manual User Override
-  router.post('/pipeline/override', (req, res, next) => {
+  // Manual User Override (validated without mutating shared multi-tenant pipeline singleton)
+  router.post('/pipeline/override', validateOverridePayload, (req, res) => {
     const { trackId, override } = req.body;
-    if (!trackId || !override) {
-      return next(new ValidationError('trackId and override data required'));
-    }
-
-    pipeline.setManualOverride(trackId, override);
-    res.json({ success: true, trackId, override: pipeline.getManualOverride(trackId) });
+    res.json({
+      success: true,
+      trackId,
+      override: {
+        bpm: override.bpm ?? null,
+        key: override.key ?? null,
+        camelot: override.camelot ?? null
+      }
+    });
   });
 
   // Solve & Sequence Tracks (Validated)
@@ -206,17 +213,17 @@ export function createApiRouter(config = {}) {
 
   // Bridge & Bonus Track Suggestions
   router.post('/pipeline/suggestions', async (req, res, next) => {
-    const { evaluation, orderedTracks } = req.body;
-    if (!evaluation || !Array.isArray(orderedTracks)) {
-      return next(new ValidationError('evaluation and orderedTracks required'));
+    const { evaluation, orderedTracks } = req.body || {};
+    if (!evaluation || !Array.isArray(orderedTracks) || orderedTracks.length > 1000) {
+      return next(new ValidationError('Valid evaluation and orderedTracks (max 1000) required'));
     }
 
     try {
       let spotifyClient = null;
-      const authHeader = req.headers.authorization;
-      if (authHeader) {
+      const token = extractBearerToken(req.headers.authorization);
+      if (token) {
         spotifyClient = new SpotifyClient({
-          accessToken: authHeader.replace('Bearer ', ''),
+          accessToken: token,
           clientId: config.spotifyClientId
         });
       }
@@ -237,9 +244,9 @@ export function createApiRouter(config = {}) {
 
   // Dry Run Preview for Saving
   router.post('/spotify/save/preview', (req, res, next) => {
-    const { sourcePlaylist, orderedTracks } = req.body;
-    if (!sourcePlaylist || !Array.isArray(orderedTracks)) {
-      return next(new ValidationError('sourcePlaylist and orderedTracks required'));
+    const { sourcePlaylist, orderedTracks } = req.body || {};
+    if (!sourcePlaylist || typeof sourcePlaylist !== 'object' || !Array.isArray(orderedTracks) || orderedTracks.length > 1000) {
+      return next(new ValidationError('Valid sourcePlaylist and orderedTracks (max 1000) required'));
     }
 
     const writer = new SafePlaylistWriter(null);
@@ -249,12 +256,11 @@ export function createApiRouter(config = {}) {
 
   // Confirm and Execute Save (Validated)
   router.post('/spotify/save/confirm', validateSaveConfirmPayload, async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return next(new SpotifyAuthError('Missing Spotify authorization header'));
+    const token = extractBearerToken(req.headers.authorization);
+    if (!token) return next(new SpotifyAuthError('Missing or malformed Spotify authorization header'));
 
     const { manifest, isConfirmed } = req.body;
 
-    const token = authHeader.replace('Bearer ', '');
     const client = new SpotifyClient({
       accessToken: token,
       clientId: config.spotifyClientId,
@@ -273,8 +279,10 @@ export function createApiRouter(config = {}) {
 
   // Plain Text Export for TuneMyMusic
   router.post('/export/text', (req, res, next) => {
-    const { orderedTracks } = req.body;
-    if (!Array.isArray(orderedTracks)) return next(new ValidationError('orderedTracks required'));
+    const { orderedTracks } = req.body || {};
+    if (!Array.isArray(orderedTracks) || orderedTracks.length > 1000) {
+      return next(new ValidationError('orderedTracks array (max 1000) required'));
+    }
 
     const text = generatePlainTextTracklist(orderedTracks);
     res.json({ success: true, text });
@@ -282,12 +290,15 @@ export function createApiRouter(config = {}) {
 
   // CSV Export
   router.post('/export/csv', (req, res, next) => {
-    const { orderedTracks, evaluation } = req.body;
-    if (!Array.isArray(orderedTracks)) return next(new ValidationError('orderedTracks required'));
+    const { orderedTracks, evaluation } = req.body || {};
+    if (!Array.isArray(orderedTracks) || orderedTracks.length > 1000) {
+      return next(new ValidationError('orderedTracks array (max 1000) required'));
+    }
 
     const csv = generateCSVExport(orderedTracks, evaluation);
-    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="deck_order_sequenced.csv"');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.send(csv);
   });
 

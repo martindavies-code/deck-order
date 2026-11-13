@@ -12,7 +12,8 @@ if (typeof process !== 'undefined' && process.versions && process.versions.node)
  */
 export class ProviderCache {
   constructor(options = {}) {
-    this.cacheFilePath = path ? path.resolve(options.cacheFilePath || './cache/provider_cache.json') : null;
+    const shouldPersist = options.persistToDisk !== false && options.cacheFilePath !== null;
+    this.cacheFilePath = (shouldPersist && path) ? path.resolve(options.cacheFilePath || './cache/provider_cache.json') : null;
     this.maxCapacity = options.maxCapacity || 5000;
     this.memoryCache = new Map();
     this.loadFromDisk();
@@ -37,6 +38,7 @@ export class ProviderCache {
 
   saveToDisk() {
     if (!fs || !this.cacheFilePath) return;
+    let tempPath = null;
     try {
       const dir = path.dirname(this.cacheFilePath);
       if (!fs.existsSync(dir)) {
@@ -44,12 +46,17 @@ export class ProviderCache {
       }
 
       // Atomic persistence: write to temp file then rename
-      const tempPath = `${this.cacheFilePath}.${Date.now()}.${Math.random().toString(36).substring(2, 6)}.tmp`;
+      tempPath = `${this.cacheFilePath}.${Date.now()}.${Math.random().toString(36).substring(2, 6)}.tmp`;
       const obj = Object.fromEntries(this.memoryCache);
       fs.writeFileSync(tempPath, JSON.stringify(obj, null, 2), 'utf8');
       fs.renameSync(tempPath, this.cacheFilePath);
+      tempPath = null;
     } catch (err) {
       console.warn('[Cache] Could not persist to disk atomically:', err.message);
+    } finally {
+      if (tempPath) {
+        try { fs.unlinkSync(tempPath); } catch { /* ignore cleanup errors */ }
+      }
     }
   }
 
@@ -73,13 +80,18 @@ export class ProviderCache {
     const entry = this.memoryCache.get(key);
     if (!entry) return null;
 
+    if (typeof entry.expiresAt === 'number' && Date.now() > entry.expiresAt) {
+      this.memoryCache.delete(key);
+      return null;
+    }
+
     // Refresh LRU position by re-inserting
     this.memoryCache.delete(key);
     this.memoryCache.set(key, entry);
     return entry;
   }
 
-  set(provider, query, data) {
+  set(provider, query, data, ttlSeconds = null) {
     const key = this.buildKey(provider, query);
 
     // Evict oldest entry if at capacity
@@ -90,10 +102,13 @@ export class ProviderCache {
       }
     }
 
-    this.memoryCache.set(key, {
-      data,
-      timestamp: Date.now()
-    });
+    const now = Date.now();
+    const entry = { data, timestamp: now };
+    if (typeof ttlSeconds === 'number' && ttlSeconds > 0) {
+      entry.expiresAt = now + ttlSeconds * 1000;
+    }
+
+    this.memoryCache.set(key, entry);
     this.saveToDisk();
   }
 

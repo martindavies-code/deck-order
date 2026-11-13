@@ -40,20 +40,30 @@ const VERIFY_MAX_CONSECUTIVE_FAILURES = 2;
 export const SPOTIFY_403_MSG =
   "Spotify refused this request. If this app is in Development Mode, only accounts on its allowlist can use it - paste or upload a tracklist instead.";
 
+const SPOTIFY_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const SPOTIFY_TRACK_URI_RE = /^spotify:track:[A-Za-z0-9_-]{1,64}$/;
+
 /**
  * Direct Spotify Web API helper for static mode.
- * Handles 401 (session expired) and 403 (honest allowlist explanation).
+ * Handles 401 (session expired), 403 (honest allowlist explanation), 429 rate limits, and timeouts.
  */
 async function spotifyApiFetch(endpoint, token, options = {}) {
   const url = endpoint.startsWith('http') ? endpoint : `https://api.spotify.com/v1${endpoint}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/json',
-      ...(options.headers || {})
-    }
-  });
+  const reqSig = createProxyRequestSignal(options.timeoutMs ?? 15000, options.signal);
+  let res;
+  try {
+    res = await fetch(url, {
+      ...options,
+      signal: reqSig.signal,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        ...(options.headers || {})
+      }
+    });
+  } finally {
+    reqSig.cleanup();
+  }
 
   if (res.status === 401) {
     const err = new Error('Spotify session expired (401).');
@@ -64,6 +74,15 @@ async function spotifyApiFetch(endpoint, token, options = {}) {
   if (res.status === 403) {
     const err = new Error(SPOTIFY_403_MSG);
     err.status = 403;
+    throw err;
+  }
+
+  if (res.status === 429) {
+    const retryAfter = res.headers?.get?.('Retry-After');
+    const err = new Error(retryAfter
+      ? `Spotify rate limit hit (429). Retry after ${retryAfter}s.`
+      : 'Spotify rate limit hit (429).');
+    err.status = 429;
     throw err;
   }
 
@@ -168,7 +187,8 @@ export async function exchangeAuthCode(code, codeVerifier, redirectUri) {
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params
+    body: params,
+    signal: AbortSignal.timeout(10000)
   });
 
   if (!res.ok) {
@@ -193,7 +213,8 @@ export async function refreshSpotifyToken(refreshToken) {
     const res = await fetch('https://accounts.spotify.com/api/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params
+      body: params,
+      signal: AbortSignal.timeout(10000)
     });
 
     if (res.ok) {
@@ -538,17 +559,34 @@ export function formatPlaylistLoadToast(pl, loadedCount, totalReturned, skipped 
   };
 }
 
-export async function fetchPlaylistItems(token, playlistId, onProgress) {
+export async function fetchPlaylistItems(token, playlistId, progressOrOptions, extraOptions = {}) {
+  if (!SPOTIFY_ID_RE.test(String(playlistId || ''))) {
+    throw new Error('Invalid Spotify playlist ID.');
+  }
+
+  let onProgress = null;
+  let signal = extraOptions?.signal || null;
+  if (typeof progressOrOptions === 'function') {
+    onProgress = progressOrOptions;
+  } else if (progressOrOptions && typeof progressOrOptions === 'object') {
+    onProgress = progressOrOptions.onProgress || null;
+    signal = progressOrOptions.signal || signal;
+  }
+
   if (!isGitHubPages) {
     let proxyRes = null;
+    const reqSig = createProxyRequestSignal(15000, signal);
     try {
-      proxyRes = await fetch(`/api/spotify/playlists/${playlistId}/items`, {
+      proxyRes = await fetch(`/api/spotify/playlists/${encodeURIComponent(playlistId)}/items`, {
         headers: { 'Authorization': `Bearer ${token}` },
-        signal: AbortSignal.timeout(5000)
+        signal: reqSig.signal
       });
     } catch (netErr) {
+      if (signal?.aborted || netErr?.name === 'AbortError') throw netErr;
       // Network failure (server likely not running) - fall back quietly with a console.warn
       console.warn('Local proxy server unreachable, falling back to direct Spotify Web API:', netErr.message);
+    } finally {
+      reqSig.cleanup();
     }
 
     if (proxyRes) {
@@ -578,6 +616,7 @@ export async function fetchPlaylistItems(token, playlistId, onProgress) {
 
   // Direct Web API call with safe pagination loop
   const MAX_PAGES = 20; // Up to 1,000 tracks (20 pages * 50)
+  const seenUrls = new Set();
   let nextUrl = `/playlists/${playlistId}/items?limit=50`;
   let pageCount = 0;
   let totalRawItems = 0;
@@ -591,12 +630,21 @@ export async function fetchPlaylistItems(token, playlistId, onProgress) {
   };
 
   while (nextUrl) {
+    if (signal?.aborted) {
+      const err = new Error('Playlist loading cancelled.');
+      err.name = 'AbortError';
+      throw err;
+    }
+    if (seenUrls.has(nextUrl)) {
+      throw new Error('Spotify returned a repeated playlist items cursor.');
+    }
+    seenUrls.add(nextUrl);
     pageCount++;
     if (pageCount > MAX_PAGES) {
       throw new Error(`Playlist exceeds supported size limit (maximum ${MAX_PAGES} pages / 1,000 tracks).`);
     }
 
-    const data = await spotifyApiFetch(nextUrl, token);
+    const data = await spotifyApiFetch(nextUrl, token, signal ? { signal } : {});
     const rawBatch = data.items || [];
     totalRawItems += rawBatch.length;
 
@@ -994,19 +1042,55 @@ export async function requestSavePreview(sourcePlaylist, orderedTracks) {
 }
 
 export async function confirmSavePlaylist(token, manifest) {
+  const uris = Array.isArray(manifest?.urisManifest) ? manifest.urisManifest : [];
+  if (uris.length === 0) {
+    throw new Error('Cannot save playlist: none of the tracks in this set have a valid Spotify track URI.');
+  }
+  if (!uris.every(uri => typeof uri === 'string' && SPOTIFY_TRACK_URI_RE.test(uri))) {
+    throw new Error('Cannot save playlist: manifest contains an invalid Spotify track URI.');
+  }
+
   if (!isGitHubPages) {
+    let proxyRes = null;
     try {
-      const res = await fetch('/api/spotify/save/confirm', {
+      proxyRes = await fetch('/api/spotify/save/confirm', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ manifest, isConfirmed: true }),
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(15000)
       });
-      if (res.ok) return await res.json();
-    } catch {}
+    } catch (err) {
+      // Only fall back to direct Web API if the local proxy could not be reached at all.
+      // Never blindly replay a write request after a timeout.
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        throw new Error('Timed out waiting for the local save server; check Spotify before retrying so you do not create a duplicate playlist.');
+      }
+    }
+
+    if (proxyRes) {
+      if (proxyRes.ok) {
+        const proxyData = await proxyRes.json();
+        const saved = proxyData?.result || proxyData;
+        return {
+          ...saved,
+          success: true,
+          name: saved.playlistName || saved.name || manifest.targetPlaylist?.name || 'Deck Order Sequence',
+          playlistName: saved.playlistName || saved.name || manifest.targetPlaylist?.name || 'Deck Order Sequence',
+          trackCount: saved.itemsWritten ?? saved.trackCount ?? uris.length,
+          itemsWritten: saved.itemsWritten ?? saved.trackCount ?? uris.length
+        };
+      }
+      // Fall back to direct mode only when Vite/dev proxy returns 404 (no backend mounted)
+      if (proxyRes.status !== 404) {
+        const errBody = await proxyRes.json().catch(() => ({}));
+        const err = new Error(errBody.error?.message || errBody.error || `Proxy server HTTP ${proxyRes.status}`);
+        err.status = proxyRes.status;
+        throw err;
+      }
+    }
   }
 
   // Direct Web API creation in static mode
@@ -1021,25 +1105,39 @@ export async function confirmSavePlaylist(token, manifest) {
     })
   });
 
-  const playlistId = created.id;
-  const uris = manifest.urisManifest || [];
+  const playlistId = created?.id;
+  if (!SPOTIFY_ID_RE.test(String(playlistId || ''))) {
+    throw new Error('Spotify did not return a valid playlist ID.');
+  }
+  const spotifyUrl = created.external_urls?.spotify || null;
 
   // Add items in batches of 100
+  let writtenCount = 0;
   for (let i = 0; i < uris.length; i += 100) {
     const chunk = uris.slice(i, i + 100);
-    await spotifyApiFetch(`/playlists/${playlistId}/items`, token, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uris: chunk })
-    });
+    try {
+      await spotifyApiFetch(`/playlists/${playlistId}/items`, token, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uris: chunk })
+      });
+      writtenCount += chunk.length;
+    } catch (batchErr) {
+      batchErr.partialSave = { playlistId, spotifyUrl, writtenCount, totalCount: uris.length };
+      batchErr.message = `Created "${created.name || target.name}" (${writtenCount} of ${uris.length} tracks written) before stopping: ${batchErr.message}`;
+      throw batchErr;
+    }
   }
 
   return {
     success: true,
     playlistId,
-    name: created.name,
+    name: created.name || target.name,
+    playlistName: created.name || target.name,
+    spotifyUrl,
     uri: created.uri,
-    trackCount: uris.length
+    itemsWritten: writtenCount,
+    trackCount: writtenCount
   };
 }
 

@@ -52,13 +52,26 @@ export function loadGoogleIdentityServices() {
   if (gisPromise) return gisPromise;
 
   gisPromise = new Promise((resolve, reject) => {
+    const finishSuccess = () => {
+      if (window.google?.accounts?.id) {
+        resolve(window.google.accounts.id);
+      } else {
+        gisPromise = null;
+        reject(new Error('Google Identity Services loaded without accounts API'));
+      }
+    };
+    const finishFailure = () => {
+      gisPromise = null;
+      reject(new Error('Failed to load Google Identity Services'));
+    };
+
     const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
     if (existing) {
       if (window.google?.accounts?.id) {
         resolve(window.google.accounts.id);
       } else {
-        existing.addEventListener('load', () => resolve(window.google?.accounts?.id));
-        existing.addEventListener('error', () => reject(new Error('Failed to load Google Identity Services')));
+        existing.addEventListener('load', finishSuccess, { once: true });
+        existing.addEventListener('error', finishFailure, { once: true });
       }
       return;
     }
@@ -67,8 +80,8 @@ export function loadGoogleIdentityServices() {
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve(window.google?.accounts?.id);
-    script.onerror = () => reject(new Error('Failed to load Google Identity Services'));
+    script.onload = finishSuccess;
+    script.onerror = finishFailure;
     document.head.appendChild(script);
   });
 

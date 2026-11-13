@@ -1,5 +1,18 @@
 import { ValidationError, AppError } from '../core/errors.js';
 
+export const SPOTIFY_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+export const SPOTIFY_TRACK_URI_RE = /^spotify:track:[A-Za-z0-9_-]{1,64}$/;
+
+export function extractBearerToken(authHeader) {
+  if (typeof authHeader !== 'string') return null;
+  const match = /^Bearer\s+([^\s]+)$/i.exec(authHeader.trim());
+  return match ? match[1] : null;
+}
+
+export function isValidSpotifyId(id) {
+  return typeof id === 'string' && SPOTIFY_ID_RE.test(id);
+}
+
 /**
  * In-memory sliding window rate limiter
  * Protects against quota exhaustion and denial-of-service attempts.
@@ -118,12 +131,12 @@ export function validateSequencePayload(req, res, next) {
  * Validates save confirmation request
  */
 export function validateSaveConfirmPayload(req, res, next) {
-  const { manifest, isConfirmed } = req.body;
-  if (!isConfirmed) {
+  const { manifest, isConfirmed } = req.body || {};
+  if (isConfirmed !== true) {
     throw new ValidationError('Safety constraint: Save requires explicit isConfirmed: true.');
   }
 
-  if (!manifest || typeof manifest !== 'object') {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new ValidationError('Missing save manifest.');
   }
 
@@ -131,13 +144,42 @@ export function validateSaveConfirmPayload(req, res, next) {
     throw new ValidationError('Save manifest contains zero valid Spotify track URIs.');
   }
 
+  if (manifest.urisManifest.length > 1000) {
+    throw new ValidationError(`Save manifest exceeds maximum allowed track count of 1000 (received ${manifest.urisManifest.length}).`);
+  }
+
+  const targetName = manifest.targetPlaylist?.name;
+  if (targetName !== undefined && (typeof targetName !== 'string' || !targetName.trim() || targetName.length > 200)) {
+    throw new ValidationError('Invalid target playlist name.');
+  }
+
   // Verify format of Spotify URIs
   for (const uri of manifest.urisManifest) {
-    if (typeof uri !== 'string' || !uri.startsWith('spotify:track:')) {
+    if (typeof uri !== 'string' || !SPOTIFY_TRACK_URI_RE.test(uri)) {
       throw new ValidationError(`Invalid Spotify URI in manifest: ${uri}`);
     }
   }
 
+  next();
+}
+
+export function validateOverridePayload(req, res, next) {
+  const { trackId, override } = req.body || {};
+  if (typeof trackId !== 'string' || !trackId.trim() || trackId.length > 128) {
+    throw new ValidationError('Valid trackId string is required.');
+  }
+  if (!override || typeof override !== 'object' || Array.isArray(override)) {
+    throw new ValidationError('Valid override object is required.');
+  }
+  if (override.bpm !== undefined && override.bpm !== null && String(override.bpm).trim() !== '') {
+    const bpmNum = Number(override.bpm);
+    if (!Number.isFinite(bpmNum) || bpmNum <= 0 || bpmNum > 400) {
+      throw new ValidationError(`Invalid override BPM: ${override.bpm}`);
+    }
+  }
+  if (override.key !== undefined && override.key !== null && (typeof override.key !== 'string' || override.key.length > 64)) {
+    throw new ValidationError('Invalid override key value.');
+  }
   next();
 }
 
@@ -147,12 +189,17 @@ export function validateSaveConfirmPayload(req, res, next) {
 export function errorHandler(err, req, res, next) {
   const statusCode = err.statusCode || 500;
   const code = err.code || 'INTERNAL_SERVER_ERROR';
+  const isPublicError = err instanceof AppError || statusCode < 500;
 
-  // Do not expose stack traces or raw errors in production
+  if (!isPublicError) {
+    console.error('[API Error]', err?.message || err);
+  }
+
+  // Never expose unhandled internal error messages in 500 responses
   res.status(statusCode).json({
     success: false,
-    error: err.message || 'An unexpected error occurred.',
+    error: isPublicError ? (err.message || 'Request failed.') : 'An unexpected error occurred.',
     code,
-    details: err.details || null
+    details: isPublicError ? (err.details || null) : null
   });
 }

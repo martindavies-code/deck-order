@@ -14,9 +14,42 @@ const MONTHLY_CAP = 1000;
 const PER_IP_HOURLY_CAP = 120;
 const inFlightBatches = new Map();
 
+const ALLOWED_ORIGINS = new Set([
+  'https://martindavies-code.github.io'
+]);
+
+function isAllowedOrigin(origin) {
+  if (!origin || typeof origin !== 'string') return false;
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try {
+    const parsed = new URL(origin);
+    return (
+      parsed.protocol === 'http:' &&
+      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
+      !parsed.username &&
+      !parsed.password
+    );
+  } catch {
+    return false;
+  }
+}
+
+function timingSafeEqualStrings(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false;
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  const maxLen = Math.max(ab.length, bb.length);
+  let diff = ab.length ^ bb.length;
+  for (let i = 0; i < maxLen; i++) {
+    diff |= (ab[i] || 0) ^ (bb[i] || 0);
+  }
+  return diff === 0;
+}
+
 function corsHeaders(request) {
   const origin = request.headers.get('Origin') || '';
-  const allowed = (origin.endsWith('.github.io') || origin.startsWith('http://localhost')) ? origin : 'https://martindavies-code.github.io';
+  const allowed = isAllowedOrigin(origin) ? origin : 'https://martindavies-code.github.io';
   return {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
@@ -40,11 +73,15 @@ export class QuotaCounter {
     // outside the worker (e.g. the pre-launch coverage trial). Guarded by
     // the worker-only ADMIN_TOKEN; never counts down, only up.
     if (url.pathname === '/set' && request.method === 'POST') {
-      if (request.headers.get('X-Admin-Token') !== this.env.ADMIN_TOKEN) {
+      if (!this.env.ADMIN_TOKEN || !timingSafeEqualStrings(request.headers.get('X-Admin-Token') || '', this.env.ADMIN_TOKEN)) {
         return new Response('forbidden', { status: 403 });
       }
-      const { monthKey: mk, count } = await request.json();
-      if (typeof count !== 'number' || count < 0 || !/^\d{4}-\d{2}$/.test(mk || '')) {
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ ok: false, error: 'invalid_json' }, { status: 400 });
+      }
+      const { monthKey: mk, count } = body || {};
+      if (typeof count !== 'number' || !Number.isInteger(count) || count < 0 || count > MONTHLY_CAP * 10 || !/^\d{4}-\d{2}$/.test(mk || '')) {
         return Response.json({ ok: false, error: 'bad_request' }, { status: 400 });
       }
       const result = await this.state.storage.transaction(async () => {
@@ -62,7 +99,16 @@ export class QuotaCounter {
     if (url.pathname !== '/reserve' || request.method !== 'POST') {
       return new Response('not found', { status: 404 });
     }
-    const { n = 1, ip = 'anon' } = await request.json();
+    let reserveBody;
+    try { reserveBody = await request.json(); } catch {
+      return Response.json({ allowed: false, error: 'invalid_json' }, { status: 400 });
+    }
+    const rawN = reserveBody?.n ?? 1;
+    if (!Number.isInteger(rawN) || rawN < 1 || rawN > 100) {
+      return Response.json({ allowed: false, error: 'invalid_reservation' }, { status: 400 });
+    }
+    const n = rawN;
+    const ip = String(reserveBody?.ip || 'anon').slice(0, 64);
     const hourKey = now.toISOString().slice(0, 13);
     // Transaction makes check-and-increment atomic across concurrent requests.
     const outcome = await this.state.storage.transaction(async () => {
@@ -103,7 +149,7 @@ export default {
 
     if (url.pathname === '/api/admin/quota' && request.method === 'POST') {
       // Admin-only quota seeding; no CORS header is attached on purpose.
-      if (!env.ADMIN_TOKEN || request.headers.get('X-Admin-Token') !== env.ADMIN_TOKEN) {
+      if (!env.ADMIN_TOKEN || !timingSafeEqualStrings(request.headers.get('X-Admin-Token') || '', env.ADMIN_TOKEN)) {
         return new Response('forbidden', { status: 403 });
       }
       let body;
@@ -128,13 +174,14 @@ export default {
       try { body = await request.json(); } catch {
         return Response.json({ success: false, error: 'invalid_json' }, { status: 400, headers: cors });
       }
-      const tracks = Array.isArray(body.tracks) ? body.tracks.slice(0, 200) : [];
+      const rawTracks = Array.isArray(body?.tracks) ? body.tracks.slice(0, 200) : [];
+      const tracks = rawTracks.filter(t => t && typeof t === 'object' && !Array.isArray(t));
       if (!tracks.length) {
         return Response.json({ success: false, error: 'no_tracks' }, { status: 400, headers: cors });
       }
 
       // In-flight batch deduplication (singleflight) to prevent duplicate provider work and quota usage
-      const batchKey = tracks.map(t => `${t.artist || ''}|${t.title || ''}|${t.isrc || ''}|${t.version || ''}`).join(';;');
+      const batchKey = JSON.stringify(tracks.map(t => [t.artist || '', t.title || '', t.isrc || '', t.version || '']));
       if (inFlightBatches.has(batchKey)) {
         const cachedRes = await inFlightBatches.get(batchKey);
         return Response.json(cachedRes.data, { status: cachedRes.status, headers: cors });
@@ -166,7 +213,8 @@ export default {
           const result = await pipeline.processPlaylist(tracks);
           return { status: 200, data: { success: true, ...result } };
         } catch (err) {
-          return { status: 502, data: { success: false, error: `pipeline_error:${err.message}` } };
+          console.error('[Worker] pipeline verify failed:', err?.message || err);
+          return { status: 502, data: { success: false, error: 'pipeline_error' } };
         } finally {
           inFlightBatches.delete(batchKey);
         }

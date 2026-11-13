@@ -125,12 +125,24 @@ export function App() {
   const [loadProgress, setLoadProgress] = useState(null);
   const [loadingPlaylistId, setLoadingPlaylistId] = useState(null);
 
+  const toastTimerRef = useRef(null);
+  const evalCacheRef = useRef({ tracks: null, enableEnergy: null, value: null });
+
+  const getCachedEvaluation = (tracksList, energyFlag) => {
+    if (evalCacheRef.current.tracks === tracksList && evalCacheRef.current.enableEnergy === energyFlag && evalCacheRef.current.value) {
+      return evalCacheRef.current.value;
+    }
+    const nextEval = evaluateCurrentOrder(tracksList, { enableEnergy: energyFlag });
+    evalCacheRef.current = { tracks: tracksList, enableEnergy: energyFlag, value: nextEval };
+    return nextEval;
+  };
+
   // Every edit belongs to one document identity, including reorder/removal/name.
   useEffect(() => {
     if (!activeSetId || !tracks.length || prevAccountKeyRef.current !== accountKey) return;
     const result = updateActiveSet({
       id: activeSetId, name: setName, tracks: orderedTracks, originalTracks,
-      evaluation: evaluateCurrentOrder(orderedTracks, { enableEnergy })
+      evaluation: getCachedEvaluation(orderedTracks, enableEnergy)
     }, accountKey);
     setCrateHistory(result.history);
     setSaveError(!result.saved);
@@ -172,13 +184,24 @@ export function App() {
   // Handle PKCE Callback with CSRF state verification (Fix 3 & Fix 4)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+    const oauthError = urlParams.get('error');
     const code = urlParams.get('code');
     const state = urlParams.get('state');
     const verifier = getStoredCodeVerifier();
 
+    if (oauthError) {
+      clearStoredCodeVerifier();
+      verifyAndClearAuthState(state);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      showToast(`Spotify authorization cancelled (${oauthError}).`, 5000, 'warning');
+      return;
+    }
+
     if (code) {
       if (!verifier) {
-        showToast('Spotify authorization error: missing code verifier session.', 5000);
+        verifyAndClearAuthState(state);
+        window.history.replaceState({}, document.title, window.location.pathname);
+        showToast('Spotify authorization error: missing code verifier session.', 5000, 'error');
         return;
       }
 
@@ -186,7 +209,7 @@ export function App() {
       if (!isStateValid) {
         clearStoredCodeVerifier();
         window.history.replaceState({}, document.title, window.location.pathname);
-        showToast('Spotify authorization rejected: state mismatch (potential CSRF).', 5000);
+        showToast('Spotify authorization rejected: state mismatch (potential CSRF).', 5000, 'error');
         return;
       }
 
@@ -262,7 +285,7 @@ export function App() {
         if (err.status === 401 || err.message?.includes('401')) {
           // Attempt silent token refresh if refresh_token exists
           if (refreshToken) {
-            const refreshed = await refreshSpotifyToken(refreshToken);
+            const refreshed = await refreshSpotifyToken(refreshToken).catch(() => null);
             if (!controller.signal.aborted && refreshed?.access_token) {
               keepLoadingForRetry = true;
               setAuthToken(refreshed.access_token);
@@ -273,9 +296,10 @@ export function App() {
           }
           if (controller.signal.aborted) return;
           setAuthToken(null);
+          setRefreshToken(null);
           setAuthUser(null);
           clearSpotifyTokens();
-          showToast('Spotify session expired. Please reconnect.', 4000);
+          showToast('Spotify session expired. Please reconnect.', 4000, 'warning');
         } else if (err.status === 403 || err.message?.includes('403')) {
           showToast(SPOTIFY_403_MSG, 6000);
         } else if (err.status === 429) {
@@ -295,11 +319,23 @@ export function App() {
     };
   }, [authToken, refreshToken, staySignedIn, playlistRefreshTick]);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   const showToast = (msg, duration = 3000, type = 'success') => {
     const text = typeof msg === 'string' ? msg : msg?.text || msg?.message || String(msg);
     const toastType = typeof msg === 'object' && msg?.type ? msg.type : type;
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
     setToastMessage({ text, type: toastType });
-    setTimeout(() => setToastMessage(null), duration);
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null;
+      setToastMessage(null);
+    }, duration);
   };
 
   // Persist the stay-signed-in choice immediately so it survives the OAuth
@@ -436,6 +472,20 @@ export function App() {
       if (err.status === 403 || err.message?.includes('403')) {
         showToast(SPOTIFY_403_MSG, 6000, 'error');
       } else if (err.status === 401) {
+        if (refreshToken) {
+          const refreshed = await refreshSpotifyToken(refreshToken).catch(() => null);
+          if (refreshed?.access_token) {
+            setAuthToken(refreshed.access_token);
+            if (refreshed.refresh_token) setRefreshToken(refreshed.refresh_token);
+            saveSpotifyTokens(refreshed, staySignedIn);
+            showToast('Session refreshed. Please select the playlist again.', 4000, 'warning');
+            return;
+          }
+        }
+        setAuthToken(null);
+        setRefreshToken(null);
+        setAuthUser(null);
+        clearSpotifyTokens();
         showToast('Spotify session expired (401). Please reconnect.', 5000, 'error');
       } else {
         showToast(`Could not read playlist: ${err.message}`, 5000, 'error');
@@ -655,12 +705,16 @@ export function App() {
       const result = await confirmSavePlaylist(authToken, saveManifest);
       setSaveManifest(null);
       setSaveResult(result);
-      showToast(`New playlist "${result.name}" created with ${result.trackCount} tracks.`);
+      const savedName = result.playlistName || result.name || saveManifest.targetPlaylist?.name || 'Playlist';
+      const savedCount = result.itemsWritten ?? result.trackCount ?? saveManifest.validUrisCount;
+      showToast(`New playlist "${savedName}" created with ${savedCount} tracks.`);
     } catch (err) {
       if (err.status === 403 || err.message?.includes('403')) {
-        showToast(SPOTIFY_403_MSG, 6000);
+        showToast(SPOTIFY_403_MSG, 6000, 'error');
+      } else if (err.partialSave) {
+        showToast(`Created partial Spotify playlist (${err.partialSave.writtenCount} of ${err.partialSave.totalCount} tracks added) before failing: ${err.message}`, 8000, 'warning');
       } else {
-        showToast(`Spotify haven't confirmed whether the save finished. Check the playlist before trying again.`, 6000);
+        showToast(err.message || `Spotify haven't confirmed whether the save finished. Check the playlist before trying again.`, 6000, 'error');
       }
     } finally {
       setIsSaving(false);

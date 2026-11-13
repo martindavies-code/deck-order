@@ -150,7 +150,8 @@ export class SuggestionEngine {
       if (t.bpm) bpms.push(t.bpm);
     }
 
-    const medianBpm = bpms.length > 0 ? bpms[Math.floor(bpms.length / 2)] : 128;
+    const sortedBpms = [...bpms].sort((a, b) => a - b);
+    const medianBpm = sortedBpms.length > 0 ? sortedBpms[Math.floor(sortedBpms.length / 2)] : 128;
     const bonusCandidates = [];
 
     for (const item of VERIFIED_REFERENCE_CATALOG) {

@@ -1,5 +1,6 @@
 import { providerCache } from './cache.js';
 import { parseKey } from '../core/camelot.js';
+import { crossCheckTrackIdentity, withSingleflight } from './matchGuard.js';
 
 /**
  * GetSongBPM API client (https://getsongbpm.com/api)
@@ -7,10 +8,12 @@ import { parseKey } from '../core/camelot.js';
  * Quota: ~3000 req/hour with free API key.
  */
 export class GetSongBPMProvider {
-  constructor(apiKey = process.env.GETSONGBPM_API_KEY) {
+  constructor(apiKey = process.env.GETSONGBPM_API_KEY, options = {}) {
     this.apiKey = apiKey || null;
     this.name = 'GetSongBPM';
     this.baseUrl = 'https://api.getsongbpm.com';
+    this.cache = options.cache || providerCache;
+    this._inFlight = new Map();
   }
 
   isConfigured() {
@@ -23,59 +26,68 @@ export class GetSongBPMProvider {
     }
 
     const queryKey = { artist, title, isrc, version };
-    const cached = providerCache.get(this.name, queryKey);
+    const cached = this.cache.get(this.name, queryKey);
     if (cached) {
       return { success: true, data: cached.data, cached: true };
     }
 
-    try {
-      // Search by song and artist
-      const searchUrl = new URL(`${this.baseUrl}/search/`);
-      searchUrl.searchParams.set('api_key', this.apiKey);
-      searchUrl.searchParams.set('type', 'both');
-      searchUrl.searchParams.set('lookup', `${artist} ${title}`);
+    const flightKey = this.cache.buildKey(this.name, queryKey);
+    return await withSingleflight(this._inFlight, flightKey, async () => {
+      try {
+        // Search by song and artist
+        const searchUrl = new URL(`${this.baseUrl}/search/`);
+        searchUrl.searchParams.set('api_key', this.apiKey);
+        searchUrl.searchParams.set('type', 'both');
+        searchUrl.searchParams.set('lookup', `${artist} ${title}`);
 
-      const res = await fetch(searchUrl.toString(), {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(5000)
-      });
+        const res = await fetch(searchUrl.toString(), {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(5000)
+        });
 
-      if (!res.ok) {
-        if (res.status === 429) {
-          return { success: false, reason: 'Rate limit reached (429)' };
+        if (!res.ok) {
+          if (res.status === 429) {
+            return { success: false, reason: 'Rate limit reached (429)' };
+          }
+          return { success: false, reason: `HTTP ${res.status}` };
         }
-        return { success: false, reason: `HTTP ${res.status}` };
+
+        const json = await res.json();
+        const results = json.search || json.results || [];
+        if (!Array.isArray(results) || results.length === 0) {
+          return { success: false, reason: 'Track not found' };
+        }
+
+        const query = { artist, title, isrc, version };
+        const hit = results.find(candidate =>
+          crossCheckTrackIdentity(query, candidate, { requireFields: true }).ok
+        );
+        if (!hit) {
+          return { success: false, reason: 'Identity cross-check rejected search candidates' };
+        }
+
+        const rawTempo = parseFloat(hit.tempo || hit.bpm);
+        const rawKey = hit.key_of || hit.key;
+        const parsedKey = parseKey(rawKey);
+
+        const data = {
+          provider: this.name,
+          bpm: !isNaN(rawTempo) && rawTempo > 0 && rawTempo <= 350 ? Math.round(rawTempo * 10) / 10 : null,
+          rawKey: rawKey || null,
+          camelot: parsedKey.camelot,
+          key: parsedKey.pitch && parsedKey.mode ? `${parsedKey.pitch} ${parsedKey.mode}` : (parsedKey.camelot || rawKey),
+          energy: null, // GetSongBPM does not provide energy
+          sourceId: hit.id || null,
+          url: hit.song_url || null,
+          confidence: 'provider_api'
+        };
+
+        this.cache.set(this.name, queryKey, data);
+        return { success: true, data, cached: false };
+      } catch (err) {
+        return { success: false, reason: err.message };
       }
-
-      const json = await res.json();
-      const results = json.search || json.results || [];
-      if (!Array.isArray(results) || results.length === 0) {
-        return { success: false, reason: 'Track not found' };
-      }
-
-      // Pick best matching result
-      const hit = results[0];
-      const rawTempo = parseFloat(hit.tempo || hit.bpm);
-      const rawKey = hit.key_of || hit.key;
-      const parsedKey = parseKey(rawKey);
-
-      const data = {
-        provider: this.name,
-        bpm: !isNaN(rawTempo) && rawTempo > 0 ? Math.round(rawTempo * 10) / 10 : null,
-        rawKey: rawKey || null,
-        camelot: parsedKey.camelot,
-        key: parsedKey.pitch && parsedKey.mode ? `${parsedKey.pitch} ${parsedKey.mode}` : (parsedKey.camelot || rawKey),
-        energy: null, // GetSongBPM does not provide energy
-        sourceId: hit.id || null,
-        url: hit.song_url || null,
-        confidence: 'provider_api'
-      };
-
-      providerCache.set(this.name, queryKey, data);
-      return { success: true, data, cached: false };
-    } catch (err) {
-      return { success: false, reason: err.message };
-    }
+    });
   }
 
   /**

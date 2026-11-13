@@ -50,10 +50,18 @@ export function parseTracklistCSV(csvContent) {
       if (headerMap.version !== undefined) version = (tokens[headerMap.version] || '').trim();
     } else {
       // Positional fallback:
-      // Case A: 4 tokens: [Artist, Title, BPM, Key]
-      // Case B: 3 tokens: [Artist - Title, BPM, Key]
-      // Case C: 2 tokens: [Artist - Title, BPM]
-      if (tokens.length >= 4) {
+      // Case A: 5+ tokens [Artist, Title, Version, BPM, Key] when tokens[2] is non-numeric and tokens[3] is numeric
+      // Case B: 4+ tokens [Artist, Title, BPM, Key, (ISRC)]
+      // Case C: 3 tokens [Artist - Title, BPM, Key] or [Artist, Title, BPM/Key]
+      // Case D: 2 tokens [Artist - Title, BPM] or [Artist, Title]
+      if (tokens.length >= 5 && isNaN(parseFloat(tokens[2])) && !isNaN(parseFloat(tokens[3]))) {
+        artist = tokens[0].trim();
+        title = tokens[1].trim();
+        version = tokens[2].trim();
+        rawBpm = parseFloat(tokens[3]);
+        rawKey = tokens[4].trim();
+        if (tokens.length >= 6 && tokens[5]) isrc = tokens[5].trim();
+      } else if (tokens.length >= 4) {
         artist = tokens[0].trim();
         title = tokens[1].trim();
         rawBpm = parseFloat(tokens[2]);
@@ -104,8 +112,13 @@ export function parseTracklistCSV(csvContent) {
     // Parse Camelot key
     const parsedKey = parseKey(rawKey);
 
-    // Validate BPM
-    const bpm = (!isNaN(rawBpm) && rawBpm > 0) ? Math.round(rawBpm * 10) / 10 : null;
+    // Validate BPM & energy strictly within musical bounds
+    const bpm = (Number.isFinite(rawBpm) && rawBpm > 0 && rawBpm <= 350)
+      ? Math.round(rawBpm * 10) / 10
+      : null;
+    const validEnergy = (typeof energy === 'number' && Number.isFinite(energy) && energy >= 0 && energy <= 1)
+      ? energy
+      : null;
 
     tracks.push({
       id: `manual_${i}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -118,7 +131,7 @@ export function parseTracklistCSV(csvContent) {
       rawKey: rawKey || null,
       key: parsedKey.pitch && parsedKey.mode ? `${parsedKey.pitch} ${parsedKey.mode}` : (parsedKey.camelot || rawKey || null),
       camelot: parsedKey.camelot,
-      energy: (typeof energy === 'number' && !isNaN(energy)) ? energy : null,
+      energy: validEnergy,
       source: 'manual_csv',
       sources: [{
         name: 'Manual CSV',

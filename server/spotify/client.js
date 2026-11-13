@@ -1,5 +1,8 @@
-import { providerCache } from '../providers/cache.js';
 import { auditLogger } from './auditLogger.js';
+import { SPOTIFY_ID_RE } from '../middleware/security.js';
+
+const MAX_429_RETRIES = 2;
+const MAX_RETRY_AFTER_SEC = 10;
 
 /**
  * Spotify Web API Client (Conforming to 2026 Developer Platform Specs)
@@ -34,9 +37,9 @@ export class SpotifyClient {
   }
 
   /**
-   * Safe fetch with token refresh, rate-limit retry, and eligibility error reporting
+   * Safe fetch with timeout, token refresh, bounded rate-limit retry, and eligibility error reporting
    */
-  async request(endpoint, options = {}, isRetryAfterRefresh = false) {
+  async request(endpoint, options = {}, isRetryAfterRefresh = false, retryCount = 0) {
     if (!this.accessToken) {
       throw new Error('Spotify client unauthenticated: Missing access token');
     }
@@ -48,20 +51,28 @@ export class SpotifyClient {
       ...(options.headers || {})
     };
 
-    if (options.body && typeof options.body === 'object' && !(options.body instanceof URLSearchParams)) {
+    let body = options.body;
+    if (body && typeof body === 'object' && !(body instanceof URLSearchParams)) {
       headers['Content-Type'] = 'application/json';
-      options.body = JSON.stringify(options.body);
+      body = JSON.stringify(body);
     }
 
+    const fetchOptions = {
+      ...options,
+      body,
+      headers,
+      signal: options.signal || AbortSignal.timeout(15000)
+    };
+
     try {
-      const res = await fetch(url, { ...options, headers });
+      const res = await fetch(url, fetchOptions);
 
       // Handle 401 Unauthorized -> Refresh token once
       if (res.status === 401 && !isRetryAfterRefresh && this.refreshToken) {
         auditLogger.log('AUTH_REFRESH_ATTEMPT', { endpoint });
         const refreshed = await this.refreshAccessToken();
         if (refreshed) {
-          return this.request(endpoint, options, true);
+          return this.request(endpoint, options, true, retryCount);
         }
         throw new Error('Spotify session expired (401). Please re-authenticate.');
       }
@@ -73,19 +84,31 @@ export class SpotifyClient {
         throw new Error(`Spotify API 403 Forbidden: Missing required scope or developer eligibility check failed. Details: ${errText}`);
       }
 
-      // Handle 429 Rate Limit / Quota Exceeded
+      // Handle 429 Rate Limit / Quota Exceeded (bounded retries + capped backoff)
       if (res.status === 429) {
-        const retryAfter = parseInt(res.headers.get('Retry-After') || '2', 10);
+        const rawRetryAfter = parseInt(res.headers.get('Retry-After') || '2', 10);
+        const retryAfter = Number.isFinite(rawRetryAfter) && rawRetryAfter > 0
+          ? Math.min(rawRetryAfter, MAX_RETRY_AFTER_SEC)
+          : 2;
         const errJson = await res.json().catch(() => ({}));
-        auditLogger.log('API_429_RATE_LIMIT', { endpoint, retryAfter, reason: errJson.error?.message });
+        auditLogger.log('API_429_RATE_LIMIT', { endpoint, retryAfter, retryCount, reason: errJson.error?.message });
 
         if (errJson.error?.message?.includes('QUOTA_EXCEEDED') || errJson.error?.reason === 'QUOTA_EXCEEDED') {
           throw new Error('Spotify Development Mode quota limit exceeded (429 QUOTA_EXCEEDED). Request halted to protect developer account.');
         }
 
-        // Honor Retry-After
+        if (retryCount >= MAX_429_RETRIES) {
+          throw new Error(`Spotify rate limit persisted after ${retryCount} retries (429). Retry after ${retryAfter}s.`);
+        }
+
+        // Only retry idempotent GET/HEAD requests automatically; never blindly replay POST writes.
+        const method = (options.method || 'GET').toUpperCase();
+        if (method !== 'GET' && method !== 'HEAD') {
+          throw new Error(`Spotify rate limit hit (429) on ${method} request. Retry after ${retryAfter}s.`);
+        }
+
         await new Promise(r => setTimeout(r, retryAfter * 1000));
-        return this.request(endpoint, options, isRetryAfterRefresh);
+        return this.request(endpoint, options, isRetryAfterRefresh, retryCount + 1);
       }
 
       if (!res.ok) {
@@ -116,7 +139,8 @@ export class SpotifyClient {
       const res = await fetch(this.tokenUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params
+        body: params,
+        signal: AbortSignal.timeout(8000)
       });
 
       if (!res.ok) {
@@ -223,25 +247,39 @@ export class SpotifyClient {
    * Endpoint: GET /playlists/{id}/items (post-Feb 2026 standard)
    */
   async getPlaylistItems(playlistId) {
-    const cached = providerCache.get('spotify_playlist_items', { isrc: playlistId });
-    if (cached) return cached.data;
+    if (!SPOTIFY_ID_RE.test(String(playlistId || ''))) {
+      throw new Error('Invalid Spotify playlist ID.');
+    }
 
-    let items = [];
+    const MAX_ITEM_PAGES = 20;
+    const seenEndpoints = new Set();
+    const items = [];
     let nextUrl = `/playlists/${playlistId}/items?limit=50`;
+    let pageCount = 0;
 
     while (nextUrl) {
-      const data = await this.request(nextUrl);
-      const batch = data.items || [];
+      if (pageCount >= MAX_ITEM_PAGES) {
+        throw new Error(`Playlist exceeds supported size limit (maximum ${MAX_ITEM_PAGES} pages).`);
+      }
+      if (seenEndpoints.has(nextUrl)) {
+        throw new Error('Spotify returned a repeated playlist items cursor.');
+      }
+      seenEndpoints.add(nextUrl);
+      pageCount += 1;
 
-      for (const item of batch) {
-        const track = item.track || item.item;
-        if (track && track.type === 'track') {
+      const data = await this.request(nextUrl);
+      const batch = Array.isArray(data.items) ? data.items : [];
+
+      for (const entry of batch) {
+        if (!entry || typeof entry !== 'object') continue;
+        const track = 'item' in entry ? entry.item : ('track' in entry ? entry.track : null);
+        if (track && track.type === 'track' && track.id && track.name) {
           items.push({
             id: track.id,
             uri: track.uri,
             artist: track.artists?.map(a => a.name).join(', ') || 'Unknown Artist',
             title: track.name,
-            version: 'Original Mix',
+            version: '',
             isrc: track.external_ids?.isrc || null,
             duration_ms: track.duration_ms,
             album: track.album?.name,
@@ -261,7 +299,6 @@ export class SpotifyClient {
       nextUrl = data.next ? this.extractNextEndpoint(data.next) : null;
     }
 
-    providerCache.set('spotify_playlist_items', { isrc: playlistId }, items);
     return items;
   }
 
