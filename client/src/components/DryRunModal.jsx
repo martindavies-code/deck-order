@@ -17,6 +17,9 @@ export function DryRunModal({
 
   if (!manifest) return null;
 
+  const nothingToSave = (manifest.validUrisCount ?? 0) === 0;
+  const skippedCount = manifest.skippedCount ?? ((manifest.totalTracks ?? 0) - (manifest.validUrisCount ?? 0));
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="save-review-title">
       <div className="deck-panel max-w-lg sm:max-w-xl w-full p-6 relative bg-[#1B1F19] border-[#394133] shadow-2xl space-y-4">
@@ -66,6 +69,18 @@ export function DryRunModal({
             </span>
           </div>
 
+          {nothingToSave ? (
+            <p className="text-[11px] sm:text-xs text-[#F59E0B] leading-relaxed pt-1">
+              {manifest.isSampleData
+                ? 'Nothing to save: this is the demo set - its tracks are sample data, not real tracks in your Spotify account. Load one of your own playlists to save a sequence.'
+                : 'Nothing to save: none of the tracks in this set are linked to a Spotify track, so there is nothing Deck Order can write. Load the set from Spotify (not a pasted list) to save it.'}
+            </p>
+          ) : skippedCount > 0 ? (
+            <p className="text-[11px] sm:text-xs text-[#BAC2B3] leading-relaxed pt-1">
+              {skippedCount} track{skippedCount === 1 ? '' : 's'} will be skipped - {skippedCount === 1 ? 'it has' : 'they have'} no Spotify track link (for example tracks added from suggestions).
+            </p>
+          ) : null}
+
           <div className="flex justify-between">
             <span className="text-[#7E8876]">Source playlist:</span>
             <span className="text-[#BAC2B3] truncate max-w-[200px]">
@@ -100,14 +115,17 @@ export function DryRunModal({
           </button>
           <button
             onClick={onConfirmSave}
-            disabled={isSaving}
+            disabled={isSaving || nothingToSave}
             className="deck-btn-primary text-xs"
+            title={nothingToSave ? 'No Spotify tracks to write' : undefined}
           >
             {isSaving ? (
               <span className="flex items-center gap-2">
                 <Disc className="w-4 h-4 animate-spin text-[#10120F]" />
                 Creating your playlist...
               </span>
+            ) : nothingToSave ? (
+              'Nothing to save'
             ) : (
               'Create private playlist'
             )}
