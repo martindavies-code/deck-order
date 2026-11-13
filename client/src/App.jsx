@@ -36,7 +36,7 @@ import {
   confirmRecordingMatch,
   replaceTrackById
 } from './utils/manualOverride.js';
-import { evaluateCurrentOrder, DJSequencer } from './services/clientSequencer.js';
+import { evaluateCurrentOrder, DJSequencer, insertSuggestionsIntoOrder } from './services/clientSequencer.js';
 import {
   initiateSpotifyLogin,
   saveStaySignedInPreference,
@@ -140,12 +140,21 @@ export function App() {
   const toastTimerRef = useRef(null);
   const evalCacheRef = useRef({ tracks: null, enableEnergy: null, value: null });
   const suggestionRequestRef = useRef(0);
+  // Set before applying suggestions: once the orderedTracks-change effect has
+  // cleared the stale suggestions, re-run the finder so the panel reflects the
+  // new running order instead of going blank or showing stale picks.
+  const pendingSuggestionRefreshRef = useRef(false);
   // Suggestions are advice about this exact order and metadata, not a later edit.
   useEffect(() => {
     suggestionRequestRef.current += 1;
     setBridgeSuggestions([]);
     setBonusTunes([]);
     setIsFindingSuggestions(false);
+    if (pendingSuggestionRefreshRef.current) {
+      pendingSuggestionRefreshRef.current = false;
+      handleFindSuggestions({ silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderedTracks, accountKey]);
 
 
@@ -741,7 +750,8 @@ export function App() {
   };
 
   // Suggestion actions
-  const handleFindSuggestions = async () => {
+  const handleFindSuggestions = async (options = {}) => {
+    const silent = Boolean(options.silent);
     if (orderedTracks.length < 2 || isFindingSuggestions) return;
     setIsFindingSuggestions(true);
     const requestId = ++suggestionRequestRef.current;
@@ -753,6 +763,7 @@ export function App() {
       const bonus = Array.isArray(res?.bonusTunes) ? res.bonusTunes : [];
       setBridgeSuggestions(bridges);
       setBonusTunes(bonus);
+      if (silent) return;
       if (bridges.length === 0 && bonus.length === 0) {
         showToast('No bridge gaps found — current transitions have no key clashes or big tempo jumps.');
       } else {
@@ -777,34 +788,14 @@ export function App() {
     const totalSelected = selectedBridges.length + selectedBonus.length;
     if (totalSelected === 0) return;
 
-    const updatedList = [...orderedTracks];
-    const stamp = Date.now();
-    // Insert bridges from highest index to lowest so earlier splices do not shift later targets.
-    const sortedBridges = [...selectedBridges].sort(
-      (a, b) => (b.insertAfterIndex ?? updatedList.length) - (a.insertAfterIndex ?? updatedList.length)
-    );
-    sortedBridges.forEach((item, idx) => {
-      const targetAfter = item.insertAfterIndex !== undefined
-        ? Math.min(updatedList.length, item.insertAfterIndex + 1)
-        : updatedList.length;
-      updatedList.splice(targetAfter, 0, {
-        ...item,
-        id: `bridge_${stamp}_${idx}_${item.id || 'track'}`,
-        selected: false
-      });
-    });
-    selectedBonus.forEach((item, idx) => {
-      updatedList.push({
-        ...item,
-        id: `bonus_${stamp}_${idx}_${item.id || 'track'}`,
-        selected: false
-      });
-    });
+    const updatedList = insertSuggestionsIntoOrder(orderedTracks, selectedBridges, selectedBonus, Date.now());
 
+    // After the order change clears the stale suggestions, re-run the finder
+    // against the new running order so the panel never shows tracks already
+    // in the set or advice for gaps that no longer exist.
+    pendingSuggestionRefreshRef.current = true;
     handleReorderTracks(updatedList);
-    setBridgeSuggestions(prev => prev.filter(s => !s.selected));
-    setBonusTunes(prev => prev.filter(s => !s.selected));
-    showToast(`Added ${totalSelected} suggestion(s) to running order.`);
+    showToast(`Added ${totalSelected} suggestion(s) to running order. Suggestions refreshed.`);
   };
 
   // Save Flow
@@ -978,7 +969,7 @@ export function App() {
         <div
           role="status"
           aria-live="polite"
-          className={`fixed top-5 left-4 right-4 sm:left-auto sm:right-5 sm:max-w-md z-50 bg-[#1B1F19] border ${
+          className={`fixed top-5 left-4 right-4 sm:left-auto sm:right-5 sm:max-w-md z-[110] bg-[#1B1F19] border ${
             toastMessage.type === 'error'
               ? 'border-[#EF4444]'
               : toastMessage.type === 'warning'

@@ -1,5 +1,40 @@
 # Deck Order - Handover Notes
 
+Date: 2026-11-13
+Release: `fix/save-dialog-suggestions` - fixes from Martin's live testing on 2026-11-13 (voice notes). Branch, full local gates (npm test 220/220, client build, verify:security), then one merge to main; verified on the live Pages app afterwards.
+
+## What changed on this branch
+
+### 1. Save review dialog on sets with no Spotify tracks (client/src/services/api.js, client/src/components/DryRunModal.jsx)
+
+Martin hit "Tracks to add: 0 tracks" on the Demo Electronic Set. That count was CORRECT - demo/CSV tracks carry no `spotify:track:` URI, so nothing can be written - but the dialog said nothing and still offered "Create private playlist". The manifest now carries `skippedCount` and `isSampleData`; at 0 addable tracks the dialog explains why (demo set: sample data, not real Spotify tracks; pasted list: not Spotify-linked) and the Create button becomes a disabled "Nothing to save". Partial sets get a "N tracks will be skipped" note (e.g. tracks added from suggestions have no Spotify identity).
+
+### 2. Dead "Create private playlist" click (client/src/App.jsx)
+
+Root cause: toasts render at z-50, the modal backdrop at z-index 100, so every error toast fired while a modal was open (save failures, "Connect Spotify account") appeared BEHIND the dimmed backdrop - a click with no visible response. Toast z raised to z-[110]. Verified pre-fix on live with elementFromPoint: toast existed, covered by .modal-backdrop.
+
+### 3. Suggestion insertion order (client/src/services/clientSequencer.js, client/src/App.jsx)
+
+Applying several bridge suggestions for the SAME gap spliced them one by one at the same index, reversing their displayed order. Insertion is extracted to pure `insertSuggestionsIntoOrder` (grouped per gap, displayed order preserved, bridges after their gap track, bonus tunes at the end, input never mutated). Note: placement at the TOP of the demo set's running order was correct - its only STRETCH gap is the first transition - not a bug.
+
+### 4. Stale suggestions after adding tracks (client/src/App.jsx, server/core/bridgeFinder.js)
+
+Applying suggestions cleared the panel and left it to the user to re-run Find bridges. Now the orderedTracks-change effect re-runs the finder silently right after an apply (pendingSuggestionRefreshRef), so the panel always reflects the current running order. Catalogue exclusion is hardened from exact-title-only to ISRC-or-normalised-artist+title (`isTrackInSet`), so title variants of an added recording are not re-suggested, while a same-title track by a different artist is no longer wrongly excluded.
+
+## Tested
+
+- `npm test` (root, with client deps installed): 220/220 pass, including 12 new cases in test/liveIssues20261113.test.js (preview counts, insertion placement, exclusion).
+- `cd client && npm run build`: pass. `npm run verify:security`: pass.
+- Pre-fix live repro evidence: 0-tracks dialog on demo set; hidden-toast dead click (DOM: toast under backdrop); reversed insertion at #02/#03.
+- Post-fix live verification steps are recorded in the PR report.
+
+## Not covered / follow-ups
+
+- Saving a real Spotify playlist end-to-end still needs Martin's real-playlist test (his demo-set attempt could never have written anything - that path was unreachable by design).
+- Six root-level test files fail ONLY when client dependencies are not installed (`jose` import) - install both root and client deps before `npm test`, same as CI.
+
+## Previous handover (2026-11-04)
+
 Date: 2026-11-04
 Release: `freqblog-version-search-fix` reviewed and squash-merged to `main` on 2026-11-04; client published via the GitHub Pages Actions workflow, worker deployed to Cloudflare from released `main`.
 
