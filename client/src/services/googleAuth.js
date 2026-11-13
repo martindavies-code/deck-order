@@ -317,11 +317,11 @@ export function updateActiveSet(setRecord, accountKey = 'anonymous', { onError }
 const DISALLOWED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function sanitizePlainValue(val, depth = 0) {
-  if (depth > 4) return null;
+  if (depth > 32) throw new Error('Backup contains excessively nested data.');
   if (val === null || val === undefined) return val;
   if (typeof val === 'string' || typeof val === 'boolean') return val;
   if (typeof val === 'number') return Number.isFinite(val) ? val : null;
-  if (Array.isArray(val)) return val.slice(0, 1000).map(v => sanitizePlainValue(v, depth + 1));
+  if (Array.isArray(val)) return val.map(v => sanitizePlainValue(v, depth + 1));
   if (typeof val === 'object') {
     const clean = {};
     for (const [k, v] of Object.entries(val)) {
@@ -343,6 +343,29 @@ export function buildSavedSetsBackup(accountKey = 'anonymous') {
   };
 }
 
+function validateBackupTracks(tracks) {
+  if (tracks.length > 1000) throw new Error('Backup tracklist exceeds 1000 tracks.');
+  const textFields = ['id', 'title', 'name', 'artist', 'version', 'isrc', 'spotifyId', 'uri', 'key', 'camelot', 'status', 'confidence'];
+  for (const track of tracks) {
+    if (textFields.some(key => track[key] != null && typeof track[key] !== 'string') ||
+        ['bpm', 'workingBpm', 'energy'].some(key => track[key] != null && typeof track[key] !== 'number') ||
+        (track.sources != null && (!Array.isArray(track.sources) || track.sources.some(s => !s || typeof s !== 'object' || Array.isArray(s))))) {
+      throw new Error('Backup contains invalid track metadata. No saved sets were changed.');
+    }
+    if (track.manualOverride?.sourceTrack) validateBackupTracks([track.manualOverride.sourceTrack]);
+  }
+}
+
+function backupSignature(set) {
+  return JSON.stringify([
+    setSignature(set.name, set.tracks),
+    set.originalTracks || set.tracks,
+    set.lockedOpenerId || null,
+    set.lockedCloserId || null,
+    set.tracks.map(t => [t.manualOverride || null, t.energy ?? null, t.workingBpm ?? null])
+  ]);
+}
+
 export function importSavedSetsBackup(rawJsonText, accountKey = 'anonymous') {
   if (typeof rawJsonText !== 'string' || !rawJsonText.trim()) {
     throw new Error('Selected backup file is empty.');
@@ -361,12 +384,12 @@ export function importSavedSetsBackup(rawJsonText, accountKey = 'anonymous') {
   if (!rawSets || rawSets.length === 0) {
     throw new Error('Backup file does not contain any saved sets.');
   }
-  if (rawSets.length > 50) {
-    throw new Error('Backup contains more than 50 saved sets (maximum supported).');
+  if (rawSets.length > 1000) {
+    throw new Error('Backup contains more than 1000 saved sets (maximum supported).');
   }
 
   const current = getCrateHistory(accountKey);
-  const existingSigs = new Set(current.map(s => setSignature(s.name, s.tracks)));
+  const existingSigs = new Set(current.map(backupSignature));
   const existingIds = new Set(current.map(s => s.id));
   const imported = [];
   let skippedDuplicates = 0;
@@ -379,16 +402,19 @@ export function importSavedSetsBackup(rawJsonText, accountKey = 'anonymous') {
       .filter(t => t && typeof t === 'object' && !Array.isArray(t))
       .map(t => sanitizePlainValue(t));
     if (cleanTracks.length === 0) continue;
+    validateBackupTracks(cleanTracks);
 
     const cleanOrig = Array.isArray(item.originalTracks)
       ? item.originalTracks.filter(t => t && typeof t === 'object' && !Array.isArray(t)).map(t => sanitizePlainValue(t))
       : cleanTracks;
 
+    validateBackupTracks(cleanOrig);
+
     const name = typeof item.name === 'string' && item.name.trim()
       ? item.name.trim().slice(0, 120)
       : 'Imported Set';
 
-    const sig = setSignature(name, cleanTracks);
+    const sig = backupSignature({ ...item, name, tracks: cleanTracks, originalTracks: cleanOrig });
     if (existingSigs.has(sig)) {
       skippedDuplicates++;
       continue;
