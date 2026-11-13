@@ -16,7 +16,7 @@ export function SuggestionsDrawer({
   const selectedCount = [...bridgeSuggestions, ...bonusTunes].filter(t => t.selected).length;
 
   return (
-    <div className="deck-panel p-5 lg:p-6 space-y-4">
+    <div className="deck-panel p-5 lg:p-6 space-y-4 min-w-0">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-[#394133] gap-3">
         <div>
           <h3 className="text-sm sm:text-base font-bold text-[#F3F0E6] uppercase tracking-wide font-sans">
@@ -52,7 +52,7 @@ export function SuggestionsDrawer({
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-4 border-b border-[#394133] text-xs sm:text-sm">
+      <div className="flex flex-wrap gap-x-4 gap-y-2 border-b border-[#394133] text-xs sm:text-sm">
         <button
           onClick={() => setActiveTab('bridge')}
           className={`pb-2 font-semibold border-b-2 transition-colors ${
@@ -93,7 +93,7 @@ export function SuggestionsDrawer({
                     : 'bg-[#10120F] border-[#394133] hover:border-[#4F5A47]'
                 }`}
               >
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-3 min-w-0 w-full sm:flex-1">
                   <input
                     type="checkbox"
                     checked={Boolean(item.selected)}
@@ -146,7 +146,7 @@ export function SuggestionsDrawer({
                     : 'bg-[#10120F] border-[#394133] hover:border-[#4F5A47]'
                 }`}
               >
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-3 min-w-0 w-full sm:flex-1">
                   <input
                     type="checkbox"
                     checked={Boolean(item.selected)}
