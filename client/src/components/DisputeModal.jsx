@@ -53,7 +53,7 @@ export function DisputeModal({ disputedTracks, onClose, onApplyOverride }) {
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="dispute-title">
-      <div className="deck-panel max-w-lg w-full p-6 relative bg-[#1B1F19] border-[#394133] shadow-2xl space-y-4">
+      <div className="deck-panel max-w-lg sm:max-w-xl w-full p-6 relative bg-[#1B1F19] border-[#394133] shadow-2xl space-y-4">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-[#BAC2B3] hover:text-[#F3F0E6] min-h-[44px] min-w-[44px] flex items-center justify-center -mr-2 -mt-2"

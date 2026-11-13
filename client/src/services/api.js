@@ -205,40 +205,142 @@ export async function refreshSpotifyToken(refreshToken) {
   return null;
 }
 
-export async function fetchUserProfile(token) {
-  return await spotifyApiFetch('/me', token);
+function createProxyRequestSignal(timeoutMs, externalSignal) {
+  if (!externalSignal && typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return { signal: AbortSignal.timeout(timeoutMs), cleanup: () => {} };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    const err = new Error('Request timed out');
+    err.name = 'TimeoutError';
+    controller.abort(err);
+  }, timeoutMs);
+  const onAbort = () => controller.abort(externalSignal.reason);
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timer);
+      controller.abort(externalSignal.reason);
+    } else {
+      externalSignal.addEventListener('abort', onAbort, { once: true });
+    }
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      if (externalSignal) externalSignal.removeEventListener('abort', onAbort);
+    }
+  };
 }
 
-export async function fetchPlaylists(token) {
+export async function fetchUserProfile(token, options = {}) {
+  return await spotifyApiFetch('/me', token, options.signal ? { signal: options.signal } : {});
+}
+
+const MAX_PLAYLIST_PAGES = 50;
+
+export async function fetchPlaylists(token, options = {}) {
+  const { signal, onProgress } = options;
+
   if (!isGitHubPages) {
+    const reqSig = createProxyRequestSignal(15000, signal);
+    let proxyRes = null;
     try {
-      const res = await fetch('/api/spotify/playlists', {
+      proxyRes = await fetch('/api/spotify/playlists', {
         headers: { 'Authorization': `Bearer ${token}` },
-        signal: AbortSignal.timeout(3000)
+        signal: reqSig.signal
       });
-      if (res.ok) return await res.json();
-    } catch {}
+    } catch (err) {
+      if (signal?.aborted || err?.name === 'AbortError') throw err;
+    } finally {
+      reqSig.cleanup();
+    }
+
+    if (proxyRes) {
+      if (proxyRes.ok) return await proxyRes.json();
+      if (proxyRes.status === 401) {
+        const err = new Error('Spotify session expired (401).');
+        err.status = 401;
+        throw err;
+      }
+      if (proxyRes.status === 403) {
+        const err = new Error('Spotify access restricted (403). Your account may need to be added to the Spotify Developer Dashboard allowlist.');
+        err.status = 403;
+        throw err;
+      }
+      if (proxyRes.status === 429) {
+        const retryAfter = proxyRes.headers?.get?.('Retry-After');
+        const err = new Error(retryAfter
+          ? `Spotify rate limit hit (429). Retry after ${retryAfter}s.`
+          : 'Spotify rate limit hit (429).');
+        err.status = 429;
+        throw err;
+      }
+    }
   }
 
-  // Direct Web API call in static mode
-  const me = await fetchUserProfile(token);
+  // Direct Web API call in static mode (or when local proxy is unavailable)
+  const me = await fetchUserProfile(token, { signal });
   const myId = me.id;
 
-  const data = await spotifyApiFetch('/me/playlists?limit=50', token);
-  const items = data.items || [];
-  // Filter to user's OWN playlists per Phase 0.3 constraints
-  const owned = items.filter(p => p.owner && p.owner.id === myId);
+  const seenUrls = new Set();
+  const seenIds = new Set();
+  const playlists = [];
+  let nextUrl = 'https://api.spotify.com/v1/me/playlists?limit=50';
+  let page = 0;
 
-  const playlists = owned.map(p => ({
-    id: p.id,
-    name: p.name,
-    description: p.description,
-    ownerId: p.owner?.id,
-    ownerName: p.owner?.display_name,
-    itemCount: p.items?.total ?? p.tracks?.total ?? 0,
-    snapshotId: p.snapshot_id,
-    uri: p.uri
-  }));
+  while (nextUrl) {
+    if (signal?.aborted) {
+      const err = new Error('Playlist loading cancelled.');
+      err.name = 'AbortError';
+      throw err;
+    }
+    if (page >= MAX_PLAYLIST_PAGES) {
+      throw new Error(`Playlist list exceeded safety limit (${MAX_PLAYLIST_PAGES} pages).`);
+    }
+    if (seenUrls.has(nextUrl)) {
+      throw new Error('Spotify returned a repeated playlist pagination cursor.');
+    }
+    seenUrls.add(nextUrl);
+    page += 1;
+
+    const data = await spotifyApiFetch(nextUrl, token, signal ? { signal } : {});
+    const items = Array.isArray(data.items) ? data.items : [];
+    for (const p of items) {
+      if (!p || !p.id) continue;
+      // Filter to user's OWN playlists per Phase 0.3 constraints
+      if (!p.owner || p.owner.id !== myId) continue;
+      if (seenIds.has(p.id)) continue;
+      seenIds.add(p.id);
+      playlists.push({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        ownerId: p.owner?.id,
+        ownerName: p.owner?.display_name,
+        itemCount: p.items?.total ?? p.tracks?.total ?? 0,
+        snapshotId: p.snapshot_id,
+        uri: p.uri
+      });
+    }
+
+    if (typeof onProgress === 'function') {
+      onProgress({
+        page,
+        ownedCount: playlists.length,
+        total: typeof data.total === 'number' ? data.total : null
+      });
+    }
+
+    if (data.next) {
+      if (!isValidSpotifyNextUrl(data.next)) {
+        throw new Error('Spotify returned an untrusted playlist pagination URL.');
+      }
+      nextUrl = data.next;
+    } else {
+      nextUrl = null;
+    }
+  }
 
   return { success: true, playlists, user: me };
 }

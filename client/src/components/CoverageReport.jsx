@@ -14,15 +14,15 @@ export function CoverageReport({
   if (!report) return null;
 
   return (
-    <section className="deck-panel p-5 space-y-4">
+    <section className="deck-panel p-5 lg:p-6 space-y-4">
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
         {/* Metric Overview */}
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold text-[#F3F0E6] uppercase tracking-wide font-sans">
+            <h3 className="text-sm sm:text-base font-bold text-[#F3F0E6] uppercase tracking-wide font-sans">
               Know what you're working with
             </h3>
-            <span className="text-xs text-[#7E8876] font-mono">
+            <span className="text-xs sm:text-sm text-[#7E8876] font-mono">
               ({report.total} tracks)
             </span>
           </div>
@@ -80,7 +80,7 @@ export function CoverageReport({
 
           {/* Per-dimension coverage: grading needs tempo AND key on both tracks of a handover */}
           {report.total > 0 && (report.missing || report.unverified || 0) > 0 && (report.sample || 0) === 0 && (
-            <p className="text-[11px] text-[#BAC2B3] max-w-xl leading-relaxed">
+            <p className="text-[11px] sm:text-xs text-[#BAC2B3] max-w-2xl leading-relaxed">
               {report.providerUnreachable
                 ? `The tempo/key check did not finish: the metadata provider did not respond, so ${report.uncheckedCount || report.total} of ${report.total} track${(report.uncheckedCount || report.total) === 1 ? ' is' : 's are'} unchecked. Reload the playlist to try again. `
                 : report.providerPartialFailure
@@ -103,14 +103,14 @@ export function CoverageReport({
         <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-4 w-full lg:w-auto">
           {/* Strategy selector */}
           <div className="space-y-1">
-            <label htmlFor="unverified-strategy-select" className="text-xs font-semibold text-[#BAC2B3] block">
+            <label htmlFor="unverified-strategy-select" className="text-xs sm:text-sm font-semibold text-[#BAC2B3] block">
               Tracks with missing data
             </label>
             <select
               id="unverified-strategy-select"
               value={unverifiedStrategy}
               onChange={(e) => onChangeStrategy(e.target.value)}
-              className="deck-select text-xs min-h-[44px] sm:w-64"
+              className="deck-select text-xs sm:text-sm min-h-[44px] sm:w-64 lg:w-72"
             >
               <option value="keep_relative_position">Keep their relative order</option>
               <option value="cluster_at_start">Place at start of set</option>
@@ -123,7 +123,7 @@ export function CoverageReport({
           <button
             onClick={onRunSequencer}
             disabled={isLoading}
-            className="deck-btn-primary text-xs px-5 sm:w-auto justify-center"
+            className="deck-btn-primary text-xs sm:text-sm px-5 sm:w-auto justify-center"
           >
             <Play className="w-4 h-4 fill-current" />
             <span>{isLoading ? 'Building running order...' : 'Build my running order'}</span>

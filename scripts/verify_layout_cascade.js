@@ -126,7 +126,7 @@ async function run() {
     console.log('  Main Rect:', JSON.stringify(res.main));
     console.log('  Header Inner Rect:', JSON.stringify(res.header));
 
-    if (res.clientWidth > 1240) {
+    if (res.clientWidth > 1480) {
       // Should be horizontally centered: left > 0 and approx (clientWidth - width) / 2
       const expectedLeft = (res.clientWidth - res.main.width) / 2;
       const leftDelta = Math.abs(res.main.left - expectedLeft);
@@ -137,7 +137,7 @@ async function run() {
       const headerOuterPadding = parseFloat(res.header.paddingLeft) || 0;
       const headerAvailableWidth = res.clientWidth - headerOuterPadding * 2;
       let headerIsCentered = false;
-      if (headerAvailableWidth >= 1240) {
+      if (headerAvailableWidth >= 1480) {
         const headerExpectedLeft = (res.clientWidth - res.header.width) / 2;
         headerIsCentered = Math.abs(res.header.left - headerExpectedLeft) < 2;
       } else {

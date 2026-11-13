@@ -142,30 +142,80 @@ export class SpotifyClient {
     return this.request('/me');
   }
 
+  extractNextEndpoint(nextUrl) {
+    let base;
+    let parsed;
+    try {
+      base = new URL(this.baseUrl);
+      parsed = new URL(nextUrl);
+    } catch {
+      throw new Error('Spotify returned an invalid pagination URL.');
+    }
+    if (parsed.username || parsed.password) {
+      throw new Error('Spotify returned an untrusted pagination URL.');
+    }
+    if (parsed.protocol !== base.protocol || parsed.host !== base.host) {
+      throw new Error('Spotify returned an untrusted pagination URL.');
+    }
+    const basePrefix = `${base.pathname.replace(/\/$/, '')}/`;
+    if (!parsed.pathname.startsWith(basePrefix)) {
+      throw new Error('Spotify returned an untrusted pagination URL.');
+    }
+    return `${parsed.pathname.slice(basePrefix.length - 1)}${parsed.search}`;
+  }
+
   /**
    * List Current User's Playlists
    * Only returns user's OWN playlists per Phase 0.3
    */
   async getMyPlaylists(limit = 50) {
+    const MAX_PLAYLIST_PAGES = 50;
+    const cappedLimit = Math.min(Math.max(Number(limit) || 50, 1), 50);
     const me = await this.getMe();
     const myId = me.id;
 
-    const data = await this.request(`/me/playlists?limit=${limit}`);
-    const items = data.items || [];
+    const seenEndpoints = new Set();
+    const seenIds = new Set();
+    const playlists = [];
+    let nextEndpoint = `/me/playlists?limit=${cappedLimit}`;
+    let page = 0;
 
-    // Filter to playlists owned by current user (only owned playlists return items)
-    const owned = items.filter(p => p.owner && p.owner.id === myId);
-    return owned.map(p => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      ownerId: p.owner?.id,
-      ownerName: p.owner?.display_name,
-      itemCount: p.items?.total ?? p.tracks?.total ?? 0,
-      snapshotId: p.snapshot_id,
-      images: p.images || [],
-      uri: p.uri
-    }));
+    while (nextEndpoint) {
+      if (page >= MAX_PLAYLIST_PAGES) {
+        throw new Error(`Playlist list exceeded safety limit (${MAX_PLAYLIST_PAGES} pages).`);
+      }
+      if (seenEndpoints.has(nextEndpoint)) {
+        throw new Error('Spotify returned a repeated playlist pagination cursor.');
+      }
+      seenEndpoints.add(nextEndpoint);
+      page += 1;
+
+      const data = await this.request(nextEndpoint);
+      const items = Array.isArray(data.items) ? data.items : [];
+
+      // Filter to playlists owned by current user across every page
+      for (const p of items) {
+        if (!p || !p.id) continue;
+        if (!p.owner || p.owner.id !== myId) continue;
+        if (seenIds.has(p.id)) continue;
+        seenIds.add(p.id);
+        playlists.push({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          ownerId: p.owner?.id,
+          ownerName: p.owner?.display_name,
+          itemCount: p.items?.total ?? p.tracks?.total ?? 0,
+          snapshotId: p.snapshot_id,
+          images: p.images || [],
+          uri: p.uri
+        });
+      }
+
+      nextEndpoint = data.next ? this.extractNextEndpoint(data.next) : null;
+    }
+
+    return playlists;
   }
 
   /**
@@ -208,7 +258,7 @@ export class SpotifyClient {
         }
       }
 
-      nextUrl = data.next ? data.next.replace(this.baseUrl, '') : null;
+      nextUrl = data.next ? this.extractNextEndpoint(data.next) : null;
     }
 
     providerCache.set('spotify_playlist_items', { isrc: playlistId }, items);

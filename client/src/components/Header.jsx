@@ -80,33 +80,33 @@ export function Header({
   const isSpotifyConnected = Boolean(authUser);
 
   return (
-    <header className="border-b border-[#394133] bg-[#10120F] px-4 sm:px-6 py-3 sticky top-0 z-40">
-      <div className="max-w-[1240px] mx-auto flex items-center justify-between gap-4">
+    <header className="border-b border-[#394133] bg-[#10120F] px-3 sm:px-6 lg:px-10 py-3 sm:py-3.5 sticky top-0 z-40">
+      <div className="max-w-[1480px] mx-auto flex items-center justify-between gap-2 sm:gap-4">
         {/* Brand Wordmark Left */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#D6FC55] inline-block shrink-0" aria-hidden="true" />
-            <span className="text-base sm:text-lg font-extrabold tracking-tight text-[#F3F0E6] uppercase font-sans">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#D6FC55] inline-block shrink-0" aria-hidden="true" />
+            <span className="text-sm sm:text-lg lg:text-xl font-extrabold tracking-tight text-[#F3F0E6] uppercase font-sans whitespace-nowrap">
               Deck Order
             </span>
           </div>
-          <span className="text-[11px] font-mono uppercase tracking-wider text-[#BAC2B3] bg-[#1B1F19] px-2 py-0.5 rounded border border-[#394133]">
+          <span className="hidden sm:inline-block text-[11px] sm:text-xs font-mono uppercase tracking-wider text-[#BAC2B3] bg-[#1B1F19] px-2 py-0.5 rounded border border-[#394133] whitespace-nowrap">
             Set Planner
           </span>
         </div>
 
         {/* Saved Sets & Account Controls Right */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {/* Saved Sets Button */}
           <button
             onClick={onOpenHistory}
-            className="deck-btn-ghost text-xs flex items-center gap-1.5 px-2.5 py-1.5 text-[#BAC2B3] hover:text-[#F3F0E6]"
+            className="deck-btn-ghost text-xs sm:text-sm flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 sm:py-2 text-[#BAC2B3] hover:text-[#F3F0E6] whitespace-nowrap"
             title="Open saved sets"
           >
-            <Bookmark className="w-3.5 h-3.5 text-[#D6FC55]" />
+            <Bookmark className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#D6FC55] shrink-0" />
             <span>Saved sets</span>
             {historyCount > 0 && (
-              <span className="text-[10px] font-mono bg-[#252B22] text-[#F3F0E6] px-1.5 py-0.2 rounded border border-[#394133] tabular-nums">
+              <span className="text-[10px] sm:text-xs font-mono bg-[#252B22] text-[#F3F0E6] px-1.5 py-0.2 rounded border border-[#394133] tabular-nums">
                 {historyCount}
               </span>
             )}
@@ -116,7 +116,7 @@ export function Header({
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setMenuOpen(!menuOpen)}
-              className="deck-btn-secondary text-xs min-h-[36px] py-1 px-2.5 flex items-center gap-2"
+              className="deck-btn-secondary text-xs sm:text-sm min-h-[36px] sm:min-h-[40px] py-1 sm:py-1.5 px-2 sm:px-3 flex items-center gap-1.5 sm:gap-2"
               aria-expanded={menuOpen}
               aria-haspopup="true"
             >
@@ -126,7 +126,7 @@ export function Header({
                 ) : (
                   <span className="w-2 h-2 rounded-full bg-[#7E8876]" title="No Spotify connection" />
                 )}
-                <span className="text-xs text-[#F3F0E6] font-medium hidden sm:inline truncate max-w-[120px]">
+                <span className="text-xs sm:text-sm text-[#F3F0E6] font-medium hidden sm:inline truncate max-w-[120px] sm:max-w-[180px]">
                   {authUser?.display_name || googleUser?.name || 'Account'}
                 </span>
               </div>
@@ -134,7 +134,7 @@ export function Header({
             </button>
 
             {menuOpen && (
-              <div className="absolute right-0 mt-2 w-72 rounded-lg bg-[#1B1F19] border border-[#394133] shadow-2xl p-3 z-50 space-y-3">
+              <div className="absolute right-0 mt-2 w-72 sm:w-80 rounded-lg bg-[#1B1F19] border border-[#394133] shadow-2xl p-3 sm:p-4 z-50 space-y-3">
                 {/* Spotify Section */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-[#BAC2B3]">

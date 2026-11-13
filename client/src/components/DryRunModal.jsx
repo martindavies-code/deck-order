@@ -19,7 +19,7 @@ export function DryRunModal({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="save-review-title">
-      <div className="deck-panel max-w-lg w-full p-6 relative bg-[#1B1F19] border-[#394133] shadow-2xl space-y-4">
+      <div className="deck-panel max-w-lg sm:max-w-xl w-full p-6 relative bg-[#1B1F19] border-[#394133] shadow-2xl space-y-4">
         <button
           onClick={onClose}
           disabled={isSaving}
@@ -34,17 +34,17 @@ export function DryRunModal({
             <Shield className="w-5 h-5" />
           </div>
           <div>
-            <h3 id="save-review-title" className="text-base font-bold text-[#F3F0E6]">
+            <h3 id="save-review-title" className="text-base sm:text-lg font-bold text-[#F3F0E6]">
               A new playlist. Your original stays put.
             </h3>
-            <p className="text-xs text-[#BAC2B3]">
+            <p className="text-xs sm:text-sm text-[#BAC2B3]">
               Review the details before creating the playlist in your account.
             </p>
           </div>
         </div>
 
         {/* Breakdown Panel */}
-        <div className="bg-[#10120F] rounded-lg p-3.5 border border-[#394133] space-y-2.5 text-xs">
+        <div className="bg-[#10120F] rounded-lg p-3.5 sm:p-4 border border-[#394133] space-y-2.5 text-xs sm:text-sm">
           <div className="flex justify-between">
             <span className="text-[#7E8876]">New playlist name:</span>
             <span className="text-[#D6FC55] font-semibold font-mono">

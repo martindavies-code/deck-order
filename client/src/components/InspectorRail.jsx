@@ -26,7 +26,7 @@ export function InspectorRail({
 
   if (!track) {
     return (
-      <div className="deck-panel p-5 text-center text-xs text-[#7E8876] hidden lg:block">
+      <div className="deck-panel p-5 lg:p-6 text-center text-xs sm:text-sm text-[#7E8876] hidden lg:block">
         <p className="font-semibold text-[#BAC2B3] mb-1">Track Inspector</p>
         <p>Select any track in the running order to check source evidence, disagreements or apply custom values.</p>
       </div>
@@ -46,23 +46,23 @@ export function InspectorRail({
   const isOverridden = track.confidence === 'user_override';
 
   return (
-    <div className="deck-panel p-5 space-y-4">
+    <div className="deck-panel p-5 lg:p-6 space-y-4">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 border-b border-[#394133] pb-3">
-        <div>
-          <span className="text-[10px] font-mono text-[#FF8857] uppercase tracking-wider font-semibold">
+        <div className="min-w-0 flex-1">
+          <span className="text-[10px] sm:text-xs font-mono text-[#FF8857] uppercase tracking-wider font-semibold">
             Track #{position} of {totalTracks}
           </span>
-          <h4 className="text-sm font-bold text-[#F3F0E6] truncate max-w-[220px]">
+          <h4 className="text-sm sm:text-base lg:text-lg font-bold text-[#F3F0E6] truncate">
             {track.title}
           </h4>
-          <p className="text-xs text-[#BAC2B3] truncate max-w-[220px]">
+          <p className="text-xs sm:text-sm text-[#BAC2B3] truncate">
             {track.artist}
           </p>
         </div>
         <button
           onClick={onClose}
-          className="text-[#7E8876] hover:text-[#F3F0E6] p-1 -mr-1"
+          className="text-[#7E8876] hover:text-[#F3F0E6] p-1 -mr-1 shrink-0"
           title="Close inspector"
         >
           <X className="w-4 h-4" />
@@ -70,10 +70,10 @@ export function InspectorRail({
       </div>
 
       {/* Exact Recording Details */}
-      <div className="space-y-2 text-xs bg-[#10120F] p-3 rounded border border-[#394133]">
-        <div className="flex justify-between">
-          <span className="text-[#7E8876]">Version:</span>
-          <span className="text-[#F3F0E6] font-medium truncate max-w-[150px]">{track.version || 'Original Mix'}</span>
+      <div className="space-y-2.5 text-xs sm:text-[13px] bg-[#10120F] p-3 sm:p-3.5 rounded border border-[#394133]">
+        <div className="flex justify-between gap-3">
+          <span className="text-[#7E8876] shrink-0">Version:</span>
+          <span className="text-[#F3F0E6] font-medium truncate min-w-0 text-right">{track.version || 'Original Mix'}</span>
         </div>
         {track.isrc && (
           <div className="flex justify-between font-mono">
@@ -161,8 +161,8 @@ export function InspectorRail({
       )}
 
       {/* Placement Reason in Running Order */}
-      <div className="space-y-1.5 text-xs">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-[#7E8876] block">
+      <div className="space-y-2 text-xs sm:text-[13px]">
+        <span className="text-[10px] sm:text-xs font-mono uppercase tracking-wider text-[#7E8876] block">
           Placement in set
         </span>
         {[['Incoming', 'From previous track', transitionBefore], ['Outgoing', 'To next track', transitionAfter]].map(([label, direction, transition]) => {
@@ -171,12 +171,12 @@ export function InspectorRail({
           return (
             <div key={label} className="rounded border border-[#394133] bg-[#10120F]/50 p-3 space-y-2">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                <h4 className="text-xs font-semibold text-[#F3F0E6]">{label}</h4>
-                <span className="text-[11px] text-[#7E8876]">{direction}</span>
+                <h4 className="text-xs sm:text-[13px] font-semibold text-[#F3F0E6]">{label}</h4>
+                <span className="text-[11px] sm:text-xs text-[#7E8876]">{direction}</span>
               </div>
-              <p className={`text-xs leading-relaxed ${transitionToneClass(td.tone)}`}>{td.text}</p>
+              <p className={`text-xs sm:text-[13px] leading-relaxed ${transitionToneClass(td.tone)}`}>{td.text}</p>
               {td.showBpmChange && (
-                <div className="flex items-center gap-2 text-[11px]">
+                <div className="flex items-center gap-2 text-[11px] sm:text-xs">
                   <span className="text-[#7E8876]">Tempo change</span>
                   <span className={`font-mono tabular-nums whitespace-nowrap ${transitionToneClass(td.tempoTone)}`}>
                     {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
@@ -187,20 +187,20 @@ export function InspectorRail({
           );
         })}
         {!transitionBefore && !transitionAfter && (
-          <p className="text-[11px] text-[#7E8876]">Single track in current selection.</p>
+          <p className="text-[11px] sm:text-xs text-[#7E8876]">Single track in current selection.</p>
         )}
       </div>
 
       {/* Manual Override Controls */}
       <div className="border-t border-[#394133] pt-3 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-[#F3F0E6]">
+          <span className="text-xs sm:text-[13px] font-semibold text-[#F3F0E6]">
             {isOverridden ? 'Manual override active' : 'Adjust values'}
           </span>
           {isOverridden ? (
             <button
               onClick={() => onRevertOverride && onRevertOverride(track.id)}
-              className="text-[11px] text-[#BAC2B3] hover:text-[#EF4444] flex items-center gap-1 font-mono"
+              className="text-[11px] sm:text-xs text-[#BAC2B3] hover:text-[#EF4444] flex items-center gap-1 font-mono"
             >
               <RotateCcw className="w-3 h-3" />
               <span>Reset</span>
@@ -208,7 +208,7 @@ export function InspectorRail({
           ) : null}
             <button
               onClick={() => setShowOverrideForm(!showOverrideForm)}
-              className="text-[11px] text-[#D6FC55] hover:underline font-mono"
+              className="text-[11px] sm:text-xs text-[#D6FC55] hover:underline font-mono"
             >
               {showOverrideForm ? 'Cancel' : 'Use my value'}
             </button>

@@ -24,7 +24,7 @@ function TrackDataBadges({ track }) {
   const keyColors = camelotBadgeColors(track.camelot);
   const base = {
     display: 'inline-flex', alignItems: 'center', fontFamily: "'JetBrains Mono', monospace",
-    fontWeight: 700, fontSize: '0.7rem', padding: '0.15rem 0.45rem',
+    fontWeight: 700, fontSize: '0.75rem', padding: '0.18rem 0.5rem',
     borderRadius: 'var(--radius-tag)', border: '1px solid var(--border-subtle)',
     backgroundColor: '#171A15', color: 'var(--chalk)'
   };
@@ -124,12 +124,12 @@ export function SequencedTable({
       <div className="hidden sm:block deck-panel overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-[#394133] bg-[#10120F] text-[11px] font-mono uppercase tracking-wider text-[#7E8876]">
-              <th className="py-2.5 px-3 w-12 text-center">#</th>
-              <th className="py-2.5 px-3 w-14 text-center">Order</th>
-              <th className="py-2.5 px-4 text-left">Track</th>
-              <th className="py-2.5 px-3 w-32 text-left">Evidence</th>
-              <th className="py-2.5 px-3 w-20 text-center">Detail</th>
+            <tr className="border-b border-[#394133] bg-[#10120F] text-[11px] sm:text-xs font-mono uppercase tracking-wider text-[#7E8876]">
+              <th className="py-2.5 sm:py-3 px-3 w-12 text-center">#</th>
+              <th className="py-2.5 sm:py-3 px-3 w-14 text-center">Order</th>
+              <th className="py-2.5 sm:py-3 px-4 text-left">Track</th>
+              <th className="py-2.5 sm:py-3 px-3 w-32 lg:w-40 text-left">Evidence</th>
+              <th className="py-2.5 sm:py-3 px-3 w-20 text-center">Detail</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#252B22]">
@@ -158,7 +158,7 @@ export function SequencedTable({
                     }`}
                   >
                     {/* Position */}
-                    <td className="py-3 px-3 text-center font-mono text-xs text-[#7E8876] tabular-nums">
+                    <td className="py-3 sm:py-3.5 px-3 text-center font-mono text-xs sm:text-sm text-[#7E8876] tabular-nums">
                       {(idx + 1).toString().padStart(2, '0')}
                     </td>
 
@@ -195,19 +195,19 @@ export function SequencedTable({
                     </td>
 
                     {/* Track Title, Artist, Exact Version */}
-                    <td className="py-3 px-4 min-w-0">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded bg-[#10120F] border border-[#394133] flex items-center justify-center text-[#7E8876] shrink-0">
+                    <td className="py-3 sm:py-3.5 px-4 w-full max-w-0">
+                      <div className="flex items-center gap-2.5 sm:gap-3">
+                        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded bg-[#10120F] border border-[#394133] flex items-center justify-center text-[#7E8876] shrink-0">
                           <Music className="w-4 h-4" />
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-[#F3F0E6] truncate group-hover:text-[#D6FC55] transition-colors">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs sm:text-sm lg:text-[15px] font-bold text-[#F3F0E6] truncate group-hover:text-[#D6FC55] transition-colors">
                             {track.title}
                           </p>
-                          <p className="text-[11px] text-[#BAC2B3] truncate">
+                          <p className="text-[11px] sm:text-xs lg:text-[13px] text-[#BAC2B3] truncate">
                             {track.artist}
                             {track.version && (
-                              <span className="text-[#7E8876] ml-1.5 font-mono text-[10px]">
+                              <span className="text-[#7E8876] ml-1.5 font-mono text-[10px] sm:text-[11px]">
                                 · {track.version}
                               </span>
                             )}
@@ -215,7 +215,7 @@ export function SequencedTable({
                           <TrackDataBadges track={track} />
                           {onRemoveTrack && (
                             <button type="button" onClick={(e) => { e.stopPropagation(); onRemoveTrack(track, idx); }}
-                              className="mt-2 inline-flex items-center gap-1.5 rounded border border-[#394133] px-2 text-[11px] text-[#BAC2B3] hover:text-[#FCA5A5] min-h-[40px]"
+                              className="mt-2 inline-flex items-center gap-1.5 rounded border border-[#394133] px-2.5 text-[11px] sm:text-xs text-[#BAC2B3] hover:text-[#FCA5A5] min-h-[40px]"
                               title="Remove from this set (undoable; original playlist untouched)"
                               aria-label={`Remove ${track.title} from this set`}>
                               <X className="w-3.5 h-3.5" /> Remove track
@@ -227,7 +227,7 @@ export function SequencedTable({
 
                     {/* Evidence Status (shared selector with the mobile strip) */}
                     <td className="py-3 px-3 text-left">
-                      <span className={`badge-status ${evidenceBadge(track.status).cls} text-[11px]`}>
+                      <span className={`badge-status ${evidenceBadge(track.status).cls} text-[11px] sm:text-xs`}>
                         {evidenceBadge(track.status).label}
                       </span>
                     </td>
@@ -240,11 +240,11 @@ export function SequencedTable({
                             e.stopPropagation();
                             onSelectTrack && onSelectTrack(track, idx);
                           }}
-                          className="text-[#7E8876] hover:text-[#D6FC55] p-1"
+                          className="text-[#7E8876] hover:text-[#D6FC55] p-1.5"
                           title="Inspect track details"
                           aria-label={`Inspect ${track.title}`}
                         >
-                          <Sliders className="w-3.5 h-3.5" />
+                          <Sliders className="w-4 h-4" />
                         </button>
 
                       </div>
@@ -254,7 +254,7 @@ export function SequencedTable({
                   {/* Transition connector between tracks */}
                   {transition && idx < tracks.length - 1 && (
                     <tr className="bg-[#10120F]/60">
-                      <td colSpan={5} className="py-1 px-4 text-[10px] font-mono text-[#7E8876]">
+                      <td colSpan={5} className="py-1 sm:py-1.5 px-4 text-[10px] sm:text-xs font-mono text-[#7E8876]">
                         <div className="flex items-center gap-3 pl-8">
                           <span className="text-[#394133]">↳</span>
                           <span>Suggested fit:</span>
@@ -304,11 +304,11 @@ export function SequencedTable({
             >
               {/* Card Header: Position, Reorder buttons, Title */}
               <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <span className="text-xs font-mono font-bold text-[#7E8876] tabular-nums mt-0.5">
+                <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                  <span className="text-xs font-mono font-bold text-[#7E8876] tabular-nums mt-0.5 shrink-0">
                     {(idx + 1).toString().padStart(2, '0')}
                   </span>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="text-xs font-bold text-[#F3F0E6] truncate">
                       {track.title}
                     </p>

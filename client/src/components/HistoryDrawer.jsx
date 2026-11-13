@@ -34,7 +34,7 @@ export function HistoryDrawer({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="saved-sets-title">
-      <div className="deck-panel max-w-xl w-full p-6 relative bg-[#1B1F19] border-[#394133] shadow-2xl max-h-[85vh] flex flex-col space-y-4">
+      <div className="deck-panel max-w-xl sm:max-w-2xl w-full p-6 relative bg-[#1B1F19] border-[#394133] shadow-2xl max-h-[85vh] flex flex-col space-y-4">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-[#BAC2B3] hover:text-[#F3F0E6] min-h-[44px] min-w-[44px] flex items-center justify-center -mr-2 -mt-2"
@@ -48,16 +48,16 @@ export function HistoryDrawer({
             <Bookmark className="w-5 h-5" />
           </div>
           <div>
-            <h3 id="saved-sets-title" className="text-base font-bold text-[#F3F0E6]">
+            <h3 id="saved-sets-title" className="text-base sm:text-lg font-bold text-[#F3F0E6]">
               Saved sets
             </h3>
-            <p className="text-xs text-[#BAC2B3]">
+            <p className="text-xs sm:text-sm text-[#BAC2B3]">
               Stored locally in this browser
             </p>
           </div>
         </div>
 
-        {onNewSet && <button type="button" onClick={onNewSet} className="deck-btn-secondary text-xs min-h-[44px] self-start">New set</button>}
+        {onNewSet && <button type="button" onClick={onNewSet} className="deck-btn-secondary text-xs sm:text-sm min-h-[44px] self-start">New set</button>}
 
         {/* History List */}
         <div className="flex-1 overflow-y-auto space-y-2 pr-1 my-2">

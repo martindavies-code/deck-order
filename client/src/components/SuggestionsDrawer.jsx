@@ -15,13 +15,13 @@ export function SuggestionsDrawer({
   const selectedCount = [...bridgeSuggestions, ...bonusTunes].filter(t => t.selected).length;
 
   return (
-    <div className="deck-panel p-5 space-y-4">
+    <div className="deck-panel p-5 lg:p-6 space-y-4">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-[#394133] gap-3">
         <div>
-          <h3 className="text-sm font-bold text-[#F3F0E6] uppercase tracking-wide font-sans">
+          <h3 className="text-sm sm:text-base font-bold text-[#F3F0E6] uppercase tracking-wide font-sans">
             Find the missing link
           </h3>
-          <p className="text-xs text-[#BAC2B3]">
+          <p className="text-xs sm:text-sm text-[#BAC2B3]">
             Bridge tracks to smooth awkward joins in your set. Preview before adding.
           </p>
         </div>
@@ -29,7 +29,7 @@ export function SuggestionsDrawer({
         {selectedCount > 0 && (
           <button
             onClick={onApplySelectedSuggestions}
-            className="deck-btn-primary text-xs w-full sm:w-auto"
+            className="deck-btn-primary text-xs sm:text-sm w-full sm:w-auto"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Insert {selectedCount} track{selectedCount > 1 ? 's' : ''} into order</span>
@@ -38,7 +38,7 @@ export function SuggestionsDrawer({
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-4 border-b border-[#394133] text-xs">
+      <div className="flex gap-4 border-b border-[#394133] text-xs sm:text-sm">
         <button
           onClick={() => setActiveTab('bridge')}
           className={`pb-2 font-semibold border-b-2 transition-colors ${

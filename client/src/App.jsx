@@ -61,6 +61,9 @@ export function App() {
   const [staySignedIn, setStaySignedIn] = useState(initialTokens.staySignedIn);
   const [authUser, setAuthUser] = useState(null);
   const [playlists, setPlaylists] = useState([]);
+  const [playlistsLoading, setPlaylistsLoading] = useState(false);
+  const [playlistLoadProgress, setPlaylistLoadProgress] = useState(null);
+  const [playlistRefreshTick, setPlaylistRefreshTick] = useState(0);
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
 
   // Set name and sample flag
@@ -210,50 +213,87 @@ export function App() {
     }
   }, [staySignedIn]);
 
-  // Fetch playlists and user profile when authenticated with silent refresh & honest 403 handling
+  const handleRefreshPlaylists = () => {
+    if (!authToken) return;
+    setPlaylistRefreshTick(t => t + 1);
+  };
+
+  // Fetch all owned playlists and user profile when authenticated with silent refresh & honest 403 handling
   useEffect(() => {
-    if (authToken) {
-      fetchPlaylists(authToken)
-        .then(data => {
-          setPlaylists(data.playlists || []);
-          if (data.user) {
-            setAuthUser({
-              id: data.user.id,
-              display_name: data.user.display_name || data.playlists?.[0]?.ownerName || 'Spotify User',
-              images: data.user.images
-            });
-          } else if (data.playlists?.[0]) {
-            setAuthUser({
-              id: data.playlists[0].ownerId || 'spotify_user',
-              display_name: data.playlists[0].ownerName || 'Spotify User'
-            });
-          }
-        })
-        .catch(async (err) => {
-          console.warn('Could not fetch playlists:', err);
-          if (err.status === 401 || err.message?.includes('401')) {
-            // Attempt silent token refresh if refresh_token exists
-            if (refreshToken) {
-              const refreshed = await refreshSpotifyToken(refreshToken);
-              if (refreshed?.access_token) {
-                setAuthToken(refreshed.access_token);
-                if (refreshed.refresh_token) setRefreshToken(refreshed.refresh_token);
-                saveSpotifyTokens(refreshed, staySignedIn);
-                return;
-              }
-            }
-            setAuthToken(null);
-            setAuthUser(null);
-            clearSpotifyTokens();
-            showToast('Spotify session expired. Please reconnect.', 4000);
-          } else if (err.status === 403 || err.message?.includes('403')) {
-            showToast(SPOTIFY_403_MSG, 6000);
-          } else {
-            showToast(`Could not load Spotify playlists: ${err.message}`, 5000);
-          }
-        });
+    if (!authToken) {
+      setPlaylists([]);
+      setPlaylistsLoading(false);
+      setPlaylistLoadProgress(null);
+      return;
     }
-  }, [authToken, refreshToken, staySignedIn]);
+
+    const controller = new AbortController();
+    let keepLoadingForRetry = false;
+    setPlaylistsLoading(true);
+    setPlaylistLoadProgress(null);
+
+    fetchPlaylists(authToken, {
+      signal: controller.signal,
+      onProgress: (progress) => {
+        if (!controller.signal.aborted) {
+          setPlaylistLoadProgress(progress);
+        }
+      }
+    })
+      .then(data => {
+        if (controller.signal.aborted) return;
+        setPlaylists(data.playlists || []);
+        if (data.user) {
+          setAuthUser({
+            id: data.user.id,
+            display_name: data.user.display_name || data.playlists?.[0]?.ownerName || 'Spotify User',
+            images: data.user.images
+          });
+        } else if (data.playlists?.[0]) {
+          setAuthUser({
+            id: data.playlists[0].ownerId || 'spotify_user',
+            display_name: data.playlists[0].ownerName || 'Spotify User'
+          });
+        }
+      })
+      .catch(async (err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return;
+        console.warn('Could not fetch playlists:', err);
+        if (err.status === 401 || err.message?.includes('401')) {
+          // Attempt silent token refresh if refresh_token exists
+          if (refreshToken) {
+            const refreshed = await refreshSpotifyToken(refreshToken);
+            if (!controller.signal.aborted && refreshed?.access_token) {
+              keepLoadingForRetry = true;
+              setAuthToken(refreshed.access_token);
+              if (refreshed.refresh_token) setRefreshToken(refreshed.refresh_token);
+              saveSpotifyTokens(refreshed, staySignedIn);
+              return;
+            }
+          }
+          if (controller.signal.aborted) return;
+          setAuthToken(null);
+          setAuthUser(null);
+          clearSpotifyTokens();
+          showToast('Spotify session expired. Please reconnect.', 4000);
+        } else if (err.status === 403 || err.message?.includes('403')) {
+          showToast(SPOTIFY_403_MSG, 6000);
+        } else if (err.status === 429) {
+          showToast(err.message || 'Spotify rate limit reached. Please try again shortly.', 6000);
+        } else {
+          showToast(`Could not load Spotify playlists: ${err.message}`, 5000);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted && !keepLoadingForRetry) {
+          setPlaylistsLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [authToken, refreshToken, staySignedIn, playlistRefreshTick]);
 
   const showToast = (msg, duration = 3000, type = 'success') => {
     const text = typeof msg === 'string' ? msg : msg?.text || msg?.message || String(msg);
@@ -689,7 +729,7 @@ export function App() {
         <div
           role="status"
           aria-live="polite"
-          className={`fixed top-5 right-5 z-50 bg-[#1B1F19] border ${
+          className={`fixed top-5 left-4 right-4 sm:left-auto sm:right-5 sm:max-w-md z-50 bg-[#1B1F19] border ${
             toastMessage.type === 'error'
               ? 'border-[#EF4444]'
               : toastMessage.type === 'warning'
@@ -734,12 +774,15 @@ export function App() {
           }
         }}>Retry save</button>
       </div>}
-      <main className="flex-1 max-w-[1240px] w-full mx-auto p-4 sm:p-6 space-y-6 pb-36 sm:pb-36">
+      <main className="flex-1 max-w-[1480px] w-full mx-auto px-4 pt-5 sm:px-6 sm:pt-6 lg:px-10 lg:pt-8 space-y-6 lg:space-y-8 pb-36 sm:pb-40">
         {!isSetLoaded ? (
           /* Composition A: Before a Set is Loaded */
           <SourcePicker
             spotifyConnected={Boolean(authToken)}
             playlists={playlists}
+            playlistsLoading={playlistsLoading}
+            playlistLoadProgress={playlistLoadProgress}
+            onRefreshPlaylists={handleRefreshPlaylists}
             onSelectPlaylist={handleSelectPlaylist}
             onParseCsv={handleParseCsv}
             onConnectSpotify={handleConnectSpotify}
@@ -751,13 +794,13 @@ export function App() {
           />
         ) : (
           /* Composition B: With a Set Loaded (Workbench) */
-          <div className="space-y-6">
+          <div className="space-y-6 lg:space-y-8">
             {/* Workspace Bar: Set Name, Back Button, Status Banner */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#394133] pb-4">
               <div className="flex items-center gap-3 min-w-0">
                 <button
                   onClick={handleStartFresh}
-                  className="deck-btn-ghost text-xs flex items-center gap-1.5 text-[#BAC2B3] hover:text-[#F3F0E6] p-1.5"
+                  className="deck-btn-ghost text-xs sm:text-sm flex items-center gap-1.5 text-[#BAC2B3] hover:text-[#F3F0E6] p-1.5 sm:px-2.5 sm:py-2"
                   title="Return to track import"
                   aria-label="New set"
                 >
@@ -779,16 +822,16 @@ export function App() {
                     ) : (
                       <button
                         onClick={() => setIsEditingName(true)}
-                        className="text-lg font-bold text-[#F3F0E6] truncate hover:text-[#D6FC55] flex items-center gap-2 group text-left"
+                        className="text-lg sm:text-xl lg:text-2xl font-bold text-[#F3F0E6] truncate hover:text-[#D6FC55] flex items-center gap-2 group text-left"
                         title="Click to rename set"
                       >
                         <span>{setName}</span>
-                        <Edit2 className="w-3.5 h-3.5 text-[#7E8876] group-hover:text-[#D6FC55]" />
+                        <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#7E8876] group-hover:text-[#D6FC55]" />
                       </button>
                     )}
                   </div>
 
-                  <p className="text-xs text-[#BAC2B3] font-mono">
+                  <p className="text-xs sm:text-sm text-[#BAC2B3] font-mono">
                     {tracks.length} tracks · {isSampleSet ? 'Sample dataset' : metadataSourceLabel}
                   </p>
                 </div>
@@ -796,7 +839,7 @@ export function App() {
 
               {/* Sample Data Banner */}
               {isSampleSet && (
-                <div className="text-[11px] font-mono text-[#FFB08E] bg-[rgba(255,136,87,0.12)] border border-[rgba(255,136,87,0.3)] px-3 py-1.5 rounded flex items-center gap-2">
+                <div className="text-[11px] sm:text-xs font-mono text-[#FFB08E] bg-[rgba(255,136,87,0.12)] border border-[rgba(255,136,87,0.3)] px-3 py-1.5 rounded flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#FF8857]" />
                   <span>Demo set · sample metadata. Use it to explore the app, not verify these recordings.</span>
                 </div>
@@ -818,9 +861,9 @@ export function App() {
             )}
 
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" onClick={handleRunSequencer} disabled={isLoading || !orderedTracks.length} className="deck-btn-secondary text-xs min-h-[44px]">Redo order</button>
-              {!activeSetId && <button className="deck-btn-secondary text-xs min-h-[44px]" onClick={newSetIdentity}>Save as new set</button>}
-              <p className="text-xs text-[#BAC2B3]">Recalculate using your latest track info. You'll confirm before the current order changes.</p>
+              <button type="button" onClick={handleRunSequencer} disabled={isLoading || !orderedTracks.length} className="deck-btn-secondary text-xs sm:text-sm min-h-[44px]">Redo order</button>
+              {!activeSetId && <button className="deck-btn-secondary text-xs sm:text-sm min-h-[44px]" onClick={newSetIdentity}>Save as new set</button>}
+              <p className="text-xs sm:text-sm text-[#BAC2B3]">Recalculate using your latest track info. You'll confirm before the current order changes.</p>
             </div>
 
             {/* Comparison Overview (Original vs Suggested) */}
@@ -848,14 +891,14 @@ export function App() {
             )}
 
             {/* Main Workbench Layout: 2/3 Running Order, 1/3 Inspector Rail */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
               {/* Left Column: Running Order (8 cols = ~66%) */}
               <div className="lg:col-span-8 space-y-4">
                 <div className="flex items-center justify-between px-1">
-                  <h3 className="text-xs font-mono uppercase tracking-wider text-[#BAC2B3]">
+                  <h3 className="text-xs sm:text-sm font-mono uppercase tracking-wider text-[#BAC2B3]">
                     {viewMode === 'sequenced' ? 'Your set, taking shape' : 'Original imported order'}
                   </h3>
-                  <span className="text-xs text-[#7E8876] font-mono tabular-nums">
+                  <span className="text-xs sm:text-sm text-[#7E8876] font-mono tabular-nums">
                     {currentDisplayTracks.length} tracks
                   </span>
                 </div>
@@ -928,7 +971,7 @@ export function App() {
             aria-label="Export and save actions"
             className="fixed bottom-0 left-0 right-0 p-3 sm:p-4 bg-[#1B1F19]/95 backdrop-blur-md border-t border-[#394133] z-30 shadow-2xl"
           >
-            <div className="max-w-[1240px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="max-w-[1480px] mx-auto px-0 lg:px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs text-[#BAC2B3] hidden sm:flex">
                 <span className="w-2 h-2 rounded-full bg-[#D6FC55]" />
                 <span>

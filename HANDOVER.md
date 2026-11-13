@@ -118,3 +118,23 @@ User-reported legibility and honesty problems with the set-shape chart on a dens
 Verified: 173/173 tests, client build, security check, verify_transition_colours.mjs (released regression) unchanged pass, arc chart script passes at both widths. Synthetic data only; no user storage, account or provider calls.
 
 Limits: horizontal scroll on narrow screens is the chosen density trade-off; live Spotify save remains untested; energy remains catalogue-only (no manual entry).
+
+## Branch: playlists-and-desktop-scale (2026-11-13, pending review)
+
+Fixes truncated owned Spotify playlists past the first page and scales the UI up for large desktop screens while keeping mobile (`320px`/`390px`) responsive:
+
+- **Full owned Spotify playlist pagination & URL guardrails (`client/src/services/api.js`, `server/spotify/client.js`, `client/src/App.jsx`)**:
+  - `fetchPlaylists` and `SpotifyClient.getMyPlaylists` now paginate through every `/me/playlists?limit=50` page using `data.next` (up to `MAX_PLAYLIST_PAGES = 50` with repeated-cursor loop detection), deduplicate by playlist ID across pages (`seenIds`), and filter strictly to `owner.id === myId` on each page.
+  - Added `SpotifyClient.extractNextEndpoint` (origin, protocol, credentials, and base-path validation) for both `getMyPlaylists` and `getPlaylistItems`, matching `isValidSpotifyNextUrl` on the client.
+  - `fetchPlaylists` classifies proxy `401`/`403`/`429` responses instead of swallowing them, increases proxy timeout to `15000ms`, accepts `{ signal, onProgress }`, and surfaces `playlistsLoading`, `playlistLoadProgress`, Refresh control, and `AbortController` cleanup in `App.jsx` (plus resetting playlist state on logout and surfacing `429` toast messages).
+- **Desktop sizing & playlist picker overhaul (`client/src/App.jsx`, `client/src/components/Header.jsx`, `client/src/components/SourcePicker.jsx`, `client/src/components/SequencedTable.jsx`, `client/src/components/InspectorRail.jsx`, `client/src/components/CoverageReport.jsx`, `client/src/components/ComparisonView.jsx`, `client/src/components/HistoryDrawer.jsx`, `client/src/components/DisputeModal.jsx`, `client/src/components/DryRunModal.jsx`, `client/src/components/MixInstructionsModal.jsx`, `client/src/components/SuggestionsDrawer.jsx`, `scripts/verify_layout_cascade.js`)**:
+  - Widened `<header>`, `<main>`, and bottom `<aside>` dock containers from `max-w-[1240px]` to `max-w-[1480px]` (threshold updated in `scripts/verify_layout_cascade.js`). Used `lg:pt-8` rather than `lg:py-8` on `<main>` so `pb-36 sm:pb-40` dock clearance (`160px` desktop/tablet, `144px` mobile) is not overridden at `>=1024px`.
+  - Flipped `SourcePicker` desktop columns (`lg:col-span-5` editorial / `lg:col-span-7` import console), added live playlist search (`Filter playlists...` on name/description), loading status, Refresh button, 2-column desktop/tablet playlist grid (`grid-cols-1 md:grid-cols-2`, `max-h-[420px] md:max-h-[520px] lg:max-h-[580px]`), and taller CSV textarea (`min-h-[180px] sm:min-h-[240px] lg:min-h-[280px]`).
+  - Scaled `sm:`/`lg:` typography across workbench tables, cards, inspector, and modals; switched `SequencedTable` desktop Track `<td>` to `w-full max-w-0` and `InspectorRail` header/version to flex `min-w-0 flex-1` truncation; adjusted mobile `<header>`, toast framing (`left-4 right-4 sm:left-auto sm:max-w-md`), and mobile card flex (`min-w-0 flex-1`) for `320px`/`390px` fit.
+- **Verified**:
+  - `npm test`: `180/180` pass (`18` suites, including `7` new tests in `test/spotifyPlaylistsPagination.test.js`).
+  - `npm --prefix client run build`: passes cleanly.
+  - `npm run verify:security`: ALL PASS (`50` files checked, `27` client files checked).
+  - Headless Chrome CDP verification against `client/dist` with isolated mock API (`68` owned playlists + `51`-track workbench): `0` horizontal overflow, live search (`2 of 68 playlists`), single-row header, and bottom dock clearance passed across `1920x1080`, `1440x900`, `768x1024`, `390x844`, and `320x640`; screenshots inspected visually.
+- **Limits**:
+  - Live Spotify multi-page pagination (>50 real owned playlists), Refresh against live OAuth, and live Spotify playlist writes remain untested against a real Spotify account. Standalone `scripts/verify_layout_cascade.js` threshold was updated (`1240` -> `1480`) without re-running that separate Express-server script directly (viewport centering and layout bounds were verified via our isolated Chrome CDP run).
