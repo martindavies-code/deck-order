@@ -248,7 +248,7 @@ test('buildSavedSetsBackup and importSavedSetsBackup validate, strip dangerous k
   assert.throws(() => importSavedSetsBackup('{not valid json', 'acct_a'), /not valid JSON/);
   assert.throws(() => importSavedSetsBackup('{"sets":[]}', 'acct_a'), /does not contain/);
   assert.throws(
-    () => importSavedSetsBackup(JSON.stringify({ sets: new Array(51).fill(backup.sets[0]) }), 'acct_a'),
+    () => importSavedSetsBackup(JSON.stringify({ sets: new Array(1001).fill(backup.sets[0]) }), 'acct_a'),
     /maximum supported/
   );
 });
@@ -284,4 +284,48 @@ test('generateOfflineSuggestions detects gaps with honest reference provenance a
   assert.equal(inserted.length, ordered.length + sortedDesc.length);
   // First original track g1 stays at index 0; second bridge sits after g1+earlier shift doesn't break later
   assert.equal(inserted[0].id, 'g1');
+});
+
+
+test('exclude applies even with zero or one sequencable track', () => {
+  const unknown = makeTrack('u', null, null, { status: 'missing' });
+  const known = makeTrack('k', 126, '8A');
+  assert.deepEqual(new DJSequencer({ unverifiedStrategy: 'exclude' }).solve([unknown]).orderedTracks, []);
+  assert.deepEqual(new DJSequencer({ unverifiedStrategy: 'exclude' }).solve([unknown, known]).orderedTracks, [known]);
+});
+
+test('JSON backup preserves nested source evidence and reset-to-source values', async () => {
+  const { applyManualOverride } = await import('../client/src/utils/manualOverride.js');
+  const { updateActiveSet } = await import('../client/src/services/googleAuth.js');
+  const source = makeTrack('source', 125, '8A', { sources: [{ name: 'Fixture', detail: { nested: { evidence: 'keep me' } } }] });
+  const edited = applyManualOverride(source, { bpm: 126 });
+  updateActiveSet({ id: 'nested', name: 'Nested', tracks: [edited], originalTracks: [source] }, 'from');
+  const result = importSavedSetsBackup(JSON.stringify(buildSavedSetsBackup('from')), 'to');
+  assert.deepEqual(result.history[0].tracks[0], edited);
+  assert.deepEqual(revertManualOverride(result.history[0].tracks[0]), source);
+});
+
+test('own backup restores more than 50 document-style saved sets without losing any', async () => {
+  const { updateActiveSet } = await import('../client/src/services/googleAuth.js');
+  for (let i = 0; i < 51; i++) updateActiveSet({ id: `set-${i}`, name: `Set ${i}`, tracks: [makeTrack(`t${i}`, 125, '8A')] }, 'from');
+  const result = importSavedSetsBackup(JSON.stringify(buildSavedSetsBackup('from')), 'to');
+  assert.equal(result.importedCount, 51);
+});
+
+
+test('backup rejects malformed track metadata before changing storage', () => {
+  const before = localStorage.getItem('deck_order_crate_history_to');
+  for (const bad of [{ artist: {} }, { sources: {} }, { bpm: 'bad' }]) {
+    assert.throws(() => importSavedSetsBackup(JSON.stringify({ sets: [{ name: 'Bad', tracks: [makeTrack('x', 125, '8A', bad)] }] }), 'to'), /invalid track metadata/);
+    assert.equal(localStorage.getItem('deck_order_crate_history_to'), before);
+  }
+});
+
+test('backup keeps distinct locked endpoints rather than treating them as duplicates', () => {
+  const tracks = [makeTrack('a', 125, '8A'), makeTrack('b', 126, '9A')];
+  const result = importSavedSetsBackup(JSON.stringify({ sets: [
+    { name: 'Set', tracks, lockedOpenerId: 'a' },
+    { name: 'Set', tracks, lockedOpenerId: 'b' }
+  ] }));
+  assert.equal(result.importedCount, 2);
 });
