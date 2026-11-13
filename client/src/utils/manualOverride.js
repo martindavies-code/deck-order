@@ -32,6 +32,19 @@ export function applyManualOverride(track, values) {
   return updated;
 }
 
+export function confirmRecordingMatch(track) {
+  if (!track) return track;
+  const sourceTrack = track.manualOverride?.sourceTrack || track;
+  const fields = { ...track.manualOverride?.fields, recordingConfirmed: true };
+  return {
+    ...track,
+    recordingNeedsReview: false,
+    recordingConfirmed: true,
+    manualOverride: { sourceTrack, fields },
+    confidence: 'user_override'
+  };
+}
+
 export function revertManualOverride(track) {
   return track.manualOverride?.sourceTrack || track;
 }

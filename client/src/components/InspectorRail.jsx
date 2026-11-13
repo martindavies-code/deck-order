@@ -1,16 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, AlertTriangle, RotateCcw, Sliders, ExternalLink } from 'lucide-react';
-import { transitionDisplay, transitionToneClass } from '../utils/trackBadges.js';
+import { X, Check, AlertTriangle, RotateCcw, Sliders, ExternalLink, Lock, ArrowRight } from 'lucide-react';
+import {
+  transitionDisplay,
+  transitionToneClass,
+  findCompatibleSetTracks
+} from '../utils/trackBadges.js';
 
 export function InspectorRail({
   track,
   position,
   totalTracks,
+  trackIndex = null,
+  allTracks = [],
+  lockedOpenerId = null,
+  lockedCloserId = null,
   transitionBefore,
   transitionAfter,
   onClose,
   onApplyOverride,
-  onRevertOverride
+  onRevertOverride,
+  onConfirmRecordingMatch,
+  onToggleLockOpener,
+  onToggleLockCloser,
+  onSelectTrackByIndex
 }) {
   const [overrideBpm, setOverrideBpm] = useState(track?.bpm || '');
   const [overrideKey, setOverrideKey] = useState(track?.key || track?.camelot || '');
@@ -133,17 +145,36 @@ export function InspectorRail({
       </div>
 
       {/* Recording identity uncertainty: matched record carries a different ISRC */}
-      {track.recordingNeedsReview && track.recordingMismatch && (
-        <div className="p-3 rounded bg-[rgba(234,179,8,0.1)] border border-[rgba(234,179,8,0.3)] space-y-2 text-xs text-[#FDE047]">
+      {track.recordingNeedsReview && (
+        <div className="p-3 rounded bg-[rgba(234,179,8,0.1)] border border-[rgba(234,179,8,0.3)] space-y-2.5 text-xs text-[#FDE047]">
           <div className="flex items-center gap-1.5 font-bold">
             <AlertTriangle className="w-3.5 h-3.5 text-[#EAB308]" />
             <span>Recording match needs review</span>
           </div>
           <p className="text-[11px] text-[#BAC2B3]">
-            The matched record's ISRC ({track.recordingMismatch.matchedIsrc}) differs from this track's
-            ({track.recordingMismatch.suppliedIsrc}). Tempo and key shown are from that record -
-            confirm they belong to this recording before trusting them for sequencing.
+            {track.recordingMismatch ? (
+              <>
+                The matched record's ISRC ({track.recordingMismatch.matchedIsrc}) differs from this track's
+                ({track.recordingMismatch.suppliedIsrc}). Tempo and key shown are from that record -
+                confirm they belong to this recording before trusting them for sequencing.
+              </>
+            ) : (
+              <>
+                This recording match is flagged for review. Confirm the tempo and key belong to this
+                exact recording before sequencing.
+              </>
+            )}
           </p>
+          {onConfirmRecordingMatch && (
+            <button
+              type="button"
+              onClick={() => onConfirmRecordingMatch(track.id)}
+              className="deck-btn-secondary w-full text-xs text-[#FDE047] border-[rgba(234,179,8,0.4)] hover:border-[#D6FC55] justify-center min-h-[38px]"
+            >
+              <Check className="w-3.5 h-3.5 text-[#D6FC55]" />
+              <span>Confirm match applies to this recording</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -190,6 +221,84 @@ export function InspectorRail({
           <p className="text-[11px] sm:text-xs text-[#7E8876]">Single track in current selection.</p>
         )}
       </div>
+
+      {/* Anchor Opener / Closer Locks */}
+      {(onToggleLockOpener || onToggleLockCloser) && (
+        <div className="border-t border-[#394133] pt-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] sm:text-[11px] font-mono uppercase tracking-wider text-[#7E8876] font-semibold">
+              Anchor in set
+            </span>
+            <span className="text-[10px] text-[#7E8876]">Held when redoing order</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onToggleLockOpener?.(track.id)}
+              className={`deck-btn-secondary text-[11px] sm:text-xs justify-center py-1.5 ${
+                lockedOpenerId === track.id
+                  ? 'border-[#D6FC55] text-[#D6FC55] bg-[rgba(214,252,85,0.08)]'
+                  : ''
+              }`}
+              aria-pressed={lockedOpenerId === track.id}
+            >
+              <Lock className="w-3 h-3 shrink-0" />
+              <span>{lockedOpenerId === track.id ? 'Opener pinned' : 'Pin as opener'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleLockCloser?.(track.id)}
+              className={`deck-btn-secondary text-[11px] sm:text-xs justify-center py-1.5 ${
+                lockedCloserId === track.id
+                  ? 'border-[#D6FC55] text-[#D6FC55] bg-[rgba(214,252,85,0.08)]'
+                  : ''
+              }`}
+              aria-pressed={lockedCloserId === track.id}
+            >
+              <Lock className="w-3 h-3 shrink-0" />
+              <span>{lockedCloserId === track.id ? 'Closer pinned' : 'Pin as closer'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Key & Tempo Compatible Candidates in Current Set */}
+      {trackIndex !== null && allTracks.length > 1 && (track.bpm != null || track.camelot) && (() => {
+        const compatible = findCompatibleSetTracks(track, trackIndex, allTracks, 4);
+        if (compatible.length === 0) return null;
+        return (
+          <div className="border-t border-[#394133] pt-3 space-y-2">
+            <span className="text-[10px] sm:text-[11px] font-mono uppercase tracking-wider text-[#7E8876] font-semibold block">
+              Good follow-ups in this set
+            </span>
+            <div className="space-y-1.5">
+              {compatible.map((match) => (
+                <button
+                  key={match.track.id || match.index}
+                  type="button"
+                  onClick={() => onSelectTrackByIndex?.(match.index)}
+                  className="w-full text-left p-2 rounded bg-[#10120F] hover:bg-[#252B22] border border-[#394133] hover:border-[#D6FC55] transition-colors flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] sm:text-xs font-semibold text-[#F3F0E6] truncate">
+                      <span className="font-mono text-[#7E8876] mr-1.5">
+                        #{String(match.index + 1).padStart(2, '0')}
+                      </span>
+                      {match.track.title}
+                    </p>
+                    <p className="text-[10px] font-mono text-[#BAC2B3] truncate">
+                      {match.track.bpm ? `${Math.round(match.track.bpm)} BPM` : '—'} ·{' '}
+                      {match.track.camelot || match.track.key || '—'} ·{' '}
+                      <span className={transitionToneClass(match.grade)}>{match.relation}</span>
+                    </p>
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 text-[#7E8876] shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Manual Override Controls */}
       <div className="border-t border-[#394133] pt-3 space-y-3">

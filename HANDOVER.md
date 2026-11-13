@@ -162,3 +162,24 @@ Code hardening pass branched from `playlists-and-desktop-scale` (`940f380`), foc
   - Live Spotify OAuth/429/write flows, live FreqBlog/GetSongBPM/Sonovault/SoundNet quota calls, and live Cloudflare Worker deployment were not executed against production accounts/services.
   - Headless browser rendering was verified on the parent commit `playlists-and-desktop-scale` (`940f380`) and not re-run on `harden-code-pass` because no CSS, markup layout, or component geometry changed (only `<meta name="referrer">` and client service/state guards).
   - Lower coverage remains on Express route glue (`server/routes/api.js` `47.62%` branches, `server/index.js` `25.00%` branches), browser-only OAuth PKCE/Google token flows (`spotifyPkce.js`, `googleAuth.js` DOM script injection), and untouched `gapDetector.js` (`9.33%` lines).
+
+## Branch: app-improvements (2026-11-13, ready to merge)
+
+Implements the 5 workflow and export improvements approved in the hardening/improvement plan on top of `harden-code-pass`:
+
+- **Bridge & Bonus Suggestions UI (`client/src/components/SuggestionsDrawer.jsx`, `client/src/services/api.js`, `client/src/services/clientSequencer.js`, `server/core/bridgeFinder.js`, `client/src/App.jsx`)**:
+  - Wired `"Find bridges"` workbench action via `fetchSuggestions` with offline `generateOfflineSuggestions` fallback on static GitHub Pages builds, honest `Reference catalogue` / `status: 'reference'` provenance (`confidence: 'reference_catalog'`, never claiming external Beatport/Rekordbox live fetches), dismiss control (`onClose`), unique inserted IDs, and descending `insertAfterIndex` splice order so multi-bridge insertion never shifts earlier gap indices.
+- **Reversible Recording-Mismatch Confirmation (`client/src/utils/manualOverride.js`, `client/src/components/InspectorRail.jsx`, `client/src/App.jsx`)**:
+  - Added `confirmRecordingMatch(track)` (`recordingNeedsReview: false`, `recordingConfirmed: true`, preserving `sourceTrack` and `recordingMismatch` for `revertManualOverride`) with `"Confirm match applies to this recording"` button inside the Inspector review alert.
+- **DJ `.m3u8` Export & Saved-Set JSON Backup/Restore (`client/src/services/formatters.js`, `client/src/services/api.js`, `client/src/services/googleAuth.js`, `client/src/components/HistoryDrawer.jsx`, `client/src/App.jsx`)**:
+  - Added `generateM3U8Export` / `triggerM3U8Download` (Extended `#EXTM3U` with CR/LF stripping, `#EXT-X-DECKORDER`, Spotify web URLs or sanitized `.mp3` fallback) and `"Download M3U8"` button in the bottom dock.
+  - Added `buildSavedSetsBackup` and `importSavedSetsBackup` (5 MB limit, JSON validation, `__proto__`/`constructor`/`prototype` key stripping, `setSignature` deduplication, non-destructive prepend) with `"Export JSON"` / `"Import JSON"` controls in `HistoryDrawer`.
+- **Sequencing Flow & Navigation Helpers (`server/core/solver.js`, `server/routes/api.js`, `client/src/utils/trackBadges.js`, `client/src/components/SequencedTable.jsx`, `client/src/components/InspectorRail.jsx`, `client/src/App.jsx`)**:
+  - Added `"Next issue (N)"` stepper (`listIssueIndices`, scrolling to the visible `[data-track-row-idx]` element across desktop rows and mobile cards), `"Good follow-ups in this set"` (`findCompatibleSetTracks`), and persistent `lockedOpenerId` / `lockedCloserId` anchoring (`Pin as opener` / `Pin as closer` + `Opener`/`Closer` table pills + `DJSequencer` endpoint pinning).
+- **Landing Polish (`client/src/components/SourcePicker.jsx`, `client/src/App.jsx`)**:
+  - Added playlist sort toggles (`Spotify order` | `Name A-Z` | `Most tracks`) and a `"Continue a recent set"` quick-resume card listing the top 3 saved sets on the landing screen; fixed `320px` narrow-mobile header title wrapping and dock bottom clearance (`pb-48 sm:pb-40`).
+- **Verified**:
+  - `npm test` and `node --test --experimental-test-coverage test/*.test.js` pass (`test/appImprovements.test.js` added), `npm run verify:security` passes, `npm --prefix client run build` builds cleanly, `npm audit --omit=dev` (root, `client/`, `worker/`) reports `0` vulnerabilities, and headless Chrome CDP checks verified desktop (`1440x900`), mobile (`390x844`), and narrow mobile (`320x640`) layouts with zero console/page errors, zero external API calls, and zero horizontal overflow.
+- **Remaining limits**:
+  - Live Spotify OAuth PKCE, live Spotify playlist fetch/write, live Worker/FreqBlog lookups, and physical Rekordbox/Serato `.m3u8` hardware import were not exercised against live accounts.
+

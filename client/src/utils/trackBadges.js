@@ -1,3 +1,5 @@
+import { calculateTransitionCost } from '../../../server/core/costMatrix.js';
+
 /**
  * Per-track data badges (colour-coded Camelot + BPM) and working-set
  * removal helpers. Pure functions so the test suite can pin them without a
@@ -81,6 +83,7 @@ const EVIDENCE_BADGES = {
   sample: { label: 'Sample', cls: 'badge-status-sample' },
   corroborated: { label: 'Corroborated', cls: 'badge-status-corroborated' },
   single_source: { label: 'Single source', cls: 'badge-status-single' },
+  reference: { label: 'Reference', cls: 'badge-status-single' },
   supplied: { label: 'Supplied', cls: 'badge-status-supplied' },
   disputed: { label: 'Disputed', cls: 'badge-status-disputed' },
   missing: { label: 'Missing', cls: 'badge-status-missing' },
@@ -122,4 +125,76 @@ export function transitionToneClass(tone) {
     tone === 'SMOOTH' ? 'text-[#86EFAC] font-semibold' :
     tone === 'STRETCH' ? 'text-[#FDE047]' :
     tone === 'CLASH' ? 'text-[#FCA5A5]' : 'text-[#BAC2B3]';
+}
+
+/**
+ * Summarizes problem locations in the current running order so DJs can step
+ * directly between Clash, Stretch, and Needs-review tracks in large sets.
+ */
+export function listIssueIndices(tracks, transitions) {
+  const list = Array.isArray(tracks) ? tracks : [];
+  const trans = Array.isArray(transitions) ? transitions : [];
+  const clashIndices = [];
+  const stretchIndices = [];
+  const reviewIndices = [];
+  const issueSet = new Set();
+
+  list.forEach((track, idx) => {
+    const tr = idx < list.length - 1 ? trans[idx] : null;
+    const nextTrack = idx < list.length - 1 ? list[idx + 1] : null;
+    const trackReview = Boolean(track?.recordingNeedsReview || track?.tempoNeedsReview);
+    const pairReview = Boolean(trackReview || nextTrack?.recordingNeedsReview || nextTrack?.tempoNeedsReview);
+
+    if (trackReview) {
+      reviewIndices.push(idx);
+      issueSet.add(idx);
+    }
+    if (tr && !pairReview) {
+      if (tr.grade === 'CLASH') {
+        clashIndices.push(idx);
+        issueSet.add(idx);
+      } else if (tr.grade === 'STRETCH') {
+        stretchIndices.push(idx);
+        issueSet.add(idx);
+      }
+    }
+  });
+
+  return {
+    clashIndices,
+    stretchIndices,
+    reviewIndices,
+    allIssueIndices: [...issueSet].sort((a, b) => a - b)
+  };
+}
+
+/**
+ * Finds other tracks in the loaded set that mix smoothly out of `activeTrack`.
+ * Never alters values; skips unconfirmed review tracks or missing BPM/Camelot.
+ */
+export function findCompatibleSetTracks(activeTrack, activeIndex, tracks, limit = 4) {
+  if (!activeTrack || !activeTrack.bpm || !activeTrack.camelot || activeTrack.recordingNeedsReview || activeTrack.tempoNeedsReview) {
+    return [];
+  }
+  if (!Array.isArray(tracks) || tracks.length < 2) return [];
+
+  const matches = [];
+  tracks.forEach((cand, idx) => {
+    if (idx === activeIndex || !cand) return;
+    if (!cand.bpm || !cand.camelot || cand.recordingNeedsReview || cand.tempoNeedsReview) return;
+    const res = calculateTransitionCost(activeTrack, cand);
+    if (res.grade === 'SMOOTH' || res.totalCost <= 4.5) {
+      matches.push({
+        track: cand,
+        index: idx,
+        grade: res.grade,
+        relation: res.relation,
+        bpmChange: res.bpmChange,
+        totalCost: res.totalCost
+      });
+    }
+  });
+
+  matches.sort((a, b) => a.totalCost - b.totalCost);
+  return matches.slice(0, limit);
 }

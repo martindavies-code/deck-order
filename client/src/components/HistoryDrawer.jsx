@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Clock, Play, Trash2, Bookmark } from 'lucide-react';
+import { X, Clock, Play, Trash2, Bookmark, Download, Upload } from 'lucide-react';
 
 export function HistoryDrawer({
   isOpen,
@@ -11,8 +11,23 @@ export function HistoryDrawer({
   googleUser,
   activeSetId,
   saveError,
-  onNewSet
+  onNewSet,
+  onExportBackup,
+  onImportBackup
 }) {
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !onImportBackup) return;
+    try {
+      const text = await file.text();
+      onImportBackup(text);
+    } catch {
+      onImportBackup('');
+    }
+  };
   // Two-tap inline confirm guards accidental deletion of a single set.
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
@@ -57,7 +72,27 @@ export function HistoryDrawer({
           </div>
         </div>
 
-        {onNewSet && <button type="button" onClick={onNewSet} className="deck-btn-secondary text-xs sm:text-sm min-h-[44px] self-start">New set</button>}
+        <div className="flex flex-wrap items-center gap-2">
+          {onNewSet && <button type="button" onClick={onNewSet} className="deck-btn-secondary text-xs sm:text-sm min-h-[44px]">New set</button>}
+          {history.length > 0 && onExportBackup && (
+            <button type="button" onClick={onExportBackup} className="deck-btn-secondary text-xs sm:text-sm min-h-[44px]">
+              <Download className="w-3.5 h-3.5" />
+              <span>Export JSON</span>
+            </button>
+          )}
+          {onImportBackup && (
+            <label className="deck-btn-secondary text-xs sm:text-sm min-h-[44px] cursor-pointer inline-flex items-center gap-1.5">
+              <Upload className="w-3.5 h-3.5" />
+              <span>Import JSON</span>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleImportFile}
+                className="sr-only"
+              />
+            </label>
+          )}
+        </div>
 
         {/* History List */}
         <div className="flex-1 overflow-y-auto space-y-2 pr-1 my-2">

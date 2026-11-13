@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { ListMusic, FileText, Upload, Sparkles, Disc, Music, ArrowRight, X, Check, Search, RefreshCw, Loader2 } from 'lucide-react';
+import { ListMusic, FileText, Upload, Sparkles, Disc, Music, ArrowRight, X, Check, Search, RefreshCw, Loader2, Clock } from 'lucide-react';
 import { formatLoadProgress } from '../services/api.js';
 
 export const DEMO_ELECTRONIC_CSV = `Artist,Title,Version,BPM,Key
@@ -29,10 +29,14 @@ export function SourcePicker({
   loadProgress = null,
   loadingPlaylistId = null,
   staySignedIn = false,
-  onToggleStaySignedIn
+  onToggleStaySignedIn,
+  recentSets = [],
+  onLoadRecentSet,
+  onOpenHistory
 }) {
   const [activeTab, setActiveTab] = useState(spotifyConnected ? 'spotify' : 'paste');
   const [playlistQuery, setPlaylistQuery] = useState('');
+  const [playlistSort, setPlaylistSort] = useState('default');
   const [csvInput, setCsvInput] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [rowErrors, setRowErrors] = useState([]);
@@ -40,12 +44,21 @@ export function SourcePicker({
   const spotifyClientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
 
   const trimmedPlaylistQuery = playlistQuery.trim().toLowerCase();
-  const visiblePlaylists = trimmedPlaylistQuery
+  const filteredPlaylists = trimmedPlaylistQuery
     ? playlists.filter(pl =>
         (pl.name || '').toLowerCase().includes(trimmedPlaylistQuery) ||
         (pl.description || '').toLowerCase().includes(trimmedPlaylistQuery)
       )
     : playlists;
+
+  const visiblePlaylists = playlistSort === 'default'
+    ? filteredPlaylists
+    : [...filteredPlaylists].sort((a, b) => {
+        if (playlistSort === 'name') {
+          return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+        }
+        return (b.itemCount ?? 0) - (a.itemCount ?? 0);
+      });
 
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
@@ -130,6 +143,47 @@ export function SourcePicker({
               <br />Audio analysis by FreqBlog (freqblog.com)
             </span>
           </div>
+
+          {recentSets.length > 0 && onLoadRecentSet && (
+            <div className="deck-panel p-3.5 sm:p-4 space-y-2.5 max-w-lg">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-mono uppercase tracking-wider text-[#BAC2B3] flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-[#D6FC55]" />
+                  <span>Continue a recent set</span>
+                </span>
+                {onOpenHistory && (
+                  <button
+                    type="button"
+                    onClick={onOpenHistory}
+                    className="text-[11px] font-mono text-[#D6FC55] hover:underline"
+                  >
+                    All saved
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                {recentSets.slice(0, 3).map((setItem) => (
+                  <button
+                    key={setItem.id}
+                    type="button"
+                    onClick={() => onLoadRecentSet(setItem)}
+                    className="w-full text-left px-3 py-2 rounded bg-[#10120F] hover:bg-[#252B22] border border-[#394133] hover:border-[#D6FC55] transition-colors flex items-center justify-between gap-3 group"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs sm:text-sm font-semibold text-[#F3F0E6] truncate group-hover:text-[#D6FC55]">
+                        {setItem.name}
+                      </p>
+                      <p className="text-[11px] font-mono text-[#7E8876]">
+                        {setItem.trackCount ?? setItem.tracks?.length ?? 0} tracks
+                        {setItem.smoothPct > 0 ? ` · ${setItem.smoothPct}% smooth` : ''}
+                      </p>
+                    </div>
+                    <ArrowRight className="w-3.5 h-3.5 text-[#7E8876] group-hover:text-[#D6FC55] shrink-0" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Original Vinyl / Cue Artwork (Static, aria-hidden) */}
           <div className="relative pt-4 hidden sm:block" aria-hidden="true">
@@ -231,26 +285,52 @@ export function SourcePicker({
                     </div>
 
                     {(playlists.length > 0 || playlistQuery) && (
-                      <div className="relative mb-3">
-                        <Search className="w-4 h-4 text-[#7E8876] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="search"
-                          value={playlistQuery}
-                          onChange={(e) => setPlaylistQuery(e.target.value)}
-                          placeholder="Filter playlists..."
-                          aria-label="Filter playlists"
-                          className="deck-input w-full pl-9 pr-8 py-2 sm:py-2.5 text-xs sm:text-sm"
-                        />
-                        {playlistQuery && (
-                          <button
-                            type="button"
-                            onClick={() => setPlaylistQuery('')}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#7E8876] hover:text-[#F3F0E6] p-0.5"
-                            title="Clear playlist filter"
-                            aria-label="Clear playlist filter"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
+                      <div className="space-y-2 mb-3">
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-[#7E8876] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="search"
+                            value={playlistQuery}
+                            onChange={(e) => setPlaylistQuery(e.target.value)}
+                            placeholder="Filter playlists..."
+                            aria-label="Filter playlists"
+                            className="deck-input w-full pl-9 pr-8 py-2 sm:py-2.5 text-xs sm:text-sm"
+                          />
+                          {playlistQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setPlaylistQuery('')}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#7E8876] hover:text-[#F3F0E6] p-0.5"
+                              title="Clear playlist filter"
+                              aria-label="Clear playlist filter"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        {playlists.length > 1 && (
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
+                            <span className="text-[#7E8876] mr-1">Sort:</span>
+                            {[
+                              { id: 'default', label: 'Spotify order' },
+                              { id: 'name', label: 'Name A-Z' },
+                              { id: 'tracks', label: 'Most tracks' }
+                            ].map((opt) => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => setPlaylistSort(opt.id)}
+                                aria-pressed={playlistSort === opt.id}
+                                className={`px-2 py-1 rounded border transition-colors ${
+                                  playlistSort === opt.id
+                                    ? 'bg-[#252B22] border-[#D6FC55] text-[#D6FC55]'
+                                    : 'bg-[#10120F] border-[#394133] text-[#BAC2B3] hover:text-[#F3F0E6]'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
                         )}
                       </div>
                     )}

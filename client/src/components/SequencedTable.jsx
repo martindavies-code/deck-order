@@ -52,6 +52,8 @@ export function SequencedTable({
   tracks = [],
   transitions = [],
   selectedTrackId,
+  lockedOpenerId = null,
+  lockedCloserId = null,
   onReorderTracks,
   onSelectTrack,
   onRemoveTrack
@@ -145,6 +147,7 @@ export function SequencedTable({
               return (
                 <React.Fragment key={rowKey}>
                   <tr
+                    data-track-row-idx={idx}
                     draggable={!!onReorderTracks}
                     onDragStart={(e) => handleDragStart(e, idx)}
                     onDragOver={(e) => handleDragOver(e, idx)}
@@ -201,9 +204,21 @@ export function SequencedTable({
                           <Music className="w-4 h-4" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs sm:text-sm lg:text-[15px] font-bold text-[#F3F0E6] truncate group-hover:text-[#D6FC55] transition-colors">
-                            {track.title}
-                          </p>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-xs sm:text-sm lg:text-[15px] font-bold text-[#F3F0E6] truncate group-hover:text-[#D6FC55] transition-colors">
+                              {track.title}
+                            </p>
+                            {lockedOpenerId && track.id === lockedOpenerId && (
+                              <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-[rgba(214,252,85,0.12)] border border-[rgba(214,252,85,0.35)] text-[#D6FC55]">
+                                Opener
+                              </span>
+                            )}
+                            {lockedCloserId && track.id === lockedCloserId && (
+                              <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-[rgba(255,136,87,0.14)] border border-[rgba(255,136,87,0.35)] text-[#FFB08E]">
+                                Closer
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[11px] sm:text-xs lg:text-[13px] text-[#BAC2B3] truncate">
                             {track.artist}
                             {track.version && (
@@ -297,6 +312,7 @@ export function SequencedTable({
           return (
             <div
               key={rowKey}
+              data-track-row-idx={idx}
               onClick={() => onSelectTrack && onSelectTrack(track, idx)}
               className={`deck-panel p-3.5 space-y-2.5 transition-colors cursor-pointer ${
                 isSelected ? 'border-[#D6FC55] bg-[#252B22]' : ''
@@ -309,9 +325,21 @@ export function SequencedTable({
                     {(idx + 1).toString().padStart(2, '0')}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-[#F3F0E6] truncate">
-                      {track.title}
-                    </p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-xs font-bold text-[#F3F0E6] truncate">
+                        {track.title}
+                      </p>
+                      {lockedOpenerId && track.id === lockedOpenerId && (
+                        <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-[rgba(214,252,85,0.12)] border border-[rgba(214,252,85,0.35)] text-[#D6FC55]">
+                          Opener
+                        </span>
+                      )}
+                      {lockedCloserId && track.id === lockedCloserId && (
+                        <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-[rgba(255,136,87,0.14)] border border-[rgba(255,136,87,0.35)] text-[#FFB08E]">
+                          Closer
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[11px] text-[#BAC2B3] truncate">
                       {track.artist} {track.version ? `· ${track.version}` : ''}
                     </p>

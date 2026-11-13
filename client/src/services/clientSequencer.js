@@ -8,8 +8,9 @@ import { parseKey, evaluateHarmonicTransition } from '../../../server/core/camel
 import { calculateTransitionCost, evaluateSequence } from '../../../server/core/costMatrix.js';
 import { DJSequencer } from '../../../server/core/solver.js';
 import { annotateEnergyResets } from '../../../server/core/energyArc.js';
+import { SuggestionEngine } from '../../../server/core/bridgeFinder.js';
 import { parseTracklistCSV } from '../../../server/providers/csvParser.js';
-import { generatePlainTextTracklist, generateCSVExport } from './formatters.js';
+import { generatePlainTextTracklist, generateCSVExport, generateM3U8Export } from './formatters.js';
 
 /**
  * Grade the order the user actually sees. DJSequencer.solve() evaluates its
@@ -25,13 +26,31 @@ export function evaluateCurrentOrder(tracks, options = {}) {
   return evaluation;
 }
 
+export async function generateOfflineSuggestions(evaluation, orderedTracks) {
+  if (!Array.isArray(orderedTracks) || orderedTracks.length === 0) {
+    return { success: true, gaps: [], bridgeSuggestions: [], bonusTunes: [] };
+  }
+  const engine = new SuggestionEngine(null);
+  const effectiveEval = evaluation || evaluateCurrentOrder(orderedTracks);
+  const bridgeData = await engine.findBridgeTracks(effectiveEval, orderedTracks, null);
+  const bonusTunes = await engine.findBonusTunes(orderedTracks);
+  return {
+    success: true,
+    gaps: bridgeData.gaps,
+    bridgeSuggestions: bridgeData.suggestions,
+    bonusTunes
+  };
+}
+
 export {
   parseKey,
   evaluateHarmonicTransition,
   calculateTransitionCost,
   evaluateSequence,
   DJSequencer,
+  SuggestionEngine,
   parseTracklistCSV,
   generatePlainTextTracklist,
-  generateCSVExport
+  generateCSVExport,
+  generateM3U8Export
 };

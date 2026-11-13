@@ -8,8 +8,10 @@
 import {
   parseTracklistCSV,
   DJSequencer,
+  generateOfflineSuggestions,
   generatePlainTextTracklist,
-  generateCSVExport
+  generateCSVExport,
+  generateM3U8Export
 } from './clientSequencer.js';
 
 const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
@@ -957,7 +959,9 @@ export async function runSequencer(tracks, options = {}) {
         tracks,
         seed: options.seed || 42,
         enableEnergy: options.enableEnergy || false,
-        unverifiedStrategy: options.unverifiedStrategy || 'keep_relative_position'
+        unverifiedStrategy: options.unverifiedStrategy || 'keep_relative_position',
+        lockedOpenerId: options.lockedOpenerId || null,
+        lockedCloserId: options.lockedCloserId || null
       }),
       signal: AbortSignal.timeout(3000)
     });
@@ -970,7 +974,9 @@ export async function runSequencer(tracks, options = {}) {
   const sequencer = new DJSequencer({
     seed: options.seed || 42,
     enableEnergy: Boolean(options.enableEnergy),
-    unverifiedStrategy: options.unverifiedStrategy || 'keep_relative_position'
+    unverifiedStrategy: options.unverifiedStrategy || 'keep_relative_position',
+    lockedOpenerId: options.lockedOpenerId || null,
+    lockedCloserId: options.lockedCloserId || null
   });
 
   const result = sequencer.solve(tracks);
@@ -978,22 +984,24 @@ export async function runSequencer(tracks, options = {}) {
 }
 
 export async function fetchSuggestions(evaluation, orderedTracks, token = null) {
-  try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (!isGitHubPages) {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch('/api/pipeline/suggestions', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ evaluation, orderedTracks }),
-      signal: AbortSignal.timeout(3000)
-    });
-    if (res.ok) return await res.json();
-  } catch {
-    // Graceful fallback
+      const res = await fetch('/api/pipeline/suggestions', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ evaluation, orderedTracks }),
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) return await res.json();
+    } catch {
+      // Fall back to curated in-browser matcher
+    }
   }
 
-  return { success: true, gaps: [], bridgeSuggestions: [], bonusTunes: [] };
+  return await generateOfflineSuggestions(evaluation, orderedTracks);
 }
 
 export async function requestSavePreview(sourcePlaylist, orderedTracks) {
@@ -1181,11 +1189,18 @@ export async function triggerCsvDownload(orderedTracks, evaluation) {
   downloadBlob(blob);
 }
 
-function downloadBlob(blob) {
+export function triggerM3U8Download(orderedTracks, setName = 'Deck Order Set') {
+  const m3u8String = generateM3U8Export(orderedTracks, setName);
+  const blob = new Blob([m3u8String], { type: 'audio/x-mpegurl;charset=utf-8' });
+  const safeBase = String(setName || 'deck_order').toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'deck_order';
+  downloadBlob(blob, `${safeBase}_${Date.now()}.m3u8`);
+}
+
+function downloadBlob(blob, filename = `deck_order_sequenced_${Date.now()}.csv`) {
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `deck_order_sequenced_${Date.now()}.csv`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();

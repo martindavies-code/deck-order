@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Plus, Check, Music } from 'lucide-react';
+import { Plus, Check, Music, X } from 'lucide-react';
 
 export function SuggestionsDrawer({
   bridgeSuggestions = [],
   bonusTunes = [],
   onToggleSuggestion,
-  onApplySelectedSuggestions
+  onApplySelectedSuggestions,
+  onClose
 }) {
   const [activeTab, setActiveTab] = useState('bridge');
 
@@ -26,15 +27,28 @@ export function SuggestionsDrawer({
           </p>
         </div>
 
-        {selectedCount > 0 && (
-          <button
-            onClick={onApplySelectedSuggestions}
-            className="deck-btn-primary text-xs sm:text-sm w-full sm:w-auto"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Insert {selectedCount} track{selectedCount > 1 ? 's' : ''} into order</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {selectedCount > 0 && (
+            <button
+              onClick={onApplySelectedSuggestions}
+              className="deck-btn-primary text-xs sm:text-sm flex-1 sm:flex-none"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Insert {selectedCount} track{selectedCount > 1 ? 's' : ''} into order</span>
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-[#7E8876] hover:text-[#F3F0E6] p-1.5 rounded border border-transparent hover:border-[#394133]"
+              aria-label="Dismiss suggestions"
+              title="Dismiss suggestions"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -73,7 +87,7 @@ export function SuggestionsDrawer({
               <div
                 key={item.id}
                 onClick={() => onToggleSuggestion(item.id)}
-                className={`p-3 rounded-lg border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                className={`p-3 rounded-lg border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 cursor-pointer transition-colors ${
                   item.selected
                     ? 'bg-[#252B22] border-[#D6FC55]'
                     : 'bg-[#10120F] border-[#394133] hover:border-[#4F5A47]'
@@ -111,7 +125,7 @@ export function SuggestionsDrawer({
                 </div>
 
                 <span className="text-[10px] font-mono uppercase bg-[#1B1F19] text-[#7E8876] px-2 py-0.5 rounded shrink-0 border border-[#394133]">
-                  {item.source || 'Suggested'}
+                  {item.source || 'Reference catalogue'}
                 </span>
               </div>
             ))
@@ -126,7 +140,7 @@ export function SuggestionsDrawer({
               <div
                 key={item.id}
                 onClick={() => onToggleSuggestion(item.id)}
-                className={`p-3 rounded-lg border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                className={`p-3 rounded-lg border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 cursor-pointer transition-colors ${
                   item.selected
                     ? 'bg-[#252B22] border-[#D6FC55]'
                     : 'bg-[#10120F] border-[#394133] hover:border-[#4F5A47]'
@@ -164,7 +178,7 @@ export function SuggestionsDrawer({
                 </div>
 
                 <span className="text-[10px] font-mono uppercase bg-[#1B1F19] text-[#7E8876] px-2 py-0.5 rounded shrink-0 border border-[#394133]">
-                  {item.source || 'Suggested'}
+                  {item.source || 'Reference catalogue'}
                 </span>
               </div>
             ))

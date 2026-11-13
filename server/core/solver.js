@@ -28,6 +28,10 @@ export class DJSequencer {
     this.enableEnergy = options.enableEnergy || false;
     this.maxIterations = options.maxIterations || 1500;
     this.unverifiedStrategy = options.unverifiedStrategy || 'keep_relative_position';
+    this.lockedOpenerId = options.lockedOpenerId || null;
+    this.lockedCloserId = options.lockedCloserId && options.lockedCloserId !== options.lockedOpenerId
+      ? options.lockedCloserId
+      : null;
     // 'keep_relative_position' | 'cluster_at_end' | 'cluster_at_start' | 'exclude'
   }
 
@@ -57,13 +61,18 @@ export class DJSequencer {
   /**
    * Greedy nearest-neighbour tour from a specific starting track index
    */
-  buildGreedyTour(startIndex, tracks, costMatrix) {
+  buildGreedyTour(startIndex, tracks, costMatrix, reservedEndIndex = null) {
     const n = tracks.length;
     const visited = new Uint8Array(n);
     const tour = [startIndex];
     visited[startIndex] = 1;
+    const reserveEnd = reservedEndIndex !== null && reservedEndIndex !== startIndex && reservedEndIndex >= 0 && reservedEndIndex < n;
+    if (reserveEnd) {
+      visited[reservedEndIndex] = 1;
+    }
 
-    for (let step = 1; step < n; step++) {
+    const innerSteps = reserveEnd ? n - 1 : n;
+    for (let step = 1; step < innerSteps; step++) {
       const current = tour[tour.length - 1];
       let bestNext = -1;
       let lowestCost = Infinity;
@@ -84,6 +93,10 @@ export class DJSequencer {
       }
     }
 
+    if (reserveEnd) {
+      tour.push(reservedEndIndex);
+    }
+
     return tour;
   }
 
@@ -92,20 +105,22 @@ export class DJSequencer {
    * STRICT: Reversing segment [i...j] reverses every directed internal edge (k -> k+1)
    * to (k+1 -> k). The exact directed delta is computed for all affected edges.
    */
-  optimizeDirected2Opt(initialTour, costMatrix, tracks) {
+  optimizeDirected2Opt(initialTour, costMatrix, tracks, { pinStart = false, pinEnd = false } = {}) {
     const n = initialTour.length;
     if (n < 4) return initialTour;
 
     const tour = [...initialTour];
     let improved = true;
     let iteration = 0;
+    const minI = pinStart ? 1 : 0;
+    const maxJ = pinEnd ? n - 2 : n - 1;
 
     while (improved && iteration < this.maxIterations) {
       improved = false;
       iteration++;
 
-      for (let i = 0; i < n - 1; i++) {
-        for (let j = i + 1; j < n; j++) {
+      for (let i = minI; i <= maxJ - 1; i++) {
+        for (let j = i + 1; j <= maxJ; j++) {
           // Reversing segment from i to j
           // Segment must have at least 2 tracks (i.e. j >= i + 1)
           if (i === 0 && j === n - 1) continue; // reversing entire tour changes nothing
@@ -193,14 +208,37 @@ export class DJSequencer {
       }
     });
 
-    // If fewer than 2 sequencable tracks, return as-is
+    const pinLockedEndpoints = (list) => {
+      if (this.unverifiedStrategy === 'exclude' || (!this.lockedOpenerId && !this.lockedCloserId)) {
+        return list;
+      }
+      const next = [...list];
+      if (this.lockedOpenerId) {
+        const idx = next.findIndex(t => t.id === this.lockedOpenerId);
+        if (idx > 0) {
+          const [opener] = next.splice(idx, 1);
+          next.unshift(opener);
+        }
+      }
+      if (this.lockedCloserId && next.length > 1) {
+        const idx = next.findIndex(t => t.id === this.lockedCloserId);
+        if (idx !== -1 && idx < next.length - 1 && next[idx].id !== this.lockedOpenerId) {
+          const [closer] = next.splice(idx, 1);
+          next.push(closer);
+        }
+      }
+      return next;
+    };
+
+    // If fewer than 2 sequencable tracks, honor locked anchors if any and evaluate
     if (sequencable.length < 2) {
-      const evaluation = evaluateSequence(rawTracks, { enableEnergy: this.enableEnergy });
+      const anchoredRaw = pinLockedEndpoints(rawTracks);
+      const evaluation = evaluateSequence(anchoredRaw, { enableEnergy: this.enableEnergy });
       return {
-        orderedTracks: rawTracks,
+        orderedTracks: anchoredRaw,
         originalTracks: rawTracks,
         evaluation,
-        originalEvaluation: evaluation,
+        originalEvaluation: evaluateSequence(rawTracks, { enableEnergy: this.enableEnergy }),
         unverifiedCount: unverified.length,
         stats: { runtimeMs: performance.now() - startTime, memoryDeltaBytes: 0, iterations: 0 }
       };
@@ -209,7 +247,13 @@ export class DJSequencer {
     const seqTracksOnly = sequencable.map(s => s.track);
     const costMatrix = this.buildCostMatrix(seqTracksOnly);
 
-    // 2. Multi-start greedy warm-up
+    // 2. Multi-start greedy warm-up (with optional anchored opener/closer endpoints)
+    const seqOpenerIdx = this.lockedOpenerId ? seqTracksOnly.findIndex(t => t.id === this.lockedOpenerId) : -1;
+    const seqCloserIdx = this.lockedCloserId ? seqTracksOnly.findIndex(t => t.id === this.lockedCloserId) : -1;
+    const pinStart = seqOpenerIdx !== -1;
+    const pinEnd = seqCloserIdx !== -1 && seqCloserIdx !== seqOpenerIdx;
+    const reservedEnd = pinEnd ? seqCloserIdx : null;
+
     const warmUpCandidates = selectWarmUpCandidates(seqTracksOnly, 4);
     let bestTour = null;
     let bestTourCost = Infinity;
@@ -225,18 +269,29 @@ export class DJSequencer {
       }
     };
 
-    for (const cand of warmUpCandidates) {
-      const startIndex = seqTracksOnly.indexOf(cand);
-      if (startIndex === -1) continue;
-
-      const greedyTour = this.buildGreedyTour(startIndex, seqTracksOnly, costMatrix);
-      considerTour(this.optimizeDirected2Opt(greedyTour, costMatrix, seqTracksOnly));
+    const startIndices = pinStart
+      ? [seqOpenerIdx]
+      : warmUpCandidates
+          .map(cand => seqTracksOnly.indexOf(cand))
+          .filter(idx => idx !== -1 && idx !== reservedEnd);
+    if (startIndices.length === 0) {
+      const fallbackStart = seqTracksOnly.findIndex((_, idx) => idx !== reservedEnd);
+      if (fallbackStart !== -1) startIndices.push(fallbackStart);
     }
 
-    // Always consider the user's imported order as a candidate: the suggested
-    // order must never score worse than the original under the same objective.
-    const originalTour = seqTracksOnly.map((_, i) => i);
-    considerTour(this.optimizeDirected2Opt(originalTour, costMatrix, seqTracksOnly));
+    for (const startIndex of startIndices) {
+      const greedyTour = this.buildGreedyTour(startIndex, seqTracksOnly, costMatrix, reservedEnd);
+      considerTour(this.optimizeDirected2Opt(greedyTour, costMatrix, seqTracksOnly, { pinStart, pinEnd }));
+    }
+
+    // Always consider the user's imported order as a candidate (respecting any pinned endpoints)
+    const baseIndices = seqTracksOnly.map((_, i) => i).filter(i => i !== (pinStart ? seqOpenerIdx : -1) && i !== (pinEnd ? seqCloserIdx : -1));
+    const anchoredOriginalTour = [
+      ...(pinStart ? [seqOpenerIdx] : []),
+      ...baseIndices,
+      ...(pinEnd ? [seqCloserIdx] : [])
+    ];
+    considerTour(this.optimizeDirected2Opt(anchoredOriginalTour, costMatrix, seqTracksOnly, { pinStart, pinEnd }));
 
     // Map best tour back to tracks
     const sequencedTracks = bestTour.map(idx => sequencable[idx].track);
@@ -266,6 +321,8 @@ export class DJSequencer {
         }
       }
     }
+
+    finalTracks = pinLockedEndpoints(finalTracks);
 
     // 4. Evaluate new and original sequence
     const evaluation = evaluateSequence(finalTracks, { enableEnergy: this.enableEnergy });

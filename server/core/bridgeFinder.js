@@ -4,23 +4,23 @@ import { calculateTransitionCost } from './costMatrix.js';
 // Verified reference pool of real, iconic house/techno tracks with verified ISRC, BPM and Key
 // Used for high-quality fallback bridge & bonus suggestions when API rate limits are tight
 const VERIFIED_REFERENCE_CATALOG = [
-  { artist: 'Bicep', title: 'Apricots', version: 'Original Mix', bpm: 128, key: 'A minor', camelot: '8A', isrc: 'GBBKS2000244', source: 'Beatport / Rekordbox' },
-  { artist: 'Bicep', title: 'Atlas', version: 'Original Mix', bpm: 128, key: 'D minor', camelot: '7A', isrc: 'GBBKS2000007', source: 'Beatport / Rekordbox' },
-  { artist: 'Overmono', title: 'So U Kno', version: 'Original Mix', bpm: 132, key: 'F minor', camelot: '4A', isrc: 'GBBKS2100222', source: 'Beatport / Rekordbox' },
-  { artist: 'Overmono', title: 'Diamond Cut', version: 'Original Mix', bpm: 130, key: 'Eb minor', camelot: '2A', isrc: 'GBBKS2000301', source: 'Beatport / Rekordbox' },
-  { artist: 'Four Tet', title: 'Three Drums', version: 'Original Mix', bpm: 124, key: 'C minor', camelot: '5A', isrc: 'GBBKS2300188', source: 'Beatport / Rekordbox' },
-  { artist: 'Four Tet', title: 'Kool FM', version: 'Original Mix', bpm: 126, key: 'A minor', camelot: '8A', isrc: 'GBBKS1300050', source: 'Beatport / Rekordbox' },
-  { artist: 'Floating Points', title: 'Vocoder', version: 'Club Mix', bpm: 132, key: 'Db minor', camelot: '12A', isrc: 'GBBKS2200045', source: 'Beatport / Rekordbox' },
-  { artist: 'Floating Points', title: 'Grammar', version: 'Original Mix', bpm: 130, key: 'Eb minor', camelot: '2A', isrc: 'GBBKS2200046', source: 'Beatport / Rekordbox' },
-  { artist: 'Peggy Gou', title: 'Starry Night', version: 'Original Mix', bpm: 126, key: 'G minor', camelot: '6A', isrc: 'GBBKS1900088', source: 'Beatport / Rekordbox' },
-  { artist: 'Peggy Gou', title: 'I Go', version: 'Original Mix', bpm: 128, key: 'F minor', camelot: '4A', isrc: 'GBBKS2100199', source: 'Beatport / Rekordbox' },
-  { artist: 'Barry Can\'t Swim', title: 'Kimbara', version: 'Original Mix', bpm: 126, key: 'F# minor', camelot: '11A', isrc: 'GBBKS2200302', source: 'Beatport / Rekordbox' },
-  { artist: 'Barry Can\'t Swim', title: 'Blackpool Boulevard', version: 'Original Mix', bpm: 124, key: 'A minor', camelot: '8A', isrc: 'GBBKS2100450', source: 'Beatport / Rekordbox' },
-  { artist: 'Mall Grab', title: 'Love Reigns', version: 'Original Mix', bpm: 128, key: 'C minor', camelot: '5A', isrc: 'GBBKS2100511', source: 'Beatport / Rekordbox' },
-  { artist: 'Ross from Friends', title: 'Talk to Me You\'ll Understand', version: 'Original Mix', bpm: 125, key: 'B minor', camelot: '10A', isrc: 'GBBKS1600001', source: 'Beatport / Rekordbox' },
-  { artist: 'Fred again..', title: 'Delilah (pull me out of this)', version: 'Original Mix', bpm: 134, key: 'A minor', camelot: '8A', isrc: 'GBAHS2200911', source: 'Beatport / Rekordbox' },
-  { artist: 'Bonobo', title: 'Otomo', version: 'Original Mix', bpm: 128, key: 'D minor', camelot: '7A', isrc: 'GBBKS2100416', source: 'Beatport / Rekordbox' },
-  { artist: 'Daphni', title: 'Cos-Ber-Zam - Ne Noya (Daphni Mix)', version: 'Mix', bpm: 125, key: 'E minor', camelot: '9A', isrc: 'CAJ421100001', source: 'Beatport / Rekordbox' }
+  { artist: 'Bicep', title: 'Apricots', version: 'Original Mix', bpm: 128, key: 'A minor', camelot: '8A', isrc: 'GBBKS2000244', source: 'Reference catalogue' },
+  { artist: 'Bicep', title: 'Atlas', version: 'Original Mix', bpm: 128, key: 'D minor', camelot: '7A', isrc: 'GBBKS2000007', source: 'Reference catalogue' },
+  { artist: 'Overmono', title: 'So U Kno', version: 'Original Mix', bpm: 132, key: 'F minor', camelot: '4A', isrc: 'GBBKS2100222', source: 'Reference catalogue' },
+  { artist: 'Overmono', title: 'Diamond Cut', version: 'Original Mix', bpm: 130, key: 'Eb minor', camelot: '2A', isrc: 'GBBKS2000301', source: 'Reference catalogue' },
+  { artist: 'Four Tet', title: 'Three Drums', version: 'Original Mix', bpm: 124, key: 'C minor', camelot: '5A', isrc: 'GBBKS2300188', source: 'Reference catalogue' },
+  { artist: 'Four Tet', title: 'Kool FM', version: 'Original Mix', bpm: 126, key: 'A minor', camelot: '8A', isrc: 'GBBKS1300050', source: 'Reference catalogue' },
+  { artist: 'Floating Points', title: 'Vocoder', version: 'Club Mix', bpm: 132, key: 'Db minor', camelot: '12A', isrc: 'GBBKS2200045', source: 'Reference catalogue' },
+  { artist: 'Floating Points', title: 'Grammar', version: 'Original Mix', bpm: 130, key: 'Eb minor', camelot: '2A', isrc: 'GBBKS2200046', source: 'Reference catalogue' },
+  { artist: 'Peggy Gou', title: 'Starry Night', version: 'Original Mix', bpm: 126, key: 'G minor', camelot: '6A', isrc: 'GBBKS1900088', source: 'Reference catalogue' },
+  { artist: 'Peggy Gou', title: 'I Go', version: 'Original Mix', bpm: 128, key: 'F minor', camelot: '4A', isrc: 'GBBKS2100199', source: 'Reference catalogue' },
+  { artist: 'Barry Can\'t Swim', title: 'Kimbara', version: 'Original Mix', bpm: 126, key: 'F# minor', camelot: '11A', isrc: 'GBBKS2200302', source: 'Reference catalogue' },
+  { artist: 'Barry Can\'t Swim', title: 'Blackpool Boulevard', version: 'Original Mix', bpm: 124, key: 'A minor', camelot: '8A', isrc: 'GBBKS2100450', source: 'Reference catalogue' },
+  { artist: 'Mall Grab', title: 'Love Reigns', version: 'Original Mix', bpm: 128, key: 'C minor', camelot: '5A', isrc: 'GBBKS2100511', source: 'Reference catalogue' },
+  { artist: 'Ross from Friends', title: 'Talk to Me You\'ll Understand', version: 'Original Mix', bpm: 125, key: 'B minor', camelot: '10A', isrc: 'GBBKS1600001', source: 'Reference catalogue' },
+  { artist: 'Fred again..', title: 'Delilah (pull me out of this)', version: 'Original Mix', bpm: 134, key: 'A minor', camelot: '8A', isrc: 'GBAHS2200911', source: 'Reference catalogue' },
+  { artist: 'Bonobo', title: 'Otomo', version: 'Original Mix', bpm: 128, key: 'D minor', camelot: '7A', isrc: 'GBBKS2100416', source: 'Reference catalogue' },
+  { artist: 'Daphni', title: 'Cos-Ber-Zam - Ne Noya (Daphni Mix)', version: 'Mix', bpm: 125, key: 'E minor', camelot: '9A', isrc: 'CAJ421100001', source: 'Reference catalogue' }
 ];
 
 export class SuggestionEngine {
@@ -99,7 +99,7 @@ export class SuggestionEngine {
             costToCand,
             costFromCand,
             combinedCost,
-            reason: `${cand.camelot}, ${cand.bpm} BPM sits harmonically between ${trackA.artist} (${trackA.camelot}) and ${trackB.artist} (${trackB.camelot})`
+            reason: `${cand.camelot}, ${cand.bpm} BPM bridges ${trackA.artist || 'Track'} (${trackA.camelot || '?'}) and ${trackB.artist || 'Track'} (${trackB.camelot || '?'})`
           });
         }
       }
@@ -110,12 +110,15 @@ export class SuggestionEngine {
         artist: c.track.artist,
         title: c.track.title,
         version: c.track.version || 'Original Mix',
+        isrc: c.track.isrc || null,
         bpm: c.track.bpm,
+        workingBpm: c.track.bpm,
         key: c.track.key || c.track.camelot,
         camelot: c.track.camelot,
-        source: c.track.source || 'Verified Source',
-        status: 'verified',
-        confidence: 'verified',
+        source: c.track.source || 'Reference catalogue',
+        status: 'reference',
+        confidence: 'reference_catalog',
+        isSuggestedTrack: true,
         isBridge: true,
         selected: false, // Default is OFF per Phase 3.4
         insertAfterIndex: gap.trackAIndex,
@@ -166,12 +169,15 @@ export class SuggestionEngine {
           artist: item.artist,
           title: item.title,
           version: item.version,
+          isrc: item.isrc || null,
           bpm: item.bpm,
+          workingBpm: item.bpm,
           key: item.key,
           camelot: item.camelot,
-          source: item.source,
-          status: 'verified',
-          confidence: 'verified',
+          source: item.source || 'Reference catalogue',
+          status: 'reference',
+          confidence: 'reference_catalog',
+          isSuggestedTrack: true,
           isBonus: true,
           selected: false, // OFF by default
           reason: `Matches dominant vibe (${item.camelot}, ${item.bpm} BPM, close to set median ${medianBpm} BPM)`

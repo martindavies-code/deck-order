@@ -195,13 +195,15 @@ export function createApiRouter(config = {}) {
 
   // Solve & Sequence Tracks (Validated)
   router.post('/pipeline/sequence', validateSequencePayload, (req, res, next) => {
-    const { tracks, seed, enableEnergy, unverifiedStrategy } = req.body;
+    const { tracks, seed, enableEnergy, unverifiedStrategy, lockedOpenerId, lockedCloserId } = req.body;
 
     try {
       const sequencer = new DJSequencer({
         seed: seed || 42,
         enableEnergy: Boolean(enableEnergy),
-        unverifiedStrategy: unverifiedStrategy || 'keep_relative_position'
+        unverifiedStrategy: unverifiedStrategy || 'keep_relative_position',
+        lockedOpenerId: typeof lockedOpenerId === 'string' && lockedOpenerId.length <= 128 ? lockedOpenerId : null,
+        lockedCloserId: typeof lockedCloserId === 'string' && lockedCloserId.length <= 128 ? lockedCloserId : null
       });
 
       const result = sequencer.solve(tracks);

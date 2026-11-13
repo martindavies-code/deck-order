@@ -313,3 +313,122 @@ export function updateActiveSet(setRecord, accountKey = 'anonymous', { onError }
     return { history: current, saved: false };
   }
 }
+
+const DISALLOWED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function sanitizePlainValue(val, depth = 0) {
+  if (depth > 4) return null;
+  if (val === null || val === undefined) return val;
+  if (typeof val === 'string' || typeof val === 'boolean') return val;
+  if (typeof val === 'number') return Number.isFinite(val) ? val : null;
+  if (Array.isArray(val)) return val.slice(0, 1000).map(v => sanitizePlainValue(v, depth + 1));
+  if (typeof val === 'object') {
+    const clean = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (DISALLOWED_KEYS.has(k)) continue;
+      clean[k] = sanitizePlainValue(v, depth + 1);
+    }
+    return clean;
+  }
+  return null;
+}
+
+export function buildSavedSetsBackup(accountKey = 'anonymous') {
+  const sets = getCrateHistory(accountKey);
+  return {
+    format: 'deck-order-saved-sets',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    sets
+  };
+}
+
+export function importSavedSetsBackup(rawJsonText, accountKey = 'anonymous') {
+  if (typeof rawJsonText !== 'string' || !rawJsonText.trim()) {
+    throw new Error('Selected backup file is empty.');
+  }
+  if (rawJsonText.length > 5 * 1024 * 1024) {
+    throw new Error('Backup file exceeds 5 MB limit.');
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJsonText);
+  } catch {
+    throw new Error('Backup file is not valid JSON.');
+  }
+
+  const rawSets = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.sets) ? parsed.sets : null);
+  if (!rawSets || rawSets.length === 0) {
+    throw new Error('Backup file does not contain any saved sets.');
+  }
+  if (rawSets.length > 50) {
+    throw new Error('Backup contains more than 50 saved sets (maximum supported).');
+  }
+
+  const current = getCrateHistory(accountKey);
+  const existingSigs = new Set(current.map(s => setSignature(s.name, s.tracks)));
+  const existingIds = new Set(current.map(s => s.id));
+  const imported = [];
+  let skippedDuplicates = 0;
+
+  for (const item of rawSets) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    if (!Array.isArray(item.tracks) || item.tracks.length === 0 || item.tracks.length > 1000) continue;
+
+    const cleanTracks = item.tracks
+      .filter(t => t && typeof t === 'object' && !Array.isArray(t))
+      .map(t => sanitizePlainValue(t));
+    if (cleanTracks.length === 0) continue;
+
+    const cleanOrig = Array.isArray(item.originalTracks)
+      ? item.originalTracks.filter(t => t && typeof t === 'object' && !Array.isArray(t)).map(t => sanitizePlainValue(t))
+      : cleanTracks;
+
+    const name = typeof item.name === 'string' && item.name.trim()
+      ? item.name.trim().slice(0, 120)
+      : 'Imported Set';
+
+    const sig = setSignature(name, cleanTracks);
+    if (existingSigs.has(sig)) {
+      skippedDuplicates++;
+      continue;
+    }
+    existingSigs.add(sig);
+
+    let id = typeof item.id === 'string' && item.id.trim() && item.id.length <= 128
+      ? item.id.trim()
+      : `set_${crypto.randomUUID()}`;
+    if (existingIds.has(id)) {
+      id = `set_${crypto.randomUUID()}`;
+    }
+    existingIds.add(id);
+
+    imported.push({
+      id,
+      timestamp: typeof item.timestamp === 'string' ? item.timestamp : new Date().toISOString(),
+      updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date().toISOString(),
+      name,
+      trackCount: cleanTracks.length,
+      smoothPct: typeof item.smoothPct === 'number' && Number.isFinite(item.smoothPct) ? item.smoothPct : 0,
+      totalCost: typeof item.totalCost === 'number' && Number.isFinite(item.totalCost) ? item.totalCost : 0,
+      tracks: cleanTracks,
+      originalTracks: cleanOrig,
+      evaluation: item.evaluation && typeof item.evaluation === 'object' ? sanitizePlainValue(item.evaluation) : null,
+      lockedOpenerId: typeof item.lockedOpenerId === 'string' ? item.lockedOpenerId : null,
+      lockedCloserId: typeof item.lockedCloserId === 'string' ? item.lockedCloserId : null,
+      source: typeof item.source === 'string' ? item.source.slice(0, 64) : 'JSON Backup'
+    });
+  }
+
+  if (imported.length === 0 && skippedDuplicates === 0) {
+    throw new Error('No valid tracklists were found in the backup file.');
+  }
+
+  const combined = [...imported, ...current];
+  try {
+    localStorage.setItem(`${CRATE_HISTORY_PREFIX}${accountKey}`, JSON.stringify(combined));
+    return { history: combined, saved: true, importedCount: imported.length, skippedDuplicates };
+  } catch (err) {
+    return { history: current, saved: false, importedCount: 0, skippedDuplicates, error: err?.message || 'Storage full' };
+  }
+}

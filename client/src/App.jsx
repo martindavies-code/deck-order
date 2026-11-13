@@ -3,7 +3,7 @@ import { Header } from './components/Header.jsx';
 import { SourcePicker } from './components/SourcePicker.jsx';
 import { CoverageReport } from './components/CoverageReport.jsx';
 import { SequencedTable } from './components/SequencedTable.jsx';
-import { removeTrackAt, restoreTrackAt } from './utils/trackBadges.js';
+import { removeTrackAt, restoreTrackAt, listIssueIndices } from './utils/trackBadges.js';
 import { ComparisonView } from './components/ComparisonView.jsx';
 import { HarmonicArcVisualizer } from './components/HarmonicArcVisualizer.jsx';
 import { InspectorRail } from './components/InspectorRail.jsx';
@@ -25,10 +25,17 @@ import {
   confirmSavePlaylist,
   copyTracklistText,
   triggerCsvDownload,
+  triggerM3U8Download,
+  fetchSuggestions,
   refreshSpotifyToken,
   SPOTIFY_403_MSG
 } from './services/api.js';
-import { applyManualOverride, revertManualOverride, replaceTrackById } from './utils/manualOverride.js';
+import {
+  applyManualOverride,
+  revertManualOverride,
+  confirmRecordingMatch,
+  replaceTrackById
+} from './utils/manualOverride.js';
 import { evaluateCurrentOrder, DJSequencer } from './services/clientSequencer.js';
 import {
   initiateSpotifyLogin,
@@ -49,9 +56,11 @@ import {
   updateActiveSet,
   clearCrateHistory,
   removeSetFromHistory,
+  buildSavedSetsBackup,
+  importSavedSetsBackup,
   forgetThisDevice
 } from './services/googleAuth.js';
-import { Copy, Download, Disc, Check, ArrowLeft, Edit2, AlertCircle } from 'lucide-react';
+import { Copy, Download, Disc, Check, ArrowLeft, Edit2, AlertCircle, Sparkles, ArrowRight, FileDown } from 'lucide-react';
 
 export function App() {
   const [status, setStatus] = useState(null);
@@ -110,10 +119,13 @@ export function App() {
   const [unverifiedStrategy, setUnverifiedStrategy] = useState('keep_relative_position');
   const [enableEnergy, setEnableEnergy] = useState(false);
   const [viewMode, setViewMode] = useState('sequenced'); // 'sequenced' | 'original'
+  const [lockedOpenerId, setLockedOpenerId] = useState(null);
+  const [lockedCloserId, setLockedCloserId] = useState(null);
 
   // Suggestions & Modals
   const [bridgeSuggestions, setBridgeSuggestions] = useState([]);
   const [bonusTunes, setBonusTunes] = useState([]);
+  const [isFindingSuggestions, setIsFindingSuggestions] = useState(false);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   const [saveManifest, setSaveManifest] = useState(null);
   const [saveResult, setSaveResult] = useState(null);
@@ -141,12 +153,17 @@ export function App() {
   useEffect(() => {
     if (!activeSetId || !tracks.length || prevAccountKeyRef.current !== accountKey) return;
     const result = updateActiveSet({
-      id: activeSetId, name: setName, tracks: orderedTracks, originalTracks,
+      id: activeSetId,
+      name: setName,
+      tracks: orderedTracks,
+      originalTracks,
+      lockedOpenerId,
+      lockedCloserId,
       evaluation: getCachedEvaluation(orderedTracks, enableEnergy)
     }, accountKey);
     setCrateHistory(result.history);
     setSaveError(!result.saved);
-  }, [activeSetId, orderedTracks, originalTracks, setName, enableEnergy, accountKey]);
+  }, [activeSetId, orderedTracks, originalTracks, setName, enableEnergy, lockedOpenerId, lockedCloserId, accountKey]);
 
   useEffect(() => {
     if (!saveError) return;
@@ -178,6 +195,10 @@ export function App() {
       setSelectedPlaylist(null);
       setSelectedTrackIndex(null);
       setIsSampleSet(false);
+      setLockedOpenerId(null);
+      setLockedCloserId(null);
+      setBridgeSuggestions([]);
+      setBonusTunes([]);
     }
   }, [accountKey]);
 
@@ -400,6 +421,10 @@ export function App() {
     setIsSampleSet(false);
     setViewMode('sequenced');
     setSelectedTrackIndex(0);
+    setLockedOpenerId(historicalSet.lockedOpenerId || null);
+    setLockedCloserId(historicalSet.lockedCloserId || null);
+    setBridgeSuggestions([]);
+    setBonusTunes([]);
     setShowHistoryDrawer(false);
     showToast(`Loaded "${historicalSet.name}".`);
     return true;
@@ -449,6 +474,10 @@ export function App() {
       }
 
       newSetIdentity();
+      setLockedOpenerId(null);
+      setLockedCloserId(null);
+      setBridgeSuggestions([]);
+      setBonusTunes([]);
       setTracks(verifyRes.tracks);
       setCoverageReport({ ...verifyRes.report, ...computeCoverageCounts(verifyRes.tracks) });
       // Show the imported order immediately so the playlist never "disappears";
@@ -511,6 +540,10 @@ export function App() {
       setLoadProgress({ stage: 'verify', fetched: 0, total: parsed.tracks.length || null });
       const verifyRes = await verifyTracklist(parsed.tracks, isSample, setLoadProgress);
       newSetIdentity();
+      setLockedOpenerId(null);
+      setLockedCloserId(null);
+      setBridgeSuggestions([]);
+      setBonusTunes([]);
       setTracks(verifyRes.tracks);
       setCoverageReport({ ...verifyRes.report, ...computeCoverageCounts(verifyRes.tracks) });
       // Show the imported order immediately; "Build my running order" re-sequences.
@@ -551,7 +584,9 @@ export function App() {
       const solver = new DJSequencer({
         seed: 42,
         enableEnergy,
-        unverifiedStrategy
+        unverifiedStrategy,
+        lockedOpenerId,
+        lockedCloserId
       });
 
       const res = solver.solve(orderedTracks);
@@ -591,7 +626,14 @@ export function App() {
     const { tracks: updated, removed, index: removedIndex } = removeTrackAt(orderedTracks, index);
     if (!removed) return;
     setOrderedTracks(updated);
-    setLastRemoved({ track: removed, index: removedIndex });
+    setLastRemoved({
+      track: removed,
+      index: removedIndex,
+      wasOpener: removed.id === lockedOpenerId,
+      wasCloser: removed.id === lockedCloserId
+    });
+    if (removed.id === lockedOpenerId) setLockedOpenerId(null);
+    if (removed.id === lockedCloserId) setLockedCloserId(null);
     setSelectedTrackIndex(null);
     // Grade the surviving displayed order; never re-optimise on removal.
     setEvaluation(evaluateCurrentOrder(updated, { enableEnergy }));
@@ -603,6 +645,8 @@ export function App() {
     if (!lastRemoved) return;
     const restored = restoreTrackAt(orderedTracks, lastRemoved.track, lastRemoved.index);
     setOrderedTracks(restored);
+    if (lastRemoved.wasOpener) setLockedOpenerId(lastRemoved.track.id);
+    if (lastRemoved.wasCloser) setLockedCloserId(lastRemoved.track.id);
     setLastRemoved(null);
     // Grade the restored displayed order; never re-optimise on undo.
     setEvaluation(evaluateCurrentOrder(restored, { enableEnergy }));
@@ -657,7 +701,59 @@ export function App() {
     if (track) commitTrackValue(trackId, revertManualOverride(track), 'Reset to source value.');
   };
 
+  const handleConfirmRecordingMatch = (trackId) => {
+    const track = (viewMode === 'original' ? originalTracks : orderedTracks).find(t => t.id === trackId);
+    if (!track) return;
+    commitTrackValue(trackId, confirmRecordingMatch(track), 'Recording match confirmed for this set.');
+  };
+
+  const handleToggleLockOpener = (trackId) => {
+    if (!trackId) return;
+    if (lockedOpenerId === trackId) {
+      setLockedOpenerId(null);
+      showToast('Opener lock cleared.');
+    } else {
+      setLockedOpenerId(trackId);
+      if (lockedCloserId === trackId) setLockedCloserId(null);
+      showToast('Pinned as opener (held first when you redo order).');
+    }
+  };
+
+  const handleToggleLockCloser = (trackId) => {
+    if (!trackId) return;
+    if (lockedCloserId === trackId) {
+      setLockedCloserId(null);
+      showToast('Closer lock cleared.');
+    } else {
+      setLockedCloserId(trackId);
+      if (lockedOpenerId === trackId) setLockedOpenerId(null);
+      showToast('Pinned as closer (held last when you redo order).');
+    }
+  };
+
   // Suggestion actions
+  const handleFindSuggestions = async () => {
+    if (orderedTracks.length < 2 || isFindingSuggestions) return;
+    setIsFindingSuggestions(true);
+    try {
+      const currentEval = getCachedEvaluation(orderedTracks, enableEnergy);
+      const res = await fetchSuggestions(currentEval, orderedTracks, authToken);
+      const bridges = Array.isArray(res?.bridgeSuggestions) ? res.bridgeSuggestions : [];
+      const bonus = Array.isArray(res?.bonusTunes) ? res.bonusTunes : [];
+      setBridgeSuggestions(bridges);
+      setBonusTunes(bonus);
+      if (bridges.length === 0 && bonus.length === 0) {
+        showToast('No bridge gaps found — current transitions have no key clashes or big tempo jumps.');
+      } else {
+        showToast(`Found ${bridges.length} bridge and ${bonus.length} bonus option(s).`);
+      }
+    } catch (err) {
+      showToast(`Could not load suggestions: ${err.message}`, 4000, 'warning');
+    } finally {
+      setIsFindingSuggestions(false);
+    }
+  };
+
   const handleToggleSuggestion = (id) => {
     setBridgeSuggestions(prev => prev.map(s => s.id === id ? { ...s, selected: !s.selected } : s));
     setBonusTunes(prev => prev.map(s => s.id === id ? { ...s, selected: !s.selected } : s));
@@ -666,19 +762,37 @@ export function App() {
   const handleApplySelectedSuggestions = () => {
     const selectedBridges = bridgeSuggestions.filter(s => s.selected);
     const selectedBonus = bonusTunes.filter(s => s.selected);
-    const allSelected = [...selectedBridges, ...selectedBonus];
-    if (allSelected.length === 0) return;
+    const totalSelected = selectedBridges.length + selectedBonus.length;
+    if (totalSelected === 0) return;
 
-    let updatedList = [...orderedTracks];
-    for (const item of allSelected) {
-      const insertIdx = item.insertAfterIndex !== undefined ? item.insertAfterIndex + 1 : updatedList.length;
-      updatedList.splice(insertIdx, 0, item);
-    }
+    const updatedList = [...orderedTracks];
+    const stamp = Date.now();
+    // Insert bridges from highest index to lowest so earlier splices do not shift later targets.
+    const sortedBridges = [...selectedBridges].sort(
+      (a, b) => (b.insertAfterIndex ?? updatedList.length) - (a.insertAfterIndex ?? updatedList.length)
+    );
+    sortedBridges.forEach((item, idx) => {
+      const targetAfter = item.insertAfterIndex !== undefined
+        ? Math.min(updatedList.length, item.insertAfterIndex + 1)
+        : updatedList.length;
+      updatedList.splice(targetAfter, 0, {
+        ...item,
+        id: `bridge_${stamp}_${idx}_${item.id || 'track'}`,
+        selected: false
+      });
+    });
+    selectedBonus.forEach((item, idx) => {
+      updatedList.push({
+        ...item,
+        id: `bonus_${stamp}_${idx}_${item.id || 'track'}`,
+        selected: false
+      });
+    });
 
     handleReorderTracks(updatedList);
-    setBridgeSuggestions(prev => prev.map(s => ({ ...s, selected: false })));
-    setBonusTunes(prev => prev.map(s => ({ ...s, selected: false })));
-    showToast(`Added ${allSelected.length} suggestion(s) to running order.`);
+    setBridgeSuggestions(prev => prev.filter(s => !s.selected));
+    setBonusTunes(prev => prev.filter(s => !s.selected));
+    showToast(`Added ${totalSelected} suggestion(s) to running order.`);
   };
 
   // Save Flow
@@ -752,6 +866,57 @@ export function App() {
     }
   };
 
+  const handleDownloadM3u8 = () => {
+    if (orderedTracks.length === 0) return;
+    try {
+      triggerM3U8Download(orderedTracks, setName);
+      showToast('M3U8 playlist downloaded.');
+    } catch {
+      showToast('Could not download M3U8.', 3000);
+    }
+  };
+
+  const handleExportSavedSets = () => {
+    try {
+      const payload = buildSavedSetsBackup(accountKey);
+      const jsonText = JSON.stringify(payload, null, 2);
+      const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `deck-order-saved-sets-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast('Saved sets JSON backup downloaded.');
+    } catch (err) {
+      showToast(`Could not export backup: ${err.message}`, 4000, 'warning');
+    }
+  };
+
+  const handleImportSavedSets = (rawJsonText) => {
+    if (!rawJsonText) {
+      showToast('Selected backup file is empty or unreadable.', 4000, 'warning');
+      return;
+    }
+    try {
+      const res = importSavedSetsBackup(rawJsonText, accountKey);
+      setCrateHistory(res.history);
+      if (!res.saved) {
+        showToast(`Could not save imported sets: ${res.error || 'Storage full.'}`, 5000, 'warning');
+        return;
+      }
+      showToast(
+        res.importedCount > 0
+          ? `Imported ${res.importedCount} set(s)${res.skippedDuplicates ? ` (${res.skippedDuplicates} duplicate skipped)` : ''}.`
+          : 'No new sets found — all sets in backup already exist here.'
+      );
+    } catch (err) {
+      showToast(err.message || 'Invalid backup JSON file.', 5000, 'warning');
+    }
+  };
+
   // Reset to home state
   const handleStartFresh = () => {
     if (saveError && !window.confirm('Your latest changes could not be saved. Start a new set and discard them?')) return false;
@@ -765,6 +930,10 @@ export function App() {
     setCoverageReport(null);
     setSelectedPlaylist(null);
     setSelectedTrackIndex(null);
+    setLockedOpenerId(null);
+    setLockedCloserId(null);
+    setBridgeSuggestions([]);
+    setBonusTunes([]);
     setIsSampleSet(false);
     setShowRedoConfirm(false);
     return true;
@@ -775,6 +944,20 @@ export function App() {
 
   const isSetLoaded = tracks.length > 0;
   const activeTrack = selectedTrackIndex !== null ? currentDisplayTracks[selectedTrackIndex] : null;
+  const issueSummary = isSetLoaded
+    ? listIssueIndices(currentDisplayTracks, currentDisplayTransitions)
+    : { clashIndices: [], stretchIndices: [], reviewIndices: [], allIssueIndices: [] };
+
+  const handleJumpNextIssue = () => {
+    if (!issueSummary.allIssueIndices.length) return;
+    const nextIdx =
+      issueSummary.allIssueIndices.find((idx) => idx > (selectedTrackIndex ?? -1)) ??
+      issueSummary.allIssueIndices[0];
+    setSelectedTrackIndex(nextIdx);
+    const matches = document.querySelectorAll(`[data-track-row-idx="${nextIdx}"]`);
+    const visibleTarget = Array.from(matches).find((el) => el.offsetParent !== null) || matches[0];
+    visibleTarget?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#10120F] text-[#F3F0E6]">
@@ -823,12 +1006,12 @@ export function App() {
         <button type="button" className="deck-btn-secondary ml-3 text-xs" onClick={() => {
           if (!activeSetId) newSetIdentity();
           else {
-            const result = updateActiveSet({ id: activeSetId, name: setName, tracks: orderedTracks, originalTracks, evaluation }, accountKey);
+            const result = updateActiveSet({ id: activeSetId, name: setName, tracks: orderedTracks, originalTracks, lockedOpenerId, lockedCloserId, evaluation }, accountKey);
             setCrateHistory(result.history); setSaveError(!result.saved);
           }
         }}>Retry save</button>
       </div>}
-      <main className="flex-1 max-w-[1480px] w-full mx-auto px-4 pt-5 sm:px-6 sm:pt-6 lg:px-10 lg:pt-8 space-y-6 lg:space-y-8 pb-36 sm:pb-40">
+      <main className="flex-1 max-w-[1480px] w-full mx-auto px-4 pt-5 sm:px-6 sm:pt-6 lg:px-10 lg:pt-8 space-y-6 lg:space-y-8 pb-48 sm:pb-40">
         {!isSetLoaded ? (
           /* Composition A: Before a Set is Loaded */
           <SourcePicker
@@ -845,24 +1028,27 @@ export function App() {
             loadingPlaylistId={loadingPlaylistId}
             staySignedIn={staySignedIn}
             onToggleStaySignedIn={handleToggleStaySignedIn}
+            recentSets={crateHistory.slice(0, 3)}
+            onLoadRecentSet={handleLoadHistoricalSet}
+            onOpenHistory={() => setShowHistoryDrawer(true)}
           />
         ) : (
           /* Composition B: With a Set Loaded (Workbench) */
           <div className="space-y-6 lg:space-y-8">
             {/* Workspace Bar: Set Name, Back Button, Status Banner */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#394133] pb-4">
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
                 <button
                   onClick={handleStartFresh}
-                  className="deck-btn-ghost text-xs sm:text-sm flex items-center gap-1.5 text-[#BAC2B3] hover:text-[#F3F0E6] p-1.5 sm:px-2.5 sm:py-2"
+                  className="deck-btn-ghost text-xs sm:text-sm flex items-center gap-1.5 text-[#BAC2B3] hover:text-[#F3F0E6] p-1.5 sm:px-2.5 sm:py-2 shrink-0 whitespace-nowrap"
                   title="Return to track import"
                   aria-label="New set"
                 >
-                  <ArrowLeft className="w-4 h-4" /> New set
+                  <ArrowLeft className="w-4 h-4 shrink-0" /> New set
                 </button>
 
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 min-w-0">
                     {isEditingName ? (
                       <input
                         type="text"
@@ -871,16 +1057,16 @@ export function App() {
                         onBlur={() => setIsEditingName(false)}
                         onKeyDown={(e) => e.key === 'Enter' && setIsEditingName(false)}
                         autoFocus
-                        className="deck-input text-base font-bold py-0.5 px-2 w-64"
+                        className="deck-input text-base font-bold py-0.5 px-2 w-full sm:w-64 max-w-full"
                       />
                     ) : (
                       <button
                         onClick={() => setIsEditingName(true)}
-                        className="text-lg sm:text-xl lg:text-2xl font-bold text-[#F3F0E6] truncate hover:text-[#D6FC55] flex items-center gap-2 group text-left"
+                        className="text-lg sm:text-xl lg:text-2xl font-bold text-[#F3F0E6] hover:text-[#D6FC55] flex items-center gap-2 group text-left max-w-full min-w-0"
                         title="Click to rename set"
                       >
-                        <span>{setName}</span>
-                        <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#7E8876] group-hover:text-[#D6FC55]" />
+                        <span className="truncate">{setName}</span>
+                        <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#7E8876] group-hover:text-[#D6FC55] shrink-0" />
                       </button>
                     )}
                   </div>
@@ -916,6 +1102,16 @@ export function App() {
 
             <div className="flex flex-wrap items-center gap-3">
               <button type="button" onClick={handleRunSequencer} disabled={isLoading || !orderedTracks.length} className="deck-btn-secondary text-xs sm:text-sm min-h-[44px]">Redo order</button>
+              <button
+                type="button"
+                onClick={handleFindSuggestions}
+                disabled={isLoading || isFindingSuggestions || orderedTracks.length < 2}
+                className="deck-btn-secondary text-xs sm:text-sm min-h-[44px]"
+                title="Find reference bridge tracks for any rough joins or gaps"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#D6FC55]" />
+                <span>{isFindingSuggestions ? 'Finding bridges…' : 'Find bridges'}</span>
+              </button>
               {!activeSetId && <button className="deck-btn-secondary text-xs sm:text-sm min-h-[44px]" onClick={newSetIdentity}>Save as new set</button>}
               <p className="text-xs sm:text-sm text-[#BAC2B3]">Recalculate using your latest track info. You'll confirm before the current order changes.</p>
             </div>
@@ -948,13 +1144,26 @@ export function App() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
               {/* Left Column: Running Order (8 cols = ~66%) */}
               <div className="lg:col-span-8 space-y-4">
-                <div className="flex items-center justify-between px-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                   <h3 className="text-xs sm:text-sm font-mono uppercase tracking-wider text-[#BAC2B3]">
                     {viewMode === 'sequenced' ? 'Your set, taking shape' : 'Original imported order'}
                   </h3>
-                  <span className="text-xs sm:text-sm text-[#7E8876] font-mono tabular-nums">
-                    {currentDisplayTracks.length} tracks
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {issueSummary.allIssueIndices.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleJumpNextIssue}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono bg-[#1B1F19] border border-[rgba(245,158,11,0.45)] text-[#FDE047] hover:border-[#D6FC55] hover:text-[#D6FC55] transition-colors"
+                        title="Jump to next key clash, tempo stretch, or unreviewed recording"
+                      >
+                        <span>Next issue ({issueSummary.allIssueIndices.length})</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    )}
+                    <span className="text-xs sm:text-sm text-[#7E8876] font-mono tabular-nums">
+                      {currentDisplayTracks.length} tracks
+                    </span>
+                  </div>
                 </div>
 
                 {lastRemoved && viewMode === 'sequenced' && (
@@ -986,6 +1195,8 @@ export function App() {
                   tracks={currentDisplayTracks}
                   transitions={currentDisplayTransitions}
                   selectedTrackId={activeTrack?.id}
+                  lockedOpenerId={lockedOpenerId}
+                  lockedCloserId={lockedCloserId}
                   onReorderTracks={viewMode === 'sequenced' ? handleReorderTracks : undefined}
                   onSelectTrack={(t, idx) => setSelectedTrackIndex(idx)}
                   onRemoveTrack={viewMode === 'sequenced' ? handleRemoveTrack : undefined}
@@ -998,6 +1209,10 @@ export function App() {
                     bonusTunes={bonusTunes}
                     onToggleSuggestion={handleToggleSuggestion}
                     onApplySelectedSuggestions={handleApplySelectedSuggestions}
+                    onClose={() => {
+                      setBridgeSuggestions([]);
+                      setBonusTunes([]);
+                    }}
                   />
                 )}
               </div>
@@ -1008,11 +1223,19 @@ export function App() {
                   track={activeTrack}
                   position={selectedTrackIndex !== null ? selectedTrackIndex + 1 : 1}
                   totalTracks={currentDisplayTracks.length}
+                  trackIndex={selectedTrackIndex}
+                  allTracks={currentDisplayTracks}
+                  lockedOpenerId={lockedOpenerId}
+                  lockedCloserId={lockedCloserId}
                   transitionBefore={selectedTrackIndex > 0 ? currentDisplayTransitions?.[selectedTrackIndex - 1] : null}
                   transitionAfter={selectedTrackIndex !== null ? currentDisplayTransitions?.[selectedTrackIndex] : null}
                   onClose={() => setSelectedTrackIndex(null)}
                   onApplyOverride={handleApplyOverride}
                   onRevertOverride={handleRevertOverride}
+                  onConfirmRecordingMatch={handleConfirmRecordingMatch}
+                  onToggleLockOpener={handleToggleLockOpener}
+                  onToggleLockCloser={handleToggleLockCloser}
+                  onSelectTrackByIndex={(idx) => setSelectedTrackIndex(idx)}
                 />
               </div>
             </div>
@@ -1056,6 +1279,15 @@ export function App() {
                 >
                   <Download className="w-3.5 h-3.5 text-[#BAC2B3]" />
                   <span>Download CSV</span>
+                </button>
+
+                <button
+                  onClick={handleDownloadM3u8}
+                  className="deck-btn-secondary text-xs flex-1 sm:flex-none"
+                  title="Download Extended M3U8 playlist with BPM/Camelot hints for DJ software"
+                >
+                  <FileDown className="w-3.5 h-3.5 text-[#BAC2B3]" />
+                  <span>Download M3U8</span>
                 </button>
 
                 <button
@@ -1133,6 +1365,8 @@ export function App() {
         onLoadSet={handleLoadHistoricalSet}
         onClearHistory={handleClearHistory}
         onDeleteSet={handleDeleteSet}
+        onExportBackup={handleExportSavedSets}
+        onImportBackup={handleImportSavedSets}
       />
 
       {showDisputeModal && (
