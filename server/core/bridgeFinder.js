@@ -1,6 +1,29 @@
 import { detectGaps } from './gapDetector.js';
 import { calculateTransitionCost } from './costMatrix.js';
 
+function normalizeName(value) {
+  return (value || '').toString().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Whether a catalogue/reference candidate is already in the running order.
+ * Matches on ISRC when both sides carry one (title variants of the same
+ * recording still match), otherwise on normalised title with an artist check
+ * when both artists are known (so a same-title track by a different artist is
+ * not wrongly excluded).
+ */
+export function isTrackInSet(orderedTracks, item) {
+  const itemTitle = normalizeName(item.title);
+  const itemArtist = normalizeName(item.artist);
+  return orderedTracks.some(t => {
+    if (item.isrc && t.isrc && t.isrc.toUpperCase() === item.isrc.toUpperCase()) return true;
+    if (normalizeName(t.title) !== itemTitle) return false;
+    const trackArtist = normalizeName(t.artist);
+    if (!itemArtist || !trackArtist) return true;
+    return trackArtist.includes(itemArtist) || itemArtist.includes(trackArtist);
+  });
+}
+
 // Verified reference pool of real, iconic house/techno tracks with verified ISRC, BPM and Key
 // Used for high-quality fallback bridge & bonus suggestions when API rate limits are tight
 const VERIFIED_REFERENCE_CATALOG = [
@@ -51,8 +74,8 @@ export class SuggestionEngine {
 
       // Query from verified catalog
       for (const item of VERIFIED_REFERENCE_CATALOG) {
-        // Exclude tracks already in playlist
-        if (orderedTracks.some(t => t.title?.toLowerCase() === item.title.toLowerCase())) {
+        // Exclude tracks already in the set (by ISRC or artist+title)
+        if (isTrackInSet(orderedTracks, item)) {
           continue;
         }
 
@@ -158,7 +181,7 @@ export class SuggestionEngine {
     const bonusCandidates = [];
 
     for (const item of VERIFIED_REFERENCE_CATALOG) {
-      if (orderedTracks.some(t => t.title?.toLowerCase() === item.title.toLowerCase())) {
+      if (isTrackInSet(orderedTracks, item)) {
         continue;
       }
 
