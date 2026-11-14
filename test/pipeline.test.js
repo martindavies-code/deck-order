@@ -88,6 +88,34 @@ describe('Data Pipeline & Verification Tests', () => {
     assert.equal(result.bpm, 126.3); // averaged
   });
 
+  test('Two-source Evaluation: ISRC mismatch with agreeing tempo/key verifies but flags recording review', () => {
+    // Regression: the ISRC veto used to invalidate corroborated values and
+    // leave the track bare. Agreement across two independent sources is
+    // still evidence - show the values, flag the recording identity.
+    const sourceA = {
+      provider: 'FreqBlog',
+      bpm: 129.8,
+      camelot: '5A',
+      key: 'C minor',
+      isrc: 'GBBKS2300081'
+    };
+    const sourceB = {
+      provider: 'Sonovault',
+      bpm: 130.0,
+      camelot: '5A',
+      key: 'C minor',
+      isrc: 'GBBKS2300080'
+    };
+
+    const result = evaluateTwoSources(sourceA, sourceB);
+    assert.equal(result.status, 'verified');
+    assert.equal(result.confidence, 'two_sources_agreed');
+    assert.equal(result.camelot, '5A');
+    assert.equal(result.bpm, 129.9);
+    assert.equal(result.recordingNeedsReview, true);
+    assert.match(result.reason, /version mismatch/i);
+  });
+
   test('Two-source Evaluation: Disagreement > 2% BPM marks DISPUTED', () => {
     const sourceA = {
       provider: 'GetSongBPM',
