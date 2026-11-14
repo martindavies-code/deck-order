@@ -54,6 +54,11 @@ code, pre, .font-mono {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 }
 
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) var(--ink);
+}
+
 /* Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
