@@ -14,6 +14,15 @@ describe('Phase 0 Compliance: Zero Forbidden Endpoints Verification', () => {
     'browse/categories'
   ];
 
+  // Documented exemptions: strings that match a forbidden Spotify path
+  // fragment but belong to a different, permitted service.
+  // - server/providers/musicae.js: Musicae's own RapidAPI endpoint is
+  //   /v2/audio-analysis/{id} on dj-track-audio-analysis-api.p.rapidapi.com -
+  //   it is not Spotify's deprecated /v1/audio-analysis endpoint.
+  const ALLOWLIST = {
+    'server/providers/musicae.js': ['audio-analysis']
+  };
+
   function scanDirectory(dir, fileList = []) {
     if (!fs.existsSync(dir)) return fileList;
     const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -46,6 +55,8 @@ describe('Phase 0 Compliance: Zero Forbidden Endpoints Verification', () => {
     for (const filePath of filesToScan) {
       const content = fs.readFileSync(filePath, 'utf8');
       for (const forbidden of FORBIDDEN_STRINGS) {
+        const rel = path.relative(rootDir, filePath);
+        if ((ALLOWLIST[rel] || []).includes(forbidden)) continue;
         if (content.includes(forbidden)) {
           violations.push({
             file: path.relative(rootDir, filePath),
