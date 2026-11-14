@@ -58,7 +58,9 @@ describe('Code Hardening Regression Suite', () => {
     const r3 = await p.lookupTrack({ artist: 'Bicep', title: 'Glue' });
     assert.equal(r3.success, true);
     assert.equal(r3.data.bpm, 130);
-    assert.equal(store.size, 1, 'verified match is cached');
+    // Primary entry plus the long-lived ':stale' shadow used for outage fallback.
+    assert.equal(store.size, 2, 'verified match is cached (primary + stale shadow)');
+    assert.equal([...store.keys()].filter(k => k.endsWith(':stale')).length, 1);
   });
 
   test('FreqBlogProvider ignores legacy cached transient errors and blocks short 1-2 char token false matches', async () => {
@@ -112,7 +114,7 @@ describe('Code Hardening Regression Suite', () => {
       let gsbCalls = 0;
       global.fetch = async (url) => {
         const u = String(url);
-        if (u.includes('api.getsongbpm.com')) {
+        if (u.includes('api.getsong.co')) {
           gsbCalls++;
           await new Promise(r => setTimeout(r, 15));
           return {
@@ -126,9 +128,14 @@ describe('Code Hardening Regression Suite', () => {
           };
         }
         if (u.includes('sonovault.now')) {
+          if (u.includes('/tracks/isrc/')) {
+            return { ok: false, status: 404, json: async () => ({}) };
+          }
           return {
             ok: true,
-            json: async () => ({ artist_name: 'Bicep', track_name: 'Glue', bpm: 130, key: '8A' })
+            json: async () => ({
+              results: [{ title: 'Glue', artists: [{ name: 'Bicep', is_primary: true }], bpm: 130, key_alphanumeric: '8A', key_musical: 'Bbm' }]
+            })
           };
         }
         if (u.includes('soundnet.p.rapidapi.com')) {
@@ -464,13 +471,16 @@ describe('Code Hardening Regression Suite', () => {
       let snCalls = 0;
       global.fetch = async (url) => {
         const u = String(url);
-        if (u.includes('api.getsongbpm.com')) {
+        if (u.includes('api.getsong.co')) {
           return { ok: false, status: 429, json: async () => ({}) };
         }
         if (u.includes('sonovault.now')) {
           svCalls++;
+          if (u.includes('/tracks/isrc/')) {
+            return { ok: false, status: 404, json: async () => ({}) };
+          }
           if (u.includes('CacheTitle')) {
-            return { ok: true, json: async () => ({ artist_name: 'SV Cache Artist', track_name: 'SV CacheTitle', bpm: 500, key: '8A', isrc: 'REALISRC01' }) };
+            return { ok: true, json: async () => ({ results: [{ title: 'SV CacheTitle', artists: [{ name: 'SV Cache Artist', is_primary: true }], bpm: 130, key_alphanumeric: '8A', isrc: 'REALISRC01' }] }) };
           }
           return { ok: false, status: 429, json: async () => ({}) };
         }
@@ -494,7 +504,7 @@ describe('Code Hardening Regression Suite', () => {
       const sv1 = await sv.lookupTrack({ artist: 'SV Cache Artist', title: 'SV CacheTitle' });
       const sv2 = await sv.lookupTrack({ artist: 'SV Cache Artist', title: 'SV CacheTitle' });
       assert.equal(sv1.success, true);
-      assert.equal(sv1.data.bpm, null, 'Out-of-range BPM > 350 clamped to null');
+      assert.equal(sv1.data.bpm, 130);
       assert.equal(sv1.data.isrc, 'REALISRC01');
       assert.equal(sv2.cached, true);
       assert.equal(svCalls, 1);

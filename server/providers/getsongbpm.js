@@ -11,7 +11,10 @@ export class GetSongBPMProvider {
   constructor(apiKey = process.env.GETSONGBPM_API_KEY, options = {}) {
     this.apiKey = apiKey || null;
     this.name = 'GetSongBPM';
-    this.baseUrl = 'https://api.getsongbpm.com';
+    // api.getsong.co is the documented host (getsongbpm.com/api); the
+    // api.getsongbpm.com alias sits behind a bot interstitial that breaks
+    // non-browser clients (verified 2026-11-14).
+    this.baseUrl = 'https://api.getsong.co';
     this.cache = options.cache || providerCache;
     this._inFlight = new Map();
   }

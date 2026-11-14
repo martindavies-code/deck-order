@@ -11,7 +11,20 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   </head>
   <body class="bg-[#0b0d14] text-slate-100 antialiased selection:bg-emerald-500 selection:text-black">
-    <div id="root"></div>
+    <div id="root">
+      <!-- Static pre-mount shell: visible while the app loads and replaced by
+           React on mount. Doubles as the source-HTML provider backlink that
+           GetSongBPM's API terms require (their checker reads raw HTML, which
+           a client-rendered footer never appears in). Keep in sync with the
+           footer credits in client/src/App.jsx. -->
+      <p style="position:absolute;bottom:1rem;width:100%;text-align:center;font-size:11px;color:#7E8876;font-family:sans-serif;">
+        BPM and musical key data verified via
+        <a href="https://getsongbpm.com" style="color:#BAC2B3;">GetSongBPM</a>
+        and
+        <a href="https://sonovault.now" style="color:#BAC2B3;">Sonovault</a>
+        where configured, or supplied by you.
+      </p>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

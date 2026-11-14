@@ -12,7 +12,11 @@ export function normalizeText(s) {
 }
 
 export function titleCore(s) {
-  return normalizeText((s || '').split('(')[0]);
+  const core = normalizeText((s || '').split('(')[0]);
+  // Titles that BEGIN with a parenthesised segment - "(It Goes Like) Nanana" -
+  // split to an empty core, which used to veto every identity cross-check and
+  // leave the track bare. Fall back to the full normalized title in that case.
+  return core || normalizeText(s);
 }
 
 export function versionTokens(s) {

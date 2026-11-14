@@ -361,9 +361,11 @@ test('cache key: only version-decorated searches move to v3, unchanged shapes ke
   await p.lookupTrack({ artist: 'Bicep', title: 'Glue' });
   await p.lookupTrack({ artist: 'Bicep', title: 'Glue', version: 'Club Mix' });
   await p.lookupTrack({ artist: 'Bicep', title: 'Glue - Club Mix', version: 'Club Mix' });
-  assert.match(keys[0], /^freqblog:v2:/, 'no version tag: unchanged shape keeps v2');
-  assert.match(keys[1], /^freqblog:v3:/, 'separate version tag: decorated search gets a fresh v3 key');
-  assert.match(keys[2], /^freqblog:v2:/, 'version already in the title: undecorated, keeps v2');
+  // Successful lookups also write a ':stale' shadow copy; ignore those here.
+  const primary = keys.filter(k => !k.endsWith(':stale'));
+  assert.match(primary[0], /^freqblog:v2:/, 'no version tag: unchanged shape keeps v2');
+  assert.match(primary[1], /^freqblog:v3:/, 'separate version tag: decorated search gets a fresh v3 key');
+  assert.match(primary[2], /^freqblog:v2:/, 'version already in the title: undecorated, keeps v2');
 });
 
 
