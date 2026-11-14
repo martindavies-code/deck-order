@@ -135,8 +135,8 @@ BPM and musical key are sourced from real, citable records at the individual tra
 ### 3. External Providers & Costs
 1. **GetSongBPM API** (`https://getsongbpm.com/api`): Free tier (~3,000 req/hr) with free API key. Condition: visible backlink in app (included in UI header/footer).
 2. **Sonovault** (`https://sonovault.now`): Free tier (1,000 req/month, no credit card required). Powered by Lexicon DJ's analysis engine. Paid tiers exist (~€29/mo) — Deck Order will **never** auto-sign up.
-3. **SoundNet Track Analysis** (RapidAPI): Key, mode, tempo, camelot, energy. Free tier is only 5 req/day. Usable tiers start at **$9.99/month**. Requires explicit user opt-in and manual key provision.
-4. **Manual CSV Import (Guaranteed Fallback)**: Always available with zero keys. Upload or paste a CSV of `artist, title, bpm, key` from Rekordbox, Tunebat, Mixed In Key, or Beatport.
+3. **SoundNet Track Analysis** (RapidAPI): Key, mode, tempo, camelot, energy, loudness. Free tier is only 5 req/day. Usable tiers start at **$9.99/month**. Wired into the production Worker alongside FreqBlog when `SOUNDNET_API_KEY` is configured (falling back cleanly to FreqBlog on quota/provider errors).
+4. **Manual CSV Import (Guaranteed Fallback)**: Always available with zero keys. Upload or paste a CSV of `artist, title, bpm, key` (optionally `version`, `isrc`, `energy`, `loudness`) from Rekordbox, Tunebat, Mixed In Key, or Beatport.
 
 ---
 
@@ -144,23 +144,26 @@ BPM and musical key are sourced from real, citable records at the individual tra
 
 Deck Order computes an order a real DJ would defend using a **directed 2-opt local search optimizer** with multi-start greedy warmup:
 
-1. **Directed Transition Cost Matrix**:
+1. **Directed Transition Cost Matrix (Calibrated for Un-Synced Spotify Mix)**:
    - $C(A \to B) \neq C(B \to A)$: Reversing transitions in DJ sets has asymmetric costs (e.g. tempo drops are penalized more than gradual rises).
-   - **Harmonic Cost**: Same key = `0`; relative major/minor = `1`; adjacent (+/-1 step) = `1`; +/-2 steps = `2` (energy lift); diagonal = `3`; jump = `5+`.
-   - **Tempo Cost**: $\le 3\% = 0$; $\le 6\% = 1$; $\le 10\% = 3$; $> 10\% = 12$ (heavy penalty). Directional penalty for sudden BPM drops.
-   - **Energy Cost**: Evaluated only when real energy data is present; penalizes drops $> 0.15$ unless part of an intentional chapter reset.
+   - **Harmonic Cost**: Same key = `0`; relative major/minor = `1`; adjacent (+/-1 step) = `1`; +2 steps = `2` (**Energy boost**) / -2 steps = `2`; diagonal = `3`; jump = `5+`.
+   - **Tempo Cost**: Spotify Mix does not beatmatch or time-stretch tracks, so raw BPM drift governs blend smoothness: $\le 0.8\% = 0$; $\le 1.6\% = 1$; $\le 3.0\% = 4$; $\le 5.0\% = 8$; $> 5.0\% = 16$ (with a $+1.5$ directional penalty for sudden BPM drops $> 4\%$). Any adjacent transition $> 2\%$ BPM difference cannot grade `SMOOTH` (`STRETCH` or `CLASH`).
+   - **Beat-Drift Metric**: Per-transition drift across a blend (`|bpmB - bpmA| / bpmA * blendBeats`, 64 beats / 16 bars default) is surfaced alongside tempo deltas so you can spot mixes that will flam before blending.
+   - **Energy Cost**: Enabled by default when both tracks carry real energy data (toggleable via **Energy-aware costing**); penalizes drops $> 0.15$ unless part of an intentional chapter reset.
+   - **Loudness Delta Flag**: Transitions with large loudness jumps/drops ($\ge 3.5\text{ dB}$, when loudness metadata is available) are flagged as **`volume dip risk - trim in Mix`**.
 2. **True Delta Directed 2-Opt**:
    - When a 2-opt move reverses segment $[i \dots j]$, every internal edge $(k \to k+1)$ is reversed to $(k+1 \to k)$. The solver evaluates the true directed edge delta.
    - Deterministic PRNG seed (default: 42) ensures reruns match.
    - **Performance Benchmark**: 200 synthetic tracks (40,000 directed edge pairs) solve in **~185 ms** with only **0.8 MB** heap delta!
-3. **Energy Arc**:
-   - Biases set to open warm, build tempo, peak around 60–80% of the set, and flag at most one deliberate energy reset.
+3. **Energy Arc & Accepted Limitations**:
+   - Biases set to open warm, build tempo, peak around 60–80% of the set, and flag at most one deliberate energy reset (chapter change).
+   - *Accepted limitation*: Beatgrid timestamps and phrase/structure annotations are not available from our metadata providers, so Deck Order cannot auto-align downbeats or phrase bars for Spotify Mix.
 
 ---
 
 ## 🌉 Phase 3: Bridge & Bonus Track Recommendations
 
-- **Gap Detection**: Identifies transitions graded `STRETCH` (cost 3–5) or `CLASH` (cost > 5).
+- **Gap Detection**: Identifies transitions graded `STRETCH` or `CLASH`.
 - **Bridge Suggestions**: Searches for verified tracks sitting between the neighbours' BPMs and Camelot keys.
 - **More Huge Tunes**: Up to 5 bonus tracks matching the set's median tempo and vibe.
 - **Verification Requirement**: Every suggestion must pass the Phase 1 verification pipeline with verified BPM and key. Unverified tracks are discarded; track names are never fabricated.
@@ -187,8 +190,12 @@ Deck Order computes an order a real DJ would defend using a **directed 2-opt loc
 
 ## 🎚️ The Final Step (In Spotify)
 
-After Deck Order saves your playlist, open it in Spotify:
+After Deck Order saves your playlist, open it in Spotify and use the **Mix recipe** modal:
 > *"Open your new playlist in the Spotify app. If your Premium account and app version include the Mix feature, tap Mix, then Auto to apply transitions, and tap any transition to customize them. Mix shows each track's BPM and key so you can sanity-check the order."*
+
+- Each transition includes a tailored Mix recipe derived from tempo gap, beat drift, harmonic compatibility, and loudness delta (`16-bar blend, Auto preset is fine` / `short 4-8 bar fade, consider a low-pass sweep on the outgoing track` / `2-bar cut or echo-out, do not blend`), plus a one-click copy-all sheet.
+- **Phrase timing**: *Start the incoming track on a phrase boundary - use Mix's waveform view to line up the 1.*
+- **Caveat**: Spotify Mix transitions require a supported Spotify Premium app and do not apply when casting over Spotify Connect or on the free tier.
 
 ---
 
@@ -196,7 +203,7 @@ After Deck Order saves your playlist, open it in Spotify:
 
 Run the test suite and gate runners:
 ```bash
-# Run all 50 unit, integration, and security tests
+# Run unit, integration, and security tests
 npm test
 
 # Run Phase 1 Gate (12-track real pipeline verification)

@@ -4,6 +4,7 @@ import { SourcePicker } from './components/SourcePicker.jsx';
 import { CoverageReport } from './components/CoverageReport.jsx';
 import { SequencedTable } from './components/SequencedTable.jsx';
 import { removeTrackAt, restoreTrackAt, listIssueIndices } from './utils/trackBadges.js';
+import { buildSavedMixSnapshot } from './utils/mixRecipe.js';
 import { ComparisonView } from './components/ComparisonView.jsx';
 import { HarmonicArcVisualizer } from './components/HarmonicArcVisualizer.jsx';
 import { InspectorRail } from './components/InspectorRail.jsx';
@@ -117,7 +118,7 @@ export function App() {
 
   // Settings
   const [unverifiedStrategy, setUnverifiedStrategy] = useState('keep_relative_position');
-  const [enableEnergy, setEnableEnergy] = useState(false);
+  const [enableEnergy, setEnableEnergy] = useState(true);
   const [viewMode, setViewMode] = useState('sequenced'); // 'sequenced' | 'original'
   const [lockedOpenerId, setLockedOpenerId] = useState(null);
   const [lockedCloserId, setLockedCloserId] = useState(null);
@@ -127,7 +128,7 @@ export function App() {
   const [bonusTunes, setBonusTunes] = useState([]);
   const [isFindingSuggestions, setIsFindingSuggestions] = useState(false);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
-  const [saveManifest, setSaveManifest] = useState(null);
+  const [savePreview, setSavePreview] = useState(null);
   const [saveResult, setSaveResult] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -801,29 +802,43 @@ export function App() {
   // Save Flow
   const handleOpenDryRun = async () => {
     if (!selectedPlaylist || orderedTracks.length === 0) return;
+    const tracksSnapshot = orderedTracks.map(t => ({ ...t }));
+    const setNameSnapshot = setName;
+    const enableEnergySnapshot = enableEnergy;
     try {
       const preview = await requestSavePreview(
-        { ...selectedPlaylist, name: setName },
-        orderedTracks
+        { ...selectedPlaylist, name: setNameSnapshot },
+        tracksSnapshot
       );
-      setSaveManifest(preview.manifest);
+      const snapshot = buildSavedMixSnapshot(tracksSnapshot, preview.manifest, {
+        enableEnergy: enableEnergySnapshot,
+        setName: setNameSnapshot
+      });
+      setSavePreview({ manifest: preview.manifest, snapshot });
     } catch (err) {
       showToast(`Could not prepare save preview: ${err.message}`, 5000);
     }
   };
 
   const handleConfirmSave = async () => {
-    if (!saveManifest || !authToken) {
+    if (!savePreview?.manifest || !authToken) {
       showToast('Connect Spotify account to create a playlist.', 4000);
       return;
     }
+    const { manifest, snapshot } = savePreview;
     setIsSaving(true);
     try {
-      const result = await confirmSavePlaylist(authToken, saveManifest);
-      setSaveManifest(null);
-      setSaveResult(result);
-      const savedName = result.playlistName || result.name || saveManifest.targetPlaylist?.name || 'Playlist';
-      const savedCount = result.itemsWritten ?? result.trackCount ?? saveManifest.validUrisCount;
+      const result = await confirmSavePlaylist(authToken, manifest);
+      const savedName = result.playlistName || result.name || manifest.targetPlaylist?.name || snapshot.setName || 'Playlist';
+      setSavePreview(null);
+      setSaveResult({
+        ...result,
+        orderedTracks: snapshot.orderedTracks,
+        evaluation: snapshot.evaluation,
+        urisManifest: snapshot.urisManifest,
+        setName: savedName
+      });
+      const savedCount = result.itemsWritten ?? result.trackCount ?? manifest.validUrisCount;
       showToast(`New playlist "${savedName}" created with ${savedCount} tracks.`);
     } catch (err) {
       if (err.status === 403 || err.message?.includes('403')) {
@@ -1099,7 +1114,16 @@ export function App() {
                 onRunSequencer={handleRunSequencer}
                 isLoading={isLoading}
                 enableEnergy={enableEnergy}
-                onToggleEnergy={() => setEnableEnergy(!enableEnergy)}
+                onToggleEnergy={() => {
+                  const next = !enableEnergy;
+                  setEnableEnergy(next);
+                  if (orderedTracks.length > 0 && evaluation) {
+                    setEvaluation(evaluateCurrentOrder(orderedTracks, { enableEnergy: next }));
+                  }
+                  if (originalTracks.length > 0 && originalEvaluation) {
+                    setOriginalEvaluation(evaluateCurrentOrder(originalTracks, { enableEnergy: next }));
+                  }
+                }}
               />
             )}
 
@@ -1380,10 +1404,10 @@ export function App() {
         />
       )}
 
-      {saveManifest && (
+      {savePreview?.manifest && (
         <DryRunModal
-          manifest={saveManifest}
-          onClose={() => setSaveManifest(null)}
+          manifest={savePreview.manifest}
+          onClose={() => setSavePreview(null)}
           onConfirmSave={handleConfirmSave}
           isSaving={isSaving}
         />

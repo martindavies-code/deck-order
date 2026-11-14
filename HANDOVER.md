@@ -1,5 +1,65 @@
 # Deck Order - Handover Notes
 
+Date: 2026-11-14
+Branch: `transition-quality-overhaul` (unmerged; branched from `main`)
+
+## What changed on this branch
+
+### 1. Un-synced renderer tempo tiers & grade thresholds (`server/core/costMatrix.js`)
+
+Spotify Mix (Auto) applies crossfade/EQ/filter curves without beatmatching or time-stretching, so raw adjacent BPM difference dictates whether percussion flams over a 16-bar blend.
+- Re-tiered tempo costs in `calculateTransitionCost`: `<= 0.8%` = `0`, `<= 1.6%` = `1`, `<= 3.0%` = `4`, `<= 5.0%` = `8`, `> 5.0%` = `16`, retaining the `+1.5` directional penalty for sudden BPM drops (`tempoDiffPct > 4.0`) and the deliberate energy-reset escape hatch in `server/core/energyArc.js`.
+- Enforced grade threshold so any adjacent transition with `tempoDiffPct > 2.0` cannot grade `SMOOTH` (`SMOOTH` requires `totalCost <= 2.0` and `tempoDiffPct <= 2.0`; `STRETCH` up to `totalCost <= 5.0`; `CLASH` for `totalCost > 5.0`).
+
+### 2. Per-transition beat-drift metric & loudness dip warning (`server/core/costMatrix.js`, `client/src/utils/trackBadges.js`, `client/src/components/SequencedTable.jsx`, `client/src/components/InspectorRail.jsx`)
+
+- Added `blendBeats` (default `64`, i.e., 16 bars in 4/4), `driftFraction` (`|bpmB - bpmA| / bpmA`), and `driftBeats` (rounded to 0.1 beats) on each transition, plus `maxDriftBeats` and `loudnessRiskCount` in `evaluateSequence`.
+- Surfaced `~X.X beats drift / 16b` in `SequencedTable` (desktop + mobile) and `InspectorRail` (Placement in set), suppressed cleanly on unconfirmed/needs-review tracks (`needsReview`).
+- Added loudness delta calculation (`loudnessChange`, `loudnessDiffDb`, `loudnessRisk`, `loudnessWarning`: `'volume dip risk - trim in Mix'` for `>= 3.5 dB` difference when both tracks carry loudness values).
+
+### 3. Energy-aware costing default ON & "+2 Energy boost" (`server/core/costMatrix.js`, `server/core/camelot.js`, `server/core/solver.js`, `server/routes/api.js`, `client/src/services/clientSequencer.js`, `client/src/components/CoverageReport.jsx`, `client/src/App.jsx`)
+
+- Defaulted `enableEnergy` to `true` across solver, API route, client state, and evaluation (keeping explicit `false` support and adding the `#energy-aware-toggle` `"Energy-aware costing"` toggle in `CoverageReport`). Unknown energy remains `null` and never fabricates scores.
+- Labelled `+2` Camelot step moves as `'two steps up (+2 energy boost)'` in `camelot.js` and rendered an `'Energy boost'` badge in the workbench table, inspector rail, and Mix recipe.
+
+### 4. Post-save Mix recipe export (`client/src/utils/mixRecipe.js`, `client/src/components/MixInstructionsModal.jsx`, `client/src/App.jsx`)
+
+- Added `buildMixRecipe` / `recommendMixSetting` and rendered the per-transition Mix recipe inside `MixInstructionsModal` (snapshotting `orderedTracks`, `evaluation`, and `setName` at save time).
+- Presets derive from transition components: compatible key + `<= 1.6%` BPM -> `"16-bar blend, Auto preset is fine"`; `1.6%–4.0%` tempo gap -> `"short 4-8 bar fade, consider a low-pass sweep on the outgoing track"`; harmonic clash or `> 4.0%` jump -> `"2-bar cut or echo-out, do not blend"`, appending `; volume dip risk - trim in Mix` when flagged.
+- Includes one-click `"Copy Mix recipe"`, phrase timing guidance (`"Start the incoming track on a phrase boundary - use Mix's waveform view to line up the 1."`), and the Spotify Connect / free-tier caveat.
+
+### 5. SoundNet wiring in Worker & reliability/limitation notes (`server/providers/soundnet.js`, `server/core/pipeline.js`, `worker/src/index.js`, `server/providers/csvParser.js`)
+
+- Updated `SoundNetProvider` to parse numeric or `"dB"` loudness strings (`[-60, 10]`), accept Worker KV cache adapters and custom `fetchImpl`, and fail cleanly on non-OK/429 responses without throwing or consuming FreqBlog logic.
+- Passed `soundNetOptions` in `VerificationPipeline` and preserved `loudness` alongside `energy` across verified/disputed/single-source results without changing cross-provider verification or recording-review flags.
+- Wired optional `env.SOUNDNET_API_KEY` + `{ cache: kvCache }` into `worker/src/index.js` (`/api/status` and `/api/pipeline/verify`).
+- **SoundNet reliability caveat**: RapidAPI SoundNet free tier allows only 5 requests/day; without `SOUNDNET_API_KEY` set as a Worker secret (or when SoundNet hits 429/errors), the Worker cleanly continues returning FreqBlog BPM/key/review results (leaving energy/loudness `null` unless supplied via CSV `Energy` / `Loudness` / `LUFS` columns).
+- **Accepted limitation**: Beatgrid timestamps and phrase/structure annotations are not provided by any integrated metadata API, so Deck Order cannot auto-align downbeats or phrase bars for Spotify Mix.
+
+### 6. Audit follow-up fixes on `570f792` (`transition-quality-overhaul`)
+
+- **Post-save Mix recipe manifest filtering & frozen snapshot (`client/src/utils/mixRecipe.js`, `client/src/App.jsx`, `client/src/components/MixInstructionsModal.jsx`)**: Added `resolveManifestTracks` and `buildSavedMixSnapshot` so the post-save Mix recipe is built strictly from the tracks in `manifest.urisManifest` (exact URI order, preserving duplicate occurrences, excluding missing-URI tracks) with transition evaluations recomputed on that filtered order. `App.jsx` freezes `savePreview = { manifest, snapshot }` at preview time and passes `saveResult` directly to `MixInstructionsModal` without reading live UI state at confirm time.
+- **Branch CI workflow (`.github/workflows/ci.yml`)**: Added a read-only `CI` workflow triggered on `push` to non-`main` branches (`'**'`, `'!main'`) and all `pull_request` events running `npm test`, `npm run verify:security`, and `cd client && npm run build`. Pages deployment in `.github/workflows/deploy.yml` remains restricted to `main` and `workflow_dispatch`.
+- **Disputed two-provider energy preservation (`server/core/pipeline.js`)**: Extracted `mergeOptionalMetric` and preserved sourced `energy` alongside `loudness` on disputed `evaluateTwoSources` outcomes while keeping `status: 'disputed'`, `confidence: 'disputed'`, and all review flags intact.
+- **Unverified transition badge suppression (`client/src/utils/trackBadges.js`, `client/src/utils/mixRecipe.js`)**: Suppressed `tempoTone` (`'none'`), `driftBeats`/`driftLabel`, `loudnessRisk`/`loudnessWarning`/`loudnessChange`, and `isEnergyBoost`/`energyBoostLabel` on any `UNVERIFIED` transition (such as missing-key tracks with known BPM/loudness) in both `transitionDisplay` and `buildMixRecipe`.
+
+## Tested (transition-quality-overhaul)
+
+- Updated `test/trackBadges.test.js` (`tempoTone: 'none'` on missing-key `UNVERIFIED` transitions + assertions for suppressed drift/loudness/Energy boost) and added regression tests in `test/transitionOverhaul.test.js` covering missing-URI manifest filtering with duplicates/snapshot freezing, disputed two-provider energy preservation, and generic `UNVERIFIED` Mix recipe suppression.
+- Commands run after final edits:
+  - `npm test`: pass (231/231 tests across 21 suites green)
+  - `npm --prefix client run build`: pass (`client/dist` production bundle built cleanly)
+  - `npm run verify:security`: pass (`52` production code files, `28` client files checked)
+  - Headless Chrome CDP UI verification across `1440x900` (desktop) and `390x844` (mobile) against `client/dist` (fixture saved set with a missing-URI track between valid tracks + a missing-key track with known BPM/loudness, mocked Spotify Web API save): verified unverified connector suppresses drift/loudness/Energy boost and green tempo styling, `DryRunModal` reports `3 tracks` / `1 track will be skipped`, and `MixInstructionsModal` renders only the 3 saved tracks (`2 blends`) with the recomputed `A -> C` cut + loudness warning and zero horizontal overflow.
+
+## Not covered / live flows unexercised
+
+- Live Cloudflare Worker deployment with a real `SOUNDNET_API_KEY` secret against live RapidAPI SoundNet (only mocked KV/fetch Worker tests were run).
+- Live Spotify OAuth / real playlist write / live Spotify Premium `Mix (Auto)` audio playback (never mutate live Spotify data during automated testing).
+- Requires review before merge to `main` or deploying to GitHub Pages / Cloudflare Workers.
+
+---
+
 Date: 2026-11-13
 Release: `fix/save-dialog-suggestions` - fixes from Martin's live testing on 2026-11-13 (voice notes). Branch, full local gates (npm test 220/220, client build, verify:security), then one merge to main; verified on the live Pages app afterwards.
 

@@ -100,7 +100,7 @@ export function CoverageReport({
         </div>
 
         {/* Options & Sequencer Action */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-4 w-full lg:w-auto">
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-end gap-3.5 w-full lg:w-auto">
           {/* Strategy selector */}
           <div className="space-y-1">
             <label htmlFor="unverified-strategy-select" className="text-xs sm:text-sm font-semibold text-[#BAC2B3] block">
@@ -118,6 +118,23 @@ export function CoverageReport({
               <option value="exclude">Exclude from running order</option>
             </select>
           </div>
+
+          {typeof onToggleEnergy === 'function' && (
+            <label
+              htmlFor="energy-aware-toggle"
+              className="flex items-center gap-2.5 min-h-[44px] px-3 py-2 rounded border border-[#394133] bg-[#10120F]/60 text-xs sm:text-sm text-[#F3F0E6] cursor-pointer select-none"
+              title="Score transitions using track energy when both tracks carry real energy data"
+            >
+              <input
+                id="energy-aware-toggle"
+                type="checkbox"
+                checked={Boolean(enableEnergy)}
+                onChange={() => onToggleEnergy()}
+                className="w-4 h-4 accent-[#D6FC55] rounded cursor-pointer shrink-0"
+              />
+              <span className="whitespace-nowrap">Energy-aware costing</span>
+            </label>
+          )}
 
           {/* Sequence Action button */}
           <button

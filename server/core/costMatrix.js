@@ -8,9 +8,11 @@ import { evaluateHarmonicTransition } from './camelot.js';
  */
 export function calculateTransitionCost(trackA, trackB, options = {}) {
   const {
-    enableEnergy = false,
+    enableEnergy = true,
     maxTempoDropPenalty = true,
-    energyDropThreshold = 0.15
+    energyDropThreshold = 0.15,
+    loudnessDeltaThreshold = 3.5,
+    blendBeats = 64
   } = options;
 
   // 1. Harmonic Cost
@@ -39,14 +41,16 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
     bpmChange = Math.round((bpmB - bpmA) * 10) / 10;
     tempoDiffPct = Math.abs(bpmB - bpmA) / bpmA * 100;
 
-    if (tempoDiffPct <= 3.0) {
+    if (tempoDiffPct <= 0.8) {
       tempoCost = 0;
-    } else if (tempoDiffPct <= 6.0) {
+    } else if (tempoDiffPct <= 1.6) {
       tempoCost = 1;
-    } else if (tempoDiffPct <= 10.0) {
-      tempoCost = 3;
+    } else if (tempoDiffPct <= 3.0) {
+      tempoCost = 4;
+    } else if (tempoDiffPct <= 5.0) {
+      tempoCost = 8;
     } else {
-      tempoCost = 12; // heavy penalty for > 10% tempo jump
+      tempoCost = 16; // heavy penalty for > 5% tempo jump without beatmatch
     }
 
     // Directional tempo asymmetry:
@@ -59,8 +63,11 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
   }
 
   const hasTempo = !valuesUnconfirmed &&
-    typeof trackA.bpm === 'number' && typeof trackB.bpm === 'number' &&
-    !isNaN(trackA.bpm) && !isNaN(trackB.bpm);
+    typeof bpmA === 'number' && typeof bpmB === 'number' &&
+    !isNaN(bpmA) && !isNaN(bpmB) && bpmA > 0 && bpmB > 0;
+  const validBlendBeats = Number.isFinite(blendBeats) && blendBeats > 0 ? blendBeats : 64;
+  const driftFraction = hasTempo ? Math.abs(bpmB - bpmA) / bpmA : null;
+  const driftBeats = hasTempo ? Math.round(driftFraction * validBlendBeats * 10) / 10 : null;
 
   // 3. Energy Cost (evaluated ONLY if both tracks provide real energy)
   let energyCost = 0;
@@ -86,6 +93,19 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
     }
   }
 
+  // 4. Loudness Delta Risk (when real loudness dB values are available on both sides)
+  const hasRealLoudness = !valuesUnconfirmed &&
+    typeof trackA.loudness === 'number' && Number.isFinite(trackA.loudness) &&
+    typeof trackB.loudness === 'number' && Number.isFinite(trackB.loudness);
+  const loudnessChange = hasRealLoudness
+    ? Math.round((trackB.loudness - trackA.loudness) * 10) / 10
+    : null;
+  const loudnessDiffDb = hasRealLoudness
+    ? Math.round(Math.abs(trackB.loudness - trackA.loudness) * 10) / 10
+    : null;
+  const loudnessRisk = hasRealLoudness && loudnessDiffDb >= loudnessDeltaThreshold;
+  const loudnessWarning = loudnessRisk ? 'volume dip risk - trim in Mix' : null;
+
   const totalCost = Math.round((harmonicCost + tempoCost + energyCost) * 10) / 10;
 
   const reviewNotes = [
@@ -97,8 +117,8 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
   // UNVERIFIED: harmonic data missing or invalid (cost null), or either
   // track's tempo/key values are unconfirmed (tempo or recording review) -
   // never shown as a clash
-  // SMOOTH: total cost <= 2.0
-  // STRETCH: 3.0 <= total cost <= 5.0
+  // SMOOTH: total cost <= 2.0 AND tempoDiffPct <= 2.0 (un-synced renderer tolerates ~<=2% without audible flam)
+  // STRETCH: 2.0 < total cost <= 5.0 (or > 2% tempo delta within <= 5 total cost)
   // CLASH: total cost > 5.0
   let grade;
   if (valuesUnconfirmed || harmEval.cost === null || harmEval.grade === 'UNVERIFIED') {
@@ -107,7 +127,7 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
     grade = 'SMOOTH';
     if (totalCost > 5.0) {
       grade = 'CLASH';
-    } else if (totalCost > 2.0) {
+    } else if (totalCost > 2.0 || (hasTempo && tempoDiffPct > 2.0)) {
       grade = 'STRETCH';
     }
   }
@@ -124,6 +144,13 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
     grade,
     bpmChange: hasTempo ? bpmChange : null,
     tempoDiffPct: hasTempo ? Math.round(tempoDiffPct * 10) / 10 : null,
+    blendBeats: hasTempo ? validBlendBeats : null,
+    driftFraction: hasTempo ? Math.round(driftFraction * 10000) / 10000 : null,
+    driftBeats,
+    loudnessChange,
+    loudnessDiffDb,
+    loudnessRisk,
+    loudnessWarning,
     relation: reviewNotes.length > 0 ? `${harmEval.relation}; ${reviewNotes.join('; ')}` : harmEval.relation,
     harmEval
   };
@@ -144,6 +171,8 @@ export function evaluateSequence(tracks, options = {}) {
       clashCount: 0,
       unverifiedCount: 0,
       gradedCount: 0,
+      loudnessRiskCount: 0,
+      maxDriftBeats: null,
       smoothPct: null,
       bpmRange: { min: 0, max: 0, delta: 0 },
       keyCoverage: []
@@ -157,6 +186,8 @@ export function evaluateSequence(tracks, options = {}) {
   let clashCount = 0;
   let gradedCount = 0;
   let unverifiedCount = 0;
+  let loudnessRiskCount = 0;
+  let maxDriftBeats = null;
   let objectiveCost = 0;
 
   const bpms = [];
@@ -171,6 +202,11 @@ export function evaluateSequence(tracks, options = {}) {
 
     const costObj = calculateTransitionCost(tA, tB, options);
     transitions.push(costObj);
+
+    if (costObj.loudnessRisk) loudnessRiskCount++;
+    if (typeof costObj.driftBeats === 'number') {
+      maxDriftBeats = maxDriftBeats === null ? costObj.driftBeats : Math.max(maxDriftBeats, costObj.driftBeats);
+    }
 
     // Unverified pairs carry synthetic penalty costs for the solver only;
     // never count them as clashes or smooth in user-facing metrics.
@@ -211,6 +247,8 @@ export function evaluateSequence(tracks, options = {}) {
     clashCount,
     unverifiedCount,
     gradedCount,
+    loudnessRiskCount,
+    maxDriftBeats,
     smoothPct,
     bpmRange: { min: minBpm, max: maxBpm, delta: Math.round((maxBpm - minBpm) * 10) / 10 },
     keyCoverage: Array.from(keysFound)

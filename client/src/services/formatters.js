@@ -52,6 +52,8 @@ export function generateM3U8Export(orderedTracks, setName = 'Deck Order Set') {
   return lines.join('\n');
 }
 
+export { buildMixRecipe, recommendMixSetting, PHRASE_GUIDANCE, MIX_CAVEAT } from '../utils/mixRecipe.js';
+
 export function generateCSVExport(orderedTracks, evaluation) {
   const list = orderedTracks || [];
   const transitions = evaluation?.transitions || [];

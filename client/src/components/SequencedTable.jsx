@@ -280,13 +280,36 @@ export function SequencedTable({
                                 <span className={transitionToneClass(td.tone)}>
                                   {td.text}
                                 </span>
+                                {td.energyBoostLabel && (
+                                  <span className="px-1.5 py-0.5 rounded bg-[rgba(214,252,85,0.12)] text-[#D6FC55] border border-[rgba(214,252,85,0.28)] text-[10px] whitespace-nowrap">
+                                    {td.energyBoostLabel}
+                                  </span>
+                                )}
                                 {td.showBpmChange && (
                                   <>
                                     <span>•</span>
                                     <span className={`tabular-nums whitespace-nowrap shrink-0 ${transitionToneClass(td.tempoTone)}`}>
                                       {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
                                     </span>
+                                    {td.driftLabel && (
+                                      <>
+                                        <span>•</span>
+                                        <span className={`tabular-nums whitespace-nowrap shrink-0 ${td.driftBeats > 1.0 ? transitionToneClass(td.tempoTone) : 'text-[#7E8876]'}`}>
+                                          {td.driftLabel}
+                                        </span>
+                                      </>
+                                    )}
                                   </>
+                                )}
+                                {transition?.isDeliberateReset && (
+                                  <span className="px-1.5 py-0.5 rounded bg-[rgba(96,165,250,0.12)] text-[#93C5FD] border border-[rgba(96,165,250,0.3)] text-[10px] whitespace-nowrap">
+                                    Chapter reset
+                                  </span>
+                                )}
+                                {td.loudnessWarning && (
+                                  <span className="px-1.5 py-0.5 rounded bg-[rgba(245,158,11,0.12)] text-[#FBBF24] border border-[rgba(245,158,11,0.3)] text-[10px] whitespace-nowrap">
+                                    {td.loudnessWarning}
+                                  </span>
                                 )}
                               </>
                             );
@@ -397,13 +420,36 @@ export function SequencedTable({
                         <span className={transitionToneClass(td.tone)}>
                           {td.text}
                         </span>
+                        {td.energyBoostLabel && (
+                          <span className="px-1.5 py-0.5 rounded bg-[rgba(214,252,85,0.12)] text-[#D6FC55] border border-[rgba(214,252,85,0.28)] text-[10px] whitespace-nowrap">
+                            {td.energyBoostLabel}
+                          </span>
+                        )}
                         {td.showBpmChange && (
                           <>
                             <span>•</span>
                             <span className={`tabular-nums whitespace-nowrap shrink-0 ${transitionToneClass(td.tempoTone)}`}>
                               {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
                             </span>
+                            {td.driftLabel && (
+                              <>
+                                <span>•</span>
+                                <span className={`tabular-nums whitespace-nowrap shrink-0 ${td.driftBeats > 1.0 ? transitionToneClass(td.tempoTone) : 'text-[#7E8876]'}`}>
+                                  {td.driftLabel}
+                                </span>
+                              </>
+                            )}
                           </>
+                        )}
+                        {transition?.isDeliberateReset && (
+                          <span className="px-1.5 py-0.5 rounded bg-[rgba(96,165,250,0.12)] text-[#93C5FD] border border-[rgba(96,165,250,0.3)] text-[10px] whitespace-nowrap">
+                            Chapter reset
+                          </span>
+                        )}
+                        {td.loudnessWarning && (
+                          <span className="px-1.5 py-0.5 rounded bg-[rgba(245,158,11,0.12)] text-[#FBBF24] border border-[rgba(245,158,11,0.3)] text-[10px] whitespace-nowrap">
+                            {td.loudnessWarning}
+                          </span>
                         )}
                       </>
                     );

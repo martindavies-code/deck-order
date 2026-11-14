@@ -25,7 +25,7 @@ const getHeapUsed = () => (typeof process !== 'undefined' && typeof process?.mem
 export class DJSequencer {
   constructor(options = {}) {
     this.seed = options.seed || 42;
-    this.enableEnergy = options.enableEnergy || false;
+    this.enableEnergy = options.enableEnergy !== undefined ? Boolean(options.enableEnergy) : true;
     this.maxIterations = options.maxIterations || 1500;
     this.unverifiedStrategy = options.unverifiedStrategy || 'keep_relative_position';
     this.lockedOpenerId = options.lockedOpenerId || null;
