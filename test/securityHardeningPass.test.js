@@ -58,7 +58,9 @@ describe('Code Hardening Regression Suite', () => {
     const r3 = await p.lookupTrack({ artist: 'Bicep', title: 'Glue' });
     assert.equal(r3.success, true);
     assert.equal(r3.data.bpm, 130);
-    assert.equal(store.size, 1, 'verified match is cached');
+    // Primary entry plus the long-lived ':stale' shadow used for outage fallback.
+    assert.equal(store.size, 2, 'verified match is cached (primary + stale shadow)');
+    assert.equal([...store.keys()].filter(k => k.endsWith(':stale')).length, 1);
   });
 
   test('FreqBlogProvider ignores legacy cached transient errors and blocks short 1-2 char token false matches', async () => {

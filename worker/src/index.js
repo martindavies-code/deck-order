@@ -145,7 +145,9 @@ export default {
         timestamp: new Date().toISOString(),
         providers: {
           freqblog: { name: 'FreqBlog', isConfigured: Boolean(env.FREQBLOG_API_KEY) },
-          soundnet: { name: 'SoundNet', isConfigured: Boolean(env.SOUNDNET_API_KEY) }
+          soundnet: { name: 'SoundNet', isConfigured: Boolean(env.SOUNDNET_API_KEY) },
+          getsongbpm: { name: 'GetSongBPM', isConfigured: Boolean(env.GETSONGBPM_API_KEY) },
+          sonovault: { name: 'Sonovault', isConfigured: Boolean(env.SONOVAULT_API_KEY) }
         }
       }, { headers: cors });
     }
@@ -170,7 +172,10 @@ export default {
     }
 
     if (url.pathname === '/api/pipeline/verify' && request.method === 'POST') {
-      if (!env.FREQBLOG_API_KEY) {
+      const anyProviderConfigured = Boolean(
+        env.FREQBLOG_API_KEY || env.SOUNDNET_API_KEY || env.GETSONGBPM_API_KEY || env.SONOVAULT_API_KEY
+      );
+      if (!anyProviderConfigured) {
         return Response.json({ success: false, error: 'provider_not_configured' }, { status: 503, headers: cors });
       }
       let body;
@@ -206,9 +211,15 @@ export default {
         async set(k, v, ttl) { return env.FREQBLOG_KV.put(k, JSON.stringify(v), { expirationTtl: ttl }); }
       };
 
+      // Every provider with a key participates; any one of them failing or
+      // lacking a track leaves the others to cover it (see pipeline
+      // providerOutcomes / stale-cache fallback). GetSongBPM and Sonovault
+      // light up as soon as their secrets exist - no code change needed.
       const pipeline = new VerificationPipeline({
         freqblogKey: env.FREQBLOG_API_KEY,
         freqblogOptions: { cache: kvCache, reserveQuota },
+        getSongBpmKey: env.GETSONGBPM_API_KEY,
+        sonovaultKey: env.SONOVAULT_API_KEY,
         ...(env.SOUNDNET_API_KEY ? {
           soundNetKey: env.SOUNDNET_API_KEY,
           soundNetOptions: { cache: kvCache }

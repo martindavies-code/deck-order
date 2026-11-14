@@ -90,6 +90,20 @@ export function detectVersionMismatch(sourceA, sourceB) {
   return { isMismatch: false, reason: null };
 }
 
+/**
+ * Classifies a provider lookup outcome so a provider OUTAGE is never
+ * reported as 'track not found'. Reasons vary per provider; anything that
+ * is not an explicit miss/veto is treated as an error (transient or
+ * unknown), so the UI never asserts absence it cannot prove.
+ */
+const PROVIDER_MISS_RE = /no_match|not found|mismatch|rejected/i;
+export function classifyProviderOutcome(result) {
+  if (result?.success && result.data) return 'hit';
+  const reason = String(result?.reason || '');
+  if (PROVIDER_MISS_RE.test(reason)) return 'miss';
+  return 'error';
+}
+
 function mergeOptionalMetric(valA, valB, scale) {
   const hasA = typeof valA === 'number' && Number.isFinite(valA);
   const hasB = typeof valB === 'number' && Number.isFinite(valB);
@@ -292,21 +306,18 @@ export class VerificationPipeline {
       durationMs: track.duration_ms
     };
 
-    const providerPromises = [];
-    if (this.getSongBPM.isConfigured()) {
-      providerPromises.push(this.getSongBPM.lookupTrack(trackQuery));
-    }
-    if (this.sonovault.isConfigured()) {
-      providerPromises.push(this.sonovault.lookupTrack(trackQuery));
-    }
-    if (this.soundNet.isConfigured()) {
-      providerPromises.push(this.soundNet.lookupTrack(trackQuery));
-    }
-    if (this.freqblog.isConfigured()) {
-      providerPromises.push(this.freqblog.lookupTrack(trackQuery));
-    }
+    const configuredProviders = [];
+    if (this.getSongBPM.isConfigured()) configuredProviders.push(['GetSongBPM', this.getSongBPM]);
+    if (this.sonovault.isConfigured()) configuredProviders.push(['Sonovault', this.sonovault]);
+    if (this.soundNet.isConfigured()) configuredProviders.push(['SoundNet', this.soundNet]);
+    if (this.freqblog.isConfigured()) configuredProviders.push(['FreqBlog', this.freqblog]);
 
-    const results = await Promise.all(providerPromises);
+    const results = await Promise.all(configuredProviders.map(([, p]) => p.lookupTrack(trackQuery)));
+    const providerOutcomes = results.map((r, i) => ({
+      provider: configuredProviders[i][0],
+      outcome: classifyProviderOutcome(r),
+      reason: r?.success ? null : String(r?.reason || 'unknown')
+    }));
     const successfulHits = results
       .filter(r => r.success && r.data && r.data.bpm && r.data.camelot)
       .map(r => r.data);
@@ -441,19 +452,27 @@ export class VerificationPipeline {
       };
     }
 
-    // Case C: No verified sources found
+    // Case C: No verified sources found. Distinguish "no provider has this
+    // track" from "a provider failed": an outage must not be reported as a
+    // catalogue gap, and values the track already carried (CSV/manual) are
+    // preserved rather than stripped bare.
+    const providerError = providerOutcomes.some(o => o.outcome === 'error');
     return {
       ...track,
-      bpm: null,
-      workingBpm: null,
-      key: null,
-      camelot: null,
-      energy: null,
-      loudness: null,
+      bpm: track.bpm ?? null,
+      workingBpm: track.workingBpm ?? track.bpm ?? null,
+      key: track.key ?? null,
+      camelot: track.camelot ?? null,
+      energy: track.energy ?? null,
+      loudness: track.loudness ?? null,
       status: 'unverified',
       confidence: 'none',
       sources: [],
-      reason: 'No external BPM or musical key found in configured providers.'
+      providerError,
+      providerOutcomes,
+      reason: providerError
+        ? 'Metadata provider temporarily unavailable or rate-limited; this is not a confirmed catalogue gap. Any values shown are previously supplied, not freshly verified - try again shortly.'
+        : 'No external BPM or musical key found in configured providers.'
     };
   }
 
@@ -487,8 +506,19 @@ export class VerificationPipeline {
     const unverifiedList = [];
     const tempoReviewList = [];
     const recordingReviewList = [];
+    const providerErrorList = [];
+    const providerOutcomeSummary = {};
 
     for (const t of tracks) {
+      if (Array.isArray(t.providerOutcomes)) {
+        for (const o of t.providerOutcomes) {
+          const bucket = providerOutcomeSummary[o.provider] || (providerOutcomeSummary[o.provider] = { hit: 0, miss: 0, error: 0 });
+          bucket[o.outcome] = (bucket[o.outcome] || 0) + 1;
+        }
+      }
+      if (t.providerError) {
+        providerErrorList.push({ id: t.id, name: `${t.artist} - ${t.title}` });
+      }
       if (t.recordingNeedsReview) {
         recordingReviewList.push({
           id: t.id,
@@ -533,6 +563,9 @@ export class VerificationPipeline {
       singleSource,
       disputed,
       unverified,
+      providerErrors: providerErrorList.length,
+      providerErrorTracks: providerErrorList,
+      providerOutcomeSummary,
       summaryText: `Verified ${verified}/${total}, Single-source ${singleSource}, Disputed ${disputed}, Unverified ${unverified}`,
       disputedTracks: disputedList,
       unverifiedTracks: unverifiedList,

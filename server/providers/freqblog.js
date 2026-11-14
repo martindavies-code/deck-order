@@ -44,6 +44,11 @@ export class FreqBlogProvider {
     this.reserveQuota = options.reserveQuota || null; // async (n) => boolean
     this.cacheTtlSeconds = options.cacheTtlSeconds || 30 * 24 * 3600;
     this.missCacheTtlSeconds = options.missCacheTtlSeconds || 24 * 3600;
+    // Shadow copy of the last known-good record, kept far longer than the
+    // primary entry. Only ever served when the live lookup fails TRANSIENTLY
+    // (outage, quota cap, queued analysis) - never to override a genuine
+    // miss or an identity cross-check veto.
+    this.staleTtlSeconds = options.staleTtlSeconds || 180 * 24 * 3600;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 25000;
     this._inFlight = new Map();                       // In-flight singleflight request deduplication
   }
@@ -171,6 +176,18 @@ export class FreqBlogProvider {
       if (this.cache && !isTransientOutcome(out)) {
         const ttl = out.success ? this.cacheTtlSeconds : this.missCacheTtlSeconds;
         await this.cache.set(cacheKey, out, ttl);
+        if (out.success) {
+          try { await this.cache.set(`${cacheKey}:stale`, out, this.staleTtlSeconds); } catch { /* best-effort shadow copy */ }
+        }
+      } else if (this.cache) {
+        // One source going quiet must not strip a track bare: serve the last
+        // known-good record, flagged stale so callers can show its age.
+        try {
+          const stale = await this.cache.get(`${cacheKey}:stale`);
+          if (stale && stale.success && stale.data) {
+            return { ...stale, data: { ...stale.data, stale: true }, stale: true, liveReason: out.reason };
+          }
+        } catch { /* stale read is best-effort; fall through to the live failure */ }
       }
       return out;
     });

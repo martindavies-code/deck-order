@@ -1,5 +1,69 @@
 # Deck Order - Handover Notes
 
+Date: 2026-11-14 (later same day)
+Branch: `provider-resilience`
+
+## Why
+
+Live report from Martin: Peggy Gou - "(It Goes Like) Nanana" showed no BPM/key
+(Missing badge) in his real playlist on the live app, although the demo set
+carries it with sample data. Reproduced against the production worker: exact
+title came back `unverified`, while the paren-stripped title resolved
+129.8 BPM / 5A from FreqBlog.
+
+## Root cause
+
+`titleCore()` in `server/providers/matchGuard.js` took `title.split('(')[0]`,
+which is an EMPTY string for titles beginning with a parenthesised segment.
+The identity cross-check then failed every lookup with `title_mismatch`, the
+miss was cached for 24h, and the track was stripped bare. Any title starting
+with "(" was affected.
+
+## What changed on this branch
+
+1. **titleCore fix** (`server/providers/matchGuard.js`): an empty core falls
+   back to the full normalised title. Old poisoned miss entries are never
+   read again because the cache key embeds the (now different) title core.
+2. **Stale last-known-good fallback** (`server/providers/freqblog.js`):
+   every successful lookup also writes a `:stale` shadow copy (180-day TTL).
+   When a live lookup fails TRANSIENTLY (outage, 429, quota cap, queued
+   analysis) the stale record is served with `stale: true` and `liveReason`
+   set. Identity vetoes and genuine misses never serve stale data.
+3. **Outage is no longer reported as absence** (`server/core/pipeline.js`):
+   per-provider outcomes are classified hit/miss/error (`providerOutcomes`);
+   the no-hit case preserves any values the track already carried instead of
+   nulling them, sets `providerError` with an honest "temporarily unavailable,
+   not a confirmed catalogue gap" reason when a provider errored, and the
+   coverage report aggregates `providerErrors`, `providerErrorTracks` and
+   `providerOutcomeSummary`.
+4. **Dormant providers wired in the worker** (`worker/src/index.js`):
+   `GETSONGBPM_API_KEY` and `SONOVAULT_API_KEY` env secrets now light up the
+   GetSongBPM/Sonovault providers with no code change; `/api/status` reports
+   all four providers; the 503 gate fires only when NO provider key exists.
+   Keys are NOT set anywhere yet - that is a user decision (accounts/cost).
+
+## Tested
+
+- `npm test`: 240/240 pass (9 new in test/providerResilience.test.js; two
+  existing assertions updated for the additional `:stale` cache writes).
+- `npm --prefix client run build`: pass. `npm run verify:security`: pass.
+- Live reproduction before fix via production `/api/pipeline/verify`
+  (unverified with exact title, single_source 129.8/5A without parens).
+
+## Not covered / follow-ups
+
+- **The production worker must be redeployed for this fix to reach the live
+  app** (`cd worker && npx wrangler deploy`). No Cloudflare credentials exist
+  in the agent environment; Martin runs the deploy or provides a token.
+- No new provider accounts created and no money spent, per instruction.
+  Widening real coverage beyond FreqBlog needs keys: GetSongBPM (free key,
+  ~3000 req/hour, needs a visible backlink - footer already credits it),
+  Sonovault (free 1,000 req/month), SoundNet (RapidAPI, usable from $9.99/mo).
+- Stale-fallback behaviour against the live KV namespace is untested (mocked
+  caches only).
+
+---
+
 Date: 2026-11-14
 Branch: `transition-quality-overhaul` (unmerged; branched from `main`)
 
