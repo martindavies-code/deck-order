@@ -10,6 +10,15 @@ const FORBIDDEN_ENDPOINTS = [
   'browse/categories'
 ];
 
+// Documented exemptions: strings that match a forbidden Spotify path
+// fragment but belong to a different, permitted service.
+// - server/providers/musicae.js: Musicae's own RapidAPI endpoint is
+//   /v2/audio-analysis/{id} on dj-track-audio-analysis-api.p.rapidapi.com -
+//   it is not Spotify's deprecated /v1/audio-analysis endpoint.
+const ENDPOINT_ALLOWLIST = {
+  'server/providers/musicae.js': ['audio-analysis']
+};
+
 const FORBIDDEN_CLIENT_SECRETS = [
   'VITE_SPOTIFY_CLIENT_SECRET',
   'VITE_GETSONGBPM_API_KEY',
@@ -49,7 +58,9 @@ const allCodeFiles = scanDir('.', ['.js', '.jsx', '.ts', '.tsx', '.json', '.html
 let endpointViolations = 0;
 for (const file of allCodeFiles) {
   const content = fs.readFileSync(file, 'utf8');
+  const rel = file.startsWith('./') ? file.slice(2) : file;
   for (const forbidden of FORBIDDEN_ENDPOINTS) {
+    if ((ENDPOINT_ALLOWLIST[rel] || []).includes(forbidden)) continue;
     if (content.includes(forbidden)) {
       console.error(`❌ VIOLATION in ${file}: forbidden endpoint "${forbidden}" found!`);
       endpointViolations++;
