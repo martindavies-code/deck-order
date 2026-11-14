@@ -42,10 +42,32 @@ with "(" was affected.
    all four providers; the 503 gate fires only when NO provider key exists.
    Keys are NOT set anywhere yet - that is a user decision (accounts/cost).
 
+5. **Sonovault provider rewritten to the real API** (`server/providers/sonovault.js`):
+   the old code targeted a guessed shape (`sonovault.now/api/v1`, Bearer auth,
+   `/tracks/lookup`) that returns the marketing site HTML. Verified against
+   the live service with Martin's new key: base `https://api.sonovault.now/v1`,
+   `x-api-key` header, `GET /tracks/isrc/:isrc` exact-recording path with
+   404 fallback to `GET /tracks/search?artist=&title=`, records mapped from
+   `bpm`, `key_alphanumeric` (already Camelot), `key_musical`, `isrc`,
+   `duration` (seconds). Live test: `(It Goes Like) Nanana` -> 130 BPM / 5A,
+   agreeing with FreqBlog (129.8 / 5A) - a genuine two-source verification.
+6. **GetSongBPM host fix** (`server/providers/getsongbpm.js`): base URL moved
+   from `api.getsongbpm.com` (behind a bot interstitial for non-browser
+   clients) to the documented `api.getsong.co` (returns JSON errors).
+   NOTE: response parsing (`search` array, `tempo`/`key_of` fields) is still
+   unverified against a live key - check it when the key arrives.
+7. **Static source-HTML backlink** (`client/index.html`): GetSongBPM's signup
+   crawler rejected the app ("Site likely made in JS... backlink not found in
+   source HTML") because the footer credit is React-rendered. A static
+   pre-mount shell inside `#root` now carries the GetSongBPM + Sonovault
+   backlinks in the served HTML (replaced by React on mount; the React footer
+   still shows the same credits).
+
 ## Tested
 
-- `npm test`: 240/240 pass (9 new in test/providerResilience.test.js; two
-  existing assertions updated for the additional `:stale` cache writes).
+- `npm test`: 244/244 pass (13 new in test/providerResilience.test.js; two
+  existing assertions updated for the additional `:stale` cache writes, two
+  security-suite mocks updated to the real Sonovault/GetSongBPM API shapes).
 - `npm --prefix client run build`: pass. `npm run verify:security`: pass.
 - Live reproduction before fix via production `/api/pipeline/verify`
   (unverified with exact title, single_source 129.8/5A without parens).

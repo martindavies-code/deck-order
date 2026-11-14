@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { titleCore, crossCheckTrackIdentity } from '../server/providers/matchGuard.js';
 import { FreqBlogProvider } from '../server/providers/freqblog.js';
+import { SonovaultProvider } from '../server/providers/sonovault.js';
 import { VerificationPipeline, classifyProviderOutcome } from '../server/core/pipeline.js';
+import { ProviderCache } from '../server/providers/cache.js';
 
 // Reproduction of the live 2026-11-14 regression: Peggy Gou - "(It Goes Like)
 // Nanana" came back bare on the live app although FreqBlog has the record.
@@ -142,6 +144,91 @@ test('pipeline reports a true catalogue gap without providerError', async () => 
   assert.equal(t.providerError, false);
   assert.equal(t.bpm, null);
   assert.match(t.reason, /No external BPM or musical key/);
+});
+
+// Sonovault provider against the REAL API shape (verified live 2026-11-14:
+// api.sonovault.now/v1, x-api-key header, /tracks/search + /tracks/isrc/:isrc).
+
+const SONO_NANANA = {
+  id: 304589305, title: '(It Goes Like) Nanana',
+  artists: [{ id: 3293131, name: 'Peggy Gou', is_primary: true }],
+  isrc: 'GBBKS2300080', duration: 232, bpm: 130,
+  key_alphanumeric: '5A', key_musical: 'Cm'
+};
+
+test('Sonovault resolves the Nanana track via name search (live API shape)', async () => {
+  const calls = [];
+  const p = new SonovaultProvider('k', {
+    cache: new ProviderCache({ persistToDisk: false }),
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), headers: init.headers });
+      return { ok: true, json: async () => ({ results: [SONO_NANANA] }) };
+    }
+  });
+  const r = await p.lookupTrack({ artist: 'Peggy Gou', title: '(It Goes Like) Nanana' });
+  assert.equal(r.success, true);
+  assert.equal(r.data.bpm, 130);
+  assert.equal(r.data.camelot, '5A');
+  assert.equal(r.data.key, 'Cm');
+  assert.equal(r.data.isrc, 'GBBKS2300080');
+  assert.equal(r.data.durationMs, 232000);
+  assert.match(calls[0].url, /^https:\/\/api\.sonovault\.now\/v1\/tracks\/search\?/);
+  assert.equal(calls[0].headers['x-api-key'], 'k');
+});
+
+test('Sonovault uses the exact-recording ISRC path when an ISRC is present', async () => {
+  const calls = [];
+  const p = new SonovaultProvider('k', {
+    cache: new ProviderCache({ persistToDisk: false }),
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      return { ok: true, json: async () => SONO_NANANA };
+    }
+  });
+  const r = await p.lookupTrack({ artist: 'Peggy Gou', title: '(It Goes Like) Nanana', isrc: 'GBBKS2300080' });
+  assert.equal(r.success, true);
+  assert.equal(r.data.camelot, '5A');
+  assert.equal(calls.length, 1, 'ISRC hit needs no name search');
+  assert.match(calls[0], /\/tracks\/isrc\/GBBKS2300080$/);
+});
+
+test('Sonovault ISRC 404 falls back to name search; quota error aborts', async () => {
+  const p = new SonovaultProvider('k', {
+    cache: new ProviderCache({ persistToDisk: false }),
+    fetchImpl: async (url) => {
+      const u = String(url);
+      if (u.includes('/tracks/isrc/')) return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, json: async () => ({ results: [SONO_NANANA] }) };
+    }
+  });
+  const r = await p.lookupTrack({ artist: 'Peggy Gou', title: '(It Goes Like) Nanana', isrc: 'GBDUW0000053' });
+  assert.equal(r.success, true);
+
+  const p2 = new SonovaultProvider('k', {
+    cache: new ProviderCache({ persistToDisk: false }),
+    fetchImpl: async () => ({ ok: false, status: 429, json: async () => ({}) })
+  });
+  const r2 = await p2.lookupTrack({ artist: 'Peggy Gou', title: '(It Goes Like) Nanana' });
+  assert.equal(r2.success, false);
+  assert.match(r2.reason, /quota|burst/i);
+  assert.equal(classifyProviderOutcome(r2), 'error');
+});
+
+test('Sonovault rejects identity mismatches and unusable records', async () => {
+  const p = new SonovaultProvider('k', {
+    cache: new ProviderCache({ persistToDisk: false }),
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ results: [
+        { title: 'Totally Different', artists: [{ name: 'Someone Else', is_primary: true }], bpm: 130, key_alphanumeric: '5A' },
+        { title: '(It Goes Like) Nanana', artists: [{ name: 'Peggy Gou', is_primary: true }], bpm: 500, key_alphanumeric: '5A' }
+      ] })
+    })
+  });
+  const r = await p.lookupTrack({ artist: 'Peggy Gou', title: '(It Goes Like) Nanana' });
+  assert.equal(r.success, false);
+  assert.match(r.reason, /cross-check rejected/);
+  assert.equal(classifyProviderOutcome(r), 'miss');
 });
 
 test('coverage report aggregates provider errors and per-provider outcomes', async () => {
