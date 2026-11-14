@@ -30,6 +30,7 @@ const apiConfig = {
   getSongBpmKey: process.env.GETSONGBPM_API_KEY,
   sonovaultKey: process.env.SONOVAULT_API_KEY,
   soundNetKey: process.env.SOUNDNET_API_KEY,
+  rapidApiKey: process.env.RAPIDAPI_KEY,
   minBpm: parseFloat(process.env.BPM_MIN) || 90,
   maxBpm: parseFloat(process.env.BPM_MAX) || 180
 };

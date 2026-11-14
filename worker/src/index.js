@@ -147,7 +147,8 @@ export default {
           freqblog: { name: 'FreqBlog', isConfigured: Boolean(env.FREQBLOG_API_KEY) },
           soundnet: { name: 'SoundNet', isConfigured: Boolean(env.SOUNDNET_API_KEY) },
           getsongbpm: { name: 'GetSongBPM', isConfigured: Boolean(env.GETSONGBPM_API_KEY) },
-          sonovault: { name: 'Sonovault', isConfigured: Boolean(env.SONOVAULT_API_KEY) }
+          sonovault: { name: 'Sonovault', isConfigured: Boolean(env.SONOVAULT_API_KEY) },
+          musicae: { name: 'Musicae', isConfigured: Boolean(env.RAPIDAPI_KEY) }
         }
       }, { headers: cors });
     }
@@ -173,7 +174,7 @@ export default {
 
     if (url.pathname === '/api/pipeline/verify' && request.method === 'POST') {
       const anyProviderConfigured = Boolean(
-        env.FREQBLOG_API_KEY || env.SOUNDNET_API_KEY || env.GETSONGBPM_API_KEY || env.SONOVAULT_API_KEY
+        env.FREQBLOG_API_KEY || env.SOUNDNET_API_KEY || env.GETSONGBPM_API_KEY || env.SONOVAULT_API_KEY || env.RAPIDAPI_KEY
       );
       if (!anyProviderConfigured) {
         return Response.json({ success: false, error: 'provider_not_configured' }, { status: 503, headers: cors });
@@ -215,11 +216,16 @@ export default {
       // lacking a track leaves the others to cover it (see pipeline
       // providerOutcomes / stale-cache fallback). GetSongBPM and Sonovault
       // light up as soon as their secrets exist - no code change needed.
+      // Musicae (RapidAPI key) is consulted only as tiebreaker/fallback and
+      // cached by ISRC in KV so its 10 req/day quota is never burned twice
+      // on the same recording.
       const pipeline = new VerificationPipeline({
         freqblogKey: env.FREQBLOG_API_KEY,
         freqblogOptions: { cache: kvCache, reserveQuota },
         getSongBpmKey: env.GETSONGBPM_API_KEY,
         sonovaultKey: env.SONOVAULT_API_KEY,
+        rapidApiKey: env.RAPIDAPI_KEY,
+        musicaeOptions: { cache: kvCache },
         ...(env.SOUNDNET_API_KEY ? {
           soundNetKey: env.SOUNDNET_API_KEY,
           soundNetOptions: { cache: kvCache }

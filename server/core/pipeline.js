@@ -3,6 +3,7 @@ import { GetSongBPMProvider } from '../providers/getsongbpm.js';
 import { SonovaultProvider } from '../providers/sonovault.js';
 import { SoundNetProvider } from '../providers/soundnet.js';
 import { FreqBlogProvider } from '../providers/freqblog.js';
+import { MusicaeProvider } from '../providers/musicae.js';
 
 /**
  * Normalizes BPM into target working tempo band (default 90-180 BPM).
@@ -222,6 +223,7 @@ export class VerificationPipeline {
     this.sonovault = new SonovaultProvider(options.sonovaultKey);
     this.soundNet = new SoundNetProvider(options.soundNetKey, options.soundNetOptions || {});
     this.freqblog = new FreqBlogProvider(options.freqblogKey, options.freqblogOptions || {});
+    this.musicae = new MusicaeProvider(options.rapidApiKey, options.musicaeOptions || {});
     this.userOverrides = new Map(); // trackId -> { bpm, key, camelot, energy }
   }
 
@@ -338,12 +340,85 @@ export class VerificationPipeline {
       }
     }
 
+    // Musicae consultation policy (owner decision 2026-11-14): providers are
+    // consulted in descending lookup allowance - GetSongBPM (~3,000/hr), then
+    // Sonovault (1,000/mo) and the other configured sources in parallel - and
+    // Musicae (10/day, ISRC-addressable only) is consulted ONLY as (a) a
+    // tiebreaker when the two priority sources disagree, or (b) a fallback
+    // when fewer than two priority sources respond. Its responses are cached
+    // by ISRC, so repeats never burn the daily quota.
+    const musicaeEligible = this.musicae.isConfigured()
+      && typeof trackQuery.isrc === 'string' && trackQuery.isrc.trim().length > 0;
+    let musicaeConsulted = false;
+    const consultMusicae = async () => {
+      if (!musicaeEligible || musicaeConsulted) return null;
+      musicaeConsulted = true;
+      const r = await this.musicae.lookupTrack(trackQuery);
+      providerOutcomes.push({
+        provider: this.musicae.name,
+        outcome: classifyProviderOutcome(r),
+        reason: r?.success ? null : String(r?.reason || 'unknown')
+      });
+      return r && r.success && r.data && r.data.bpm && r.data.camelot ? r.data : null;
+    };
+
+    // Fallback: fewer than two corroborating sources - Musicae may supply the
+    // missing second source (or the only one).
+    if (successfulHits.length < 2) {
+      const hit = await consultMusicae();
+      if (hit && !successfulHits.some(h => h.provider === hit.provider)) {
+        successfulHits.push(hit);
+      }
+    }
+
     // Case A: 2 or more independent sources found
     if (successfulHits.length >= 2) {
-      const evaluation = evaluateTwoSources(successfulHits[0], successfulHits[1], {
+      let evaluation = evaluateTwoSources(successfulHits[0], successfulHits[1], {
         minBpm: this.minBpm,
         maxBpm: this.maxBpm
       });
+
+      // Tiebreak: the priority pair disagrees and Musicae has not spoken yet.
+      if (evaluation.status === 'disputed' && !successfulHits.some(h => h.provider === this.musicae.name)) {
+        const tiebreak = await consultMusicae();
+        if (tiebreak) {
+          const normM = normalizeTempo(tiebreak.bpm, this.minBpm, this.maxBpm);
+          const agreesWith = (rec) => {
+            const normR = normalizeTempo(rec.bpm, this.minBpm, this.maxBpm);
+            return Boolean(normM.workingBpm && normR.workingBpm
+              && bpmWithin(normM.workingBpm, normR.workingBpm)
+              && rec.camelot && tiebreak.camelot === rec.camelot);
+          };
+          const agreesA = agreesWith(successfulHits[0]);
+          const agreesB = agreesWith(successfulHits[1]);
+          successfulHits.push(tiebreak);
+          if (agreesA !== agreesB) {
+            const winner = agreesA ? successfulHits[0] : successfulHits[1];
+            const loser = agreesA ? successfulHits[1] : successfulHits[0];
+            const resolved = evaluateTwoSources(winner, tiebreak, {
+              minBpm: this.minBpm,
+              maxBpm: this.maxBpm
+            });
+            evaluation = {
+              ...resolved,
+              confidence: resolved.status === 'verified' ? 'tiebreaker_resolved' : resolved.confidence,
+              reason: `Priority sources ${successfulHits[0].provider} and ${successfulHits[1].provider} disagreed; Musicae tiebreak corroborated ${winner.provider} over ${loser.provider}.`
+                + (resolved.reason ? ` ${resolved.reason}` : ''),
+              disputeDetails: evaluation.disputeDetails
+            };
+          } else {
+            evaluation = {
+              ...evaluation,
+              reason: `${evaluation.reason} Musicae tiebreak ${agreesA ? 'agreed with both sides within tolerance' : 'corroborated neither side'}; dispute stands.`
+            };
+          }
+        } else if (musicaeEligible) {
+          evaluation = {
+            ...evaluation,
+            reason: `${evaluation.reason} Musicae tiebreak unavailable.`
+          };
+        }
+      }
 
       return {
         ...track,

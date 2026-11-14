@@ -61,6 +61,12 @@ export function createApiRouter(config = {}) {
           quota: 'Free tier (1,000 req/month, Lexicon DJ engine)',
           upgradePolicy: 'Paid tiers exist (~EUR 29/mo) - NEVER auto-upgraded'
         },
+        musicae: {
+          name: 'Musicae',
+          isConfigured: pipeline.musicae.isConfigured(),
+          quota: 'Free tier (10 req/day, RapidAPI)',
+          condition: 'Tiebreaker/fallback only, ISRC-addressable, ISRC-cached'
+        },
         soundNet: {
           name: 'SoundNet Track Analysis (RapidAPI)',
           isConfigured: pipeline.soundNet.isConfigured(),
