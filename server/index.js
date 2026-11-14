@@ -67,13 +67,13 @@ let serverInstance = null;
 export function startServer(port = PORT) {
   serverInstance = app.listen(port, () => {
     console.log(`\n==================================================`);
-    console.log(`ð§ DECK ORDER PROXY SERVER ACTIVE ON PORT ${port}`);
+    console.log(`🎧 DECK ORDER PROXY SERVER ACTIVE ON PORT ${port}`);
     console.log(`- API Status:    http://localhost:${port}/api/status`);
-    console.log(`- Spotify App:   ${process.env.SPOTIFY_CLIENT_ID ? 'Configured â' : 'Missing SPOTIFY_CLIENT_ID (CSV mode active) â¹ï¸'}`);
-    console.log(`- GetSongBPM:    ${process.env.GETSONGBPM_API_KEY ? 'Configured â' : 'Not configured (using cache / CSV) â¹ï¸'}`);
-    console.log(`- Sonovault:     ${process.env.SONOVAULT_API_KEY ? 'Configured â' : 'Not configured (using cache / CSV) â¹ï¸'}`);
+    console.log(`- Spotify App:   ${process.env.SPOTIFY_CLIENT_ID ? 'Configured ✅' : 'Missing SPOTIFY_CLIENT_ID (CSV mode active) ℹ️'}`);
+    console.log(`- GetSongBPM:    ${process.env.GETSONGBPM_API_KEY ? 'Configured ✅' : 'Not configured (using cache / CSV) ℹ️'}`);
+    console.log(`- Sonovault:     ${process.env.SONOVAULT_API_KEY ? 'Configured ✅' : 'Not configured (using cache / CSV) ℹ️'}`);
     console.log(`- SoundNet:      ${process.env.SOUNDNET_API_KEY ? 'Configured ($9.99/mo tier active)' : 'Unset (Optional deeper analysis)'}`);
-    console.log(`- CSV Fallback:  Always Active & Guaranteed â`);
+    console.log(`- CSV Fallback:  Always Active & Guaranteed ✅`);
     console.log(`==================================================\n`);
   });
 
