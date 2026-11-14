@@ -118,22 +118,23 @@ export function transitionDisplay(transition, fromTrack, toTrack) {
       loudnessChange: null
     };
   }
+  const isUnverified = !transition || transition.grade === 'UNVERIFIED' || transition.harmEval?.grade === 'UNVERIFIED' || !transition.grade;
   const showBpmChange = typeof transition?.bpmChange === 'number' && Number.isFinite(transition.bpmChange);
-  const driftBeats = showBpmChange && typeof transition?.driftBeats === 'number' && Number.isFinite(transition.driftBeats)
+  const driftBeats = !isUnverified && showBpmChange && typeof transition?.driftBeats === 'number' && Number.isFinite(transition.driftBeats)
     ? transition.driftBeats
     : null;
   const driftLabel = driftBeats !== null
     ? (driftBeats === 0 ? '0 beats drift / 16b' : `~${driftBeats} beats drift / 16b`)
     : null;
-  const isEnergyBoost = transition?.harmEval?.directedStep === 2;
-  const loudnessRisk = Boolean(transition?.loudnessRisk);
+  const isEnergyBoost = !isUnverified && transition?.harmEval?.directedStep === 2;
+  const loudnessRisk = !isUnverified && Boolean(transition?.loudnessRisk);
   return {
     text: transition?.relation || 'Key match',
     // The relation describes keys, so never colour it from the combined grade.
     tone: transition?.harmEval?.grade || 'none',
     // Use the existing tempo cost, including its directional-drop penalty.
-    // This changes presentation only, not the combined grade or sequencing.
-    tempoTone: showBpmChange && Number.isFinite(transition?.tempoCost)
+    // Suppress tempo colour on unverified transitions so missing-key rows never show a green tempo badge.
+    tempoTone: !isUnverified && showBpmChange && Number.isFinite(transition?.tempoCost)
       ? (transition.tempoCost > 5 ? 'CLASH' : transition.tempoCost > 2 ? 'STRETCH' : 'SMOOTH')
       : 'none',
     showBpmChange,
@@ -143,7 +144,7 @@ export function transitionDisplay(transition, fromTrack, toTrack) {
     energyBoostLabel: isEnergyBoost ? 'Energy boost' : null,
     loudnessRisk,
     loudnessWarning: loudnessRisk ? (transition.loudnessWarning || 'volume dip risk - trim in Mix') : null,
-    loudnessChange: typeof transition?.loudnessChange === 'number' && Number.isFinite(transition.loudnessChange)
+    loudnessChange: !isUnverified && typeof transition?.loudnessChange === 'number' && Number.isFinite(transition.loudnessChange)
       ? transition.loudnessChange
       : null
   };

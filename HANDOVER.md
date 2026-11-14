@@ -36,14 +36,21 @@ Spotify Mix (Auto) applies crossfade/EQ/filter curves without beatmatching or ti
 - **SoundNet reliability caveat**: RapidAPI SoundNet free tier allows only 5 requests/day; without `SOUNDNET_API_KEY` set as a Worker secret (or when SoundNet hits 429/errors), the Worker cleanly continues returning FreqBlog BPM/key/review results (leaving energy/loudness `null` unless supplied via CSV `Energy` / `Loudness` / `LUFS` columns).
 - **Accepted limitation**: Beatgrid timestamps and phrase/structure annotations are not provided by any integrated metadata API, so Deck Order cannot auto-align downbeats or phrase bars for Spotify Mix.
 
+### 6. Audit follow-up fixes on `570f792` (`transition-quality-overhaul`)
+
+- **Post-save Mix recipe manifest filtering & frozen snapshot (`client/src/utils/mixRecipe.js`, `client/src/App.jsx`, `client/src/components/MixInstructionsModal.jsx`)**: Added `resolveManifestTracks` and `buildSavedMixSnapshot` so the post-save Mix recipe is built strictly from the tracks in `manifest.urisManifest` (exact URI order, preserving duplicate occurrences, excluding missing-URI tracks) with transition evaluations recomputed on that filtered order. `App.jsx` freezes `savePreview = { manifest, snapshot }` at preview time and passes `saveResult` directly to `MixInstructionsModal` without reading live UI state at confirm time.
+- **Branch CI workflow (`.github/workflows/ci.yml`)**: Added a read-only `CI` workflow triggered on `push` to non-`main` branches (`'**'`, `'!main'`) and all `pull_request` events running `npm test`, `npm run verify:security`, and `cd client && npm run build`. Pages deployment in `.github/workflows/deploy.yml` remains restricted to `main` and `workflow_dispatch`.
+- **Disputed two-provider energy preservation (`server/core/pipeline.js`)**: Extracted `mergeOptionalMetric` and preserved sourced `energy` alongside `loudness` on disputed `evaluateTwoSources` outcomes while keeping `status: 'disputed'`, `confidence: 'disputed'`, and all review flags intact.
+- **Unverified transition badge suppression (`client/src/utils/trackBadges.js`, `client/src/utils/mixRecipe.js`)**: Suppressed `tempoTone` (`'none'`), `driftBeats`/`driftLabel`, `loudnessRisk`/`loudnessWarning`/`loudnessChange`, and `isEnergyBoost`/`energyBoostLabel` on any `UNVERIFIED` transition (such as missing-key tracks with known BPM/loudness) in both `transitionDisplay` and `buildMixRecipe`.
+
 ## Tested (transition-quality-overhaul)
 
-- Updated expectations for new >2% non-`SMOOTH` grading in `test/recordingReviewGrading.test.js` and `test/trackBadges.test.js`; added `test/transitionOverhaul.test.js` (new tempo tiers, >2% non-`SMOOTH` boundary, drift calculation & suppression, `enableEnergy` default ON & `+2 energy boost`, loudness risk, Mix recipe presets/caveat/copy text, deterministic seeded `2-opt` solver across repeated runs, pin opener/closer, bridge finder, realistic 16-track re-sequence with 0 non-reset pairs >2%, and Worker + SoundNet + 429 fallback + KV caching).
+- Updated `test/trackBadges.test.js` (`tempoTone: 'none'` on missing-key `UNVERIFIED` transitions + assertions for suppressed drift/loudness/Energy boost) and added regression tests in `test/transitionOverhaul.test.js` covering missing-URI manifest filtering with duplicates/snapshot freezing, disputed two-provider energy preservation, and generic `UNVERIFIED` Mix recipe suppression.
 - Commands run after final edits:
-  - `npm test`: pass (all 227 tests green)
+  - `npm test`: pass (231/231 tests across 21 suites green)
   - `npm --prefix client run build`: pass (`client/dist` production bundle built cleanly)
-  - `npm run verify:security`: pass
-  - Headless Chrome CDP UI verification across `1440x900`, `390x844`, and `320x640` viewports (using fixture CSV, fixture saved set, and mocked Spotify Web API responses): verified `Energy-aware costing` defaults ON, workbench rows & inspector show `Energy boost`, `~X.X beats drift / 16b`, and `volume dip risk - trim in Mix`, `MixInstructionsModal` renders presets/copy-all/phrase/caveat with zero horizontal overflow, and inspected all rendered desktop and mobile screenshots.
+  - `npm run verify:security`: pass (`52` production code files, `28` client files checked)
+  - Headless Chrome CDP UI verification across `1440x900` (desktop) and `390x844` (mobile) against `client/dist` (fixture saved set with a missing-URI track between valid tracks + a missing-key track with known BPM/loudness, mocked Spotify Web API save): verified unverified connector suppresses drift/loudness/Energy boost and green tempo styling, `DryRunModal` reports `3 tracks` / `1 track will be skipped`, and `MixInstructionsModal` renders only the 3 saved tracks (`2 blends`) with the recomputed `A -> C` cut + loudness warning and zero horizontal overflow.
 
 ## Not covered / live flows unexercised
 

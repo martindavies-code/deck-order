@@ -5,9 +5,10 @@ import { DJSequencer } from '../server/core/solver.js';
 import { evaluateHarmonicTransition } from '../server/core/camelot.js';
 import { evaluateCurrentOrder } from '../client/src/services/clientSequencer.js';
 import { transitionDisplay } from '../client/src/utils/trackBadges.js';
-import { buildMixRecipe, recommendMixSetting, PHRASE_GUIDANCE, MIX_CAVEAT } from '../client/src/utils/mixRecipe.js';
+import { buildMixRecipe, buildSavedMixSnapshot, recommendMixSetting, PHRASE_GUIDANCE, MIX_CAVEAT } from '../client/src/utils/mixRecipe.js';
+import { requestSavePreview } from '../client/src/services/api.js';
 import { SoundNetProvider, parseSoundNetLoudness } from '../server/providers/soundnet.js';
-import { VerificationPipeline } from '../server/core/pipeline.js';
+import { VerificationPipeline, evaluateTwoSources } from '../server/core/pipeline.js';
 import { parseTracklistCSV } from '../server/providers/csvParser.js';
 import { SuggestionEngine } from '../server/core/bridgeFinder.js';
 import worker, { QuotaCounter } from '../worker/src/index.js';
@@ -353,5 +354,164 @@ describe('Deck Order Transition-Quality Overhaul', () => {
     assert.equal(soloRes.tracks[0].status, 'single_source');
     assert.equal(soloRes.tracks[0].energy, 0.7);
     assert.equal(soloRes.tracks[0].loudness, -7.2);
+  });
+
+  test('Post-save Mix recipe filters to saved manifest URI order, preserves duplicates, and recomputes joins without missing-URI tracks', async () => {
+    const trackA = {
+      id: 'a1',
+      uri: 'spotify:track:aaa111',
+      artist: 'Bicep',
+      title: 'Track A',
+      bpm: 126,
+      camelot: '8A',
+      loudness: -5.0,
+      status: 'verified'
+    };
+    const trackBNoUri = {
+      id: 'bridge_b',
+      artist: 'Bridge Artist',
+      title: 'Track B Suggestion',
+      bpm: 126,
+      camelot: '8A',
+      loudness: -5.2,
+      status: 'reference'
+    };
+    const trackC = {
+      id: 'c1',
+      uri: 'spotify:track:ccc333',
+      artist: 'Objekt',
+      title: 'Track C',
+      bpm: 132,
+      camelot: '2B',
+      loudness: -10.0,
+      status: 'verified'
+    };
+    const trackADup = {
+      ...trackA,
+      id: 'a2_dup'
+    };
+
+    const uiOrderedTracks = [trackA, trackBNoUri, trackC, trackADup];
+    const uiEval = evaluateCurrentOrder(uiOrderedTracks);
+    assert.equal(uiEval.transitions[0].grade, 'SMOOTH');
+
+    const preview = await requestSavePreview({ name: 'Manifest Filter Test', id: 'pl1' }, uiOrderedTracks);
+    assert.deepEqual(preview.manifest.urisManifest, [
+      'spotify:track:aaa111',
+      'spotify:track:ccc333',
+      'spotify:track:aaa111'
+    ]);
+
+    const snapshot = buildSavedMixSnapshot(uiOrderedTracks, preview.manifest, {
+      enableEnergy: true,
+      setName: 'Manifest Filter Test'
+    });
+
+    // Mutate UI state after preview to verify the snapshot is frozen at preview time
+    uiOrderedTracks[0].title = 'Mutated After Preview';
+    uiOrderedTracks.pop();
+
+    const recipe = buildMixRecipe(snapshot.orderedTracks, snapshot.evaluation, snapshot.setName);
+    assert.equal(recipe.items.length, 3, 'missing-URI track B must be excluded from saved recipe');
+    assert.deepEqual(recipe.items.map(i => i.id), ['a1', 'c1', 'a2_dup']);
+    assert.equal(recipe.items[0].title, 'Track A');
+    assert.doesNotMatch(recipe.plainText, /Track B Suggestion/);
+
+    // Join 1 is now the real A -> C join (CLASH + volume dip risk), NOT A -> B (SMOOTH Auto blend)
+    assert.equal(recipe.items[0].transition.toPosition, 2);
+    assert.equal(recipe.items[0].transition.toTitle, 'Track C');
+    assert.equal(recipe.items[0].transition.grade, 'CLASH');
+    assert.equal(recipe.items[0].transition.preset, '2-bar cut or echo-out, do not blend');
+    assert.equal(recipe.items[0].transition.loudnessWarning, 'volume dip risk - trim in Mix');
+
+    // Join 2 is C -> duplicate A
+    assert.equal(recipe.items[1].transition.toPosition, 3);
+    assert.equal(recipe.items[1].transition.toTitle, 'Track A');
+    assert.equal(recipe.items[2].transition, null);
+
+    // Direct urisManifest option on buildMixRecipe produces the same filtered transitions
+    const directRecipe = buildMixRecipe([trackA, trackBNoUri, trackC], uiEval, 'Direct', {
+      urisManifest: ['spotify:track:aaa111', 'spotify:track:ccc333']
+    });
+    assert.equal(directRecipe.items.length, 2);
+    assert.equal(directRecipe.items[0].transition.toTitle, 'Track C');
+    assert.equal(directRecipe.items[0].transition.preset, '2-bar cut or echo-out, do not blend');
+  });
+
+  test('Disputed two-provider pipeline results preserve sourced energy alongside loudness and review flags', async () => {
+    const disputedEval = evaluateTwoSources(
+      { provider: 'SoundNet', bpm: 126, camelot: '8A', key: 'A minor', energy: 0.75, loudness: -6.1 },
+      { provider: 'FreqBlog', bpm: 126, camelot: '9A', key: 'E minor' }
+    );
+    assert.equal(disputedEval.status, 'disputed');
+    assert.equal(disputedEval.confidence, 'disputed');
+    assert.equal(disputedEval.energy, 0.75);
+    assert.equal(disputedEval.loudness, -6.1);
+
+    const bothEnergy = evaluateTwoSources(
+      { provider: 'SoundNet', bpm: 126, camelot: '8A', key: 'A minor', energy: 0.75, loudness: -6.0 },
+      { provider: 'FreqBlog', bpm: 132, camelot: '8A', key: 'A minor', energy: 0.85, loudness: -7.0 }
+    );
+    assert.equal(bothEnergy.status, 'disputed');
+    assert.equal(bothEnergy.energy, 0.8);
+    assert.equal(bothEnergy.loudness, -6.5);
+
+    const pipe = new VerificationPipeline({
+      soundNetKey: 'sn',
+      soundNetOptions: {
+        cache: { async get() { return null; }, async set() {} },
+        fetchImpl: async () => ({
+          ok: true,
+          json: async () => ({
+            artist: 'Art',
+            title: 'Disputed Track',
+            tempo: 126,
+            key: 'A',
+            mode: 'minor',
+            energy: 0.75,
+            loudness: '-6.2 dB'
+          })
+        })
+      },
+      freqblogKey: 'fb',
+      freqblogOptions: {
+        fetchImpl: async () => ({
+          ok: true,
+          json: async () => ({
+            track_name: 'Disputed Track',
+            artist_name: 'Art',
+            bpm: 126,
+            key: 'E minor',
+            camelot: '9A'
+          })
+        })
+      }
+    });
+
+    const res = await pipe.processPlaylist([{ id: 'd1', artist: 'Art', title: 'Disputed Track' }]);
+    assert.equal(res.tracks[0].status, 'disputed');
+    assert.equal(res.tracks[0].confidence, 'disputed');
+    assert.equal(res.tracks[0].loudness, -6.2);
+    assert.equal(res.tracks[0].energy, 0.75);
+    assert.equal(res.report.disputed, 1);
+    assert.equal(res.report.isReadyForSequencing, false);
+  });
+
+  test('Generic UNVERIFIED transitions suppress drift, loudness, and Energy boost badges in Mix recipe', () => {
+    const known = { id: 'k1', artist: 'A', title: 'Known', bpm: 126, camelot: '8A', loudness: -5.0 };
+    const missingKey = { id: 'u1', artist: 'B', title: 'MissingKey', bpm: 126, camelot: null, loudness: -10.5 };
+    const evaluation = evaluateSequence([known, missingKey]);
+    assert.equal(evaluation.transitions[0].grade, 'UNVERIFIED');
+
+    const recipe = buildMixRecipe([known, missingKey], evaluation, 'Unverified Mix');
+    const tr = recipe.items[0].transition;
+    assert.equal(tr.grade, 'UNVERIFIED');
+    assert.equal(tr.badge, 'Verify first');
+    assert.equal(tr.driftBeats, null);
+    assert.equal(tr.loudnessWarning, null);
+    assert.equal(tr.loudnessChange, null);
+    assert.equal(tr.energyBoost, false);
+    assert.equal(tr.bpmChange, null);
+    assert.doesNotMatch(recipe.plainText, /beats drift|volume dip risk|Energy boost/);
   });
 });

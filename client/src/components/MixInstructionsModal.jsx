@@ -22,10 +22,16 @@ export function MixInstructionsModal({
   const snapshotTracks = saveResult?.orderedTracks || orderedTracks;
   const snapshotEvaluation = saveResult?.evaluation || evaluation;
   const snapshotName = saveResult?.playlistName || saveResult?.name || saveResult?.setName || setName || 'Deck Order Set';
+  const shouldFilterByManifest = !saveResult?.orderedTracks && Array.isArray(saveResult?.urisManifest);
 
   const recipe = useMemo(
-    () => buildMixRecipe(snapshotTracks, snapshotEvaluation, snapshotName),
-    [snapshotTracks, snapshotEvaluation, snapshotName]
+    () => buildMixRecipe(
+      snapshotTracks,
+      snapshotEvaluation,
+      snapshotName,
+      shouldFilterByManifest ? { urisManifest: saveResult.urisManifest } : undefined
+    ),
+    [snapshotTracks, snapshotEvaluation, snapshotName, shouldFilterByManifest, saveResult?.urisManifest]
   );
 
   if (!saveResult) return null;
@@ -127,7 +133,7 @@ export function MixInstructionsModal({
 
               <ol className="space-y-2">
                 {recipe.items.map((item) => (
-                  <li key={item.id || item.position} className="space-y-1.5">
+                  <li key={`${item.id || 't'}_${item.position}`} className="space-y-1.5">
                     <div className="flex items-center justify-between gap-2 px-2.5 py-2 rounded bg-[#1B1F19] border border-[#2C3327]">
                       <div className="min-w-0 flex items-center gap-2">
                         <span className="text-[11px] font-mono text-[#7E8876] w-5 shrink-0">

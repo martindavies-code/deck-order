@@ -90,6 +90,17 @@ export function detectVersionMismatch(sourceA, sourceB) {
   return { isMismatch: false, reason: null };
 }
 
+function mergeOptionalMetric(valA, valB, scale) {
+  const hasA = typeof valA === 'number' && Number.isFinite(valA);
+  const hasB = typeof valB === 'number' && Number.isFinite(valB);
+  if (hasA && hasB) {
+    return Math.round(((valA + valB) / 2) * scale) / scale;
+  }
+  if (hasA) return valA;
+  if (hasB) return valB;
+  return null;
+}
+
 /**
  * Compares two external provider results according to DJ verification rules:
  * - Tempo within 2% of normalized working BPM
@@ -133,6 +144,9 @@ export function evaluateTwoSources(recA, recB, options = {}) {
   // Check key agreement: identical Camelot value
   const keyAgrees = recA.camelot === recB.camelot;
 
+  const energy = mergeOptionalMetric(recA.energy, recB.energy, 100);
+  const loudness = mergeOptionalMetric(recA.loudness, recB.loudness, 10);
+
   if (tempoAgrees && keyAgrees) {
     return {
       status: 'verified',
@@ -143,12 +157,8 @@ export function evaluateTwoSources(recA, recB, options = {}) {
       isNormalized: normA.isNormalized || normB.isNormalized,
       camelot: recA.camelot,
       key: recA.key || recA.camelot,
-      energy: (typeof recA.energy === 'number' && typeof recB.energy === 'number')
-        ? Math.round(((recA.energy + recB.energy) / 2) * 100) / 100
-        : (recA.energy ?? recB.energy ?? null),
-      loudness: (typeof recA.loudness === 'number' && typeof recB.loudness === 'number')
-        ? Math.round(((recA.loudness + recB.loudness) / 2) * 10) / 10
-        : (recA.loudness ?? recB.loudness ?? null),
+      energy,
+      loudness,
       sources: [recA, recB],
       disputeDetails: null
     };
@@ -172,9 +182,8 @@ export function evaluateTwoSources(recA, recB, options = {}) {
     isNormalized: normA.isNormalized,
     camelot: recA.camelot,
     key: recA.key,
-    loudness: (typeof recA.loudness === 'number' && typeof recB.loudness === 'number')
-      ? Math.round(((recA.loudness + recB.loudness) / 2) * 10) / 10
-      : (recA.loudness ?? recB.loudness ?? null),
+    energy,
+    loudness,
     sources: [recA, recB],
     disputeDetails: {
       sourceA: { ...recA, workingBpm: normA.workingBpm, isNormalized: normA.isNormalized },

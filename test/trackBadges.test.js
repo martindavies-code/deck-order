@@ -127,7 +127,7 @@ test('key and tempo colours are independent without changing the combined grade'
     [{ bpm: 109, camelot: '4A' }, 'SMOOTH', 'STRETCH', 'STRETCH'],
     [{ bpm: 114, camelot: '4A' }, 'SMOOTH', 'CLASH', 'CLASH'],
     [{ bpm: null, camelot: '4A' }, 'SMOOTH', 'none', 'STRETCH'],
-    [{ bpm: 125, camelot: null }, 'UNVERIFIED', 'CLASH', 'UNVERIFIED']
+    [{ bpm: 125, camelot: null }, 'UNVERIFIED', 'none', 'UNVERIFIED']
   ]) {
     const t = calculateTransitionCost(a, b);
     const snapshot = JSON.stringify(t);
@@ -142,4 +142,38 @@ test('key and tempo colours are independent without changing the combined grade'
   const display = transitionDisplay(calculateTransitionCost(a, flagged), a, flagged);
   assert.equal(display.tone, 'review');
   assert.equal(display.showBpmChange, false);
+});
+
+test('generic UNVERIFIED transitions suppress drift, loudness, Energy boost, and tempo colour badges', async () => {
+  const { calculateTransitionCost } = await import('../server/core/costMatrix.js');
+  const from = { id: 'a', bpm: 126, camelot: '8A', loudness: -5.0 };
+  const missingKey = { id: 'b', bpm: 126, camelot: null, loudness: -10.5 };
+  const tr = calculateTransitionCost(from, missingKey);
+  assert.equal(tr.grade, 'UNVERIFIED');
+
+  const td = transitionDisplay(tr, from, missingKey);
+  assert.equal(td.tone, 'UNVERIFIED');
+  assert.equal(td.tempoTone, 'none');
+  assert.equal(td.driftBeats, null);
+  assert.equal(td.driftLabel, null);
+  assert.equal(td.loudnessRisk, false);
+  assert.equal(td.loudnessWarning, null);
+  assert.equal(td.loudnessChange, null);
+  assert.equal(td.isEnergyBoost, false);
+  assert.equal(td.energyBoostLabel, null);
+
+  // Even a synthetic UNVERIFIED transition carrying directedStep === 2 must suppress Energy boost
+  const syntheticUnverified = {
+    ...tr,
+    harmEval: { ...tr.harmEval, directedStep: 2 },
+    driftBeats: 0.4,
+    loudnessRisk: true,
+    loudnessWarning: 'volume dip risk - trim in Mix',
+    loudnessChange: -5.5
+  };
+  const tdSynthetic = transitionDisplay(syntheticUnverified, from, missingKey);
+  assert.equal(tdSynthetic.tempoTone, 'none');
+  assert.equal(tdSynthetic.driftLabel, null);
+  assert.equal(tdSynthetic.loudnessWarning, null);
+  assert.equal(tdSynthetic.energyBoostLabel, null);
 });
