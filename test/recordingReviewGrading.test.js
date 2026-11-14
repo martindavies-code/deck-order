@@ -30,7 +30,7 @@ test('recordingNeedsReview transitions are UNVERIFIED and excluded from graded m
 });
 
 test('clean transitions still grade normally beside a review track set', () => {
-  const tracks = [clean('a', 124, '8A'), clean('b', 121, '8A'), reviewTrack()];
+  const tracks = [clean('a', 124, '8A'), clean('b', 123, '8A'), reviewTrack()];
   const ev = evaluateSequence(tracks);
   assert.equal(ev.transitions[0].grade, 'SMOOTH');
   assert.equal(ev.transitions[1].grade, 'UNVERIFIED');
@@ -49,7 +49,7 @@ test('tempo and recording review notes combine in the relation', () => {
 test('transitionDisplay, evaluation and CSV export agree for the displayed order', () => {
   // User-kept order differs from what the optimiser would pick; every channel
   // must describe the DISPLAYED order and carry the review state.
-  const displayed = [reviewTrack(), clean('b', 121, '8A'), clean('c', 124, '8A')];
+  const displayed = [reviewTrack(), clean('b', 123, '8A'), clean('c', 124, '8A')];
   const ev = evaluateCurrentOrder(displayed);
   // UI helper reads the same evaluation + track flags
   const td = transitionDisplay(ev.transitions[0], displayed[0], displayed[1]);

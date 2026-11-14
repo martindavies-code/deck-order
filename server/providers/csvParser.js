@@ -36,6 +36,7 @@ export function parseTracklistCSV(csvContent) {
     let rawKey = null;
     let isrc = null;
     let energy = null;
+    let loudness = null;
     let version = '';
 
     if (headerMap) {
@@ -46,6 +47,9 @@ export function parseTracklistCSV(csvContent) {
       if (headerMap.isrc !== undefined) isrc = (tokens[headerMap.isrc] || '').trim();
       if (headerMap.energy !== undefined && tokens[headerMap.energy]) {
         energy = parseFloat(tokens[headerMap.energy]);
+      }
+      if (headerMap.loudness !== undefined && tokens[headerMap.loudness]) {
+        loudness = parseFloat(tokens[headerMap.loudness]);
       }
       if (headerMap.version !== undefined) version = (tokens[headerMap.version] || '').trim();
     } else {
@@ -119,6 +123,9 @@ export function parseTracklistCSV(csvContent) {
     const validEnergy = (typeof energy === 'number' && Number.isFinite(energy) && energy >= 0 && energy <= 1)
       ? energy
       : null;
+    const validLoudness = (typeof loudness === 'number' && Number.isFinite(loudness) && loudness >= -60 && loudness <= 10)
+      ? Math.round(loudness * 10) / 10
+      : null;
 
     tracks.push({
       id: `manual_${i}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -132,6 +139,7 @@ export function parseTracklistCSV(csvContent) {
       key: parsedKey.pitch && parsedKey.mode ? `${parsedKey.pitch} ${parsedKey.mode}` : (parsedKey.camelot || rawKey || null),
       camelot: parsedKey.camelot,
       energy: validEnergy,
+      loudness: validLoudness,
       source: 'manual_csv',
       sources: [{
         name: 'Manual CSV',
@@ -195,6 +203,7 @@ function detectHeaders(tokens) {
       key: keyIdx,
       isrc: find(['isrc']),
       energy: find(['energy']),
+      loudness: find(['loudness', 'lufs']),
       version: find(['version', 'remix', 'mix'])
     };
   }

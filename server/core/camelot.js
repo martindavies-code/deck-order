@@ -293,7 +293,7 @@ export function evaluateHarmonicTransition(camA, camB) {
 
     if (stepDiff === 2) {
       const dirText = directedStep === 2
-        ? 'two steps up (+2 energy lift)'
+        ? 'two steps up (+2 energy boost)'
         : 'two steps down (-2 energy drop)';
       return {
         cost: 2,

@@ -124,7 +124,8 @@ test('key and tempo colours are independent without changing the combined grade'
     [{ bpm: 125, camelot: '4A' }, 'SMOOTH', 'CLASH', 'CLASH'],
     [{ bpm: 106, camelot: '10B' }, 'CLASH', 'SMOOTH', 'CLASH'],
     [{ bpm: 106, camelot: '4A' }, 'SMOOTH', 'SMOOTH', 'SMOOTH'],
-    [{ bpm: 114, camelot: '4A' }, 'SMOOTH', 'STRETCH', 'STRETCH'],
+    [{ bpm: 109, camelot: '4A' }, 'SMOOTH', 'STRETCH', 'STRETCH'],
+    [{ bpm: 114, camelot: '4A' }, 'SMOOTH', 'CLASH', 'CLASH'],
     [{ bpm: null, camelot: '4A' }, 'SMOOTH', 'none', 'STRETCH'],
     [{ bpm: 125, camelot: null }, 'UNVERIFIED', 'CLASH', 'UNVERIFIED']
   ]) {

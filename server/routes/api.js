@@ -200,7 +200,7 @@ export function createApiRouter(config = {}) {
     try {
       const sequencer = new DJSequencer({
         seed: seed || 42,
-        enableEnergy: Boolean(enableEnergy),
+        enableEnergy: enableEnergy !== undefined ? Boolean(enableEnergy) : true,
         unverifiedStrategy: unverifiedStrategy || 'keep_relative_position',
         lockedOpenerId: typeof lockedOpenerId === 'string' && lockedOpenerId.length <= 128 ? lockedOpenerId : null,
         lockedCloserId: typeof lockedCloserId === 'string' && lockedCloserId.length <= 128 ? lockedCloserId : null

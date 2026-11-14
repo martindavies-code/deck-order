@@ -117,7 +117,7 @@ export function App() {
 
   // Settings
   const [unverifiedStrategy, setUnverifiedStrategy] = useState('keep_relative_position');
-  const [enableEnergy, setEnableEnergy] = useState(false);
+  const [enableEnergy, setEnableEnergy] = useState(true);
   const [viewMode, setViewMode] = useState('sequenced'); // 'sequenced' | 'original'
   const [lockedOpenerId, setLockedOpenerId] = useState(null);
   const [lockedCloserId, setLockedCloserId] = useState(null);
@@ -820,9 +820,15 @@ export function App() {
     setIsSaving(true);
     try {
       const result = await confirmSavePlaylist(authToken, saveManifest);
+      const savedName = result.playlistName || result.name || saveManifest.targetPlaylist?.name || setName || 'Playlist';
+      const evalSnapshot = evaluation || getCachedEvaluation(orderedTracks, enableEnergy);
       setSaveManifest(null);
-      setSaveResult(result);
-      const savedName = result.playlistName || result.name || saveManifest.targetPlaylist?.name || 'Playlist';
+      setSaveResult({
+        ...result,
+        orderedTracks: [...orderedTracks],
+        evaluation: evalSnapshot,
+        setName: savedName
+      });
       const savedCount = result.itemsWritten ?? result.trackCount ?? saveManifest.validUrisCount;
       showToast(`New playlist "${savedName}" created with ${savedCount} tracks.`);
     } catch (err) {
@@ -1099,7 +1105,16 @@ export function App() {
                 onRunSequencer={handleRunSequencer}
                 isLoading={isLoading}
                 enableEnergy={enableEnergy}
-                onToggleEnergy={() => setEnableEnergy(!enableEnergy)}
+                onToggleEnergy={() => {
+                  const next = !enableEnergy;
+                  setEnableEnergy(next);
+                  if (orderedTracks.length > 0 && evaluation) {
+                    setEvaluation(evaluateCurrentOrder(orderedTracks, { enableEnergy: next }));
+                  }
+                  if (originalTracks.length > 0 && originalEvaluation) {
+                    setOriginalEvaluation(evaluateCurrentOrder(originalTracks, { enableEnergy: next }));
+                  }
+                }}
               />
             )}
 
@@ -1392,6 +1407,9 @@ export function App() {
       {saveResult && (
         <MixInstructionsModal
           saveResult={saveResult}
+          orderedTracks={orderedTracks}
+          evaluation={evaluation || getCachedEvaluation(orderedTracks, enableEnergy)}
+          setName={setName}
           onClose={() => setSaveResult(null)}
         />
       )}

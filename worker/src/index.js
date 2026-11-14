@@ -143,7 +143,10 @@ export default {
       return Response.json({
         success: true,
         timestamp: new Date().toISOString(),
-        providers: { freqblog: { name: 'FreqBlog', isConfigured: Boolean(env.FREQBLOG_API_KEY) } }
+        providers: {
+          freqblog: { name: 'FreqBlog', isConfigured: Boolean(env.FREQBLOG_API_KEY) },
+          soundnet: { name: 'SoundNet', isConfigured: Boolean(env.SOUNDNET_API_KEY) }
+        }
       }, { headers: cors });
     }
 
@@ -205,7 +208,11 @@ export default {
 
       const pipeline = new VerificationPipeline({
         freqblogKey: env.FREQBLOG_API_KEY,
-        freqblogOptions: { cache: kvCache, reserveQuota }
+        freqblogOptions: { cache: kvCache, reserveQuota },
+        ...(env.SOUNDNET_API_KEY ? {
+          soundNetKey: env.SOUNDNET_API_KEY,
+          soundNetOptions: { cache: kvCache }
+        } : {})
       });
 
       const executionPromise = (async () => {

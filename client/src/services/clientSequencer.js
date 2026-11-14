@@ -21,7 +21,8 @@ import { generatePlainTextTracklist, generateCSVExport, generateM3U8Export } fro
  * reorders or mutates the input.
  */
 export function evaluateCurrentOrder(tracks, options = {}) {
-  const evaluation = evaluateSequence(tracks || [], { enableEnergy: Boolean(options.enableEnergy) });
+  const enableEnergy = options.enableEnergy !== undefined ? Boolean(options.enableEnergy) : true;
+  const evaluation = evaluateSequence(tracks || [], { enableEnergy });
   annotateEnergyResets(evaluation.transitions);
   return evaluation;
 }

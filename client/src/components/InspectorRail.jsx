@@ -205,13 +205,42 @@ export function InspectorRail({
                 <h4 className="text-xs sm:text-[13px] font-semibold text-[#F3F0E6]">{label}</h4>
                 <span className="text-[11px] sm:text-xs text-[#7E8876]">{direction}</span>
               </div>
-              <p className={`text-xs sm:text-[13px] leading-relaxed ${transitionToneClass(td.tone)}`}>{td.text}</p>
-              {td.showBpmChange && (
-                <div className="flex items-center gap-2 text-[11px] sm:text-xs">
-                  <span className="text-[#7E8876]">Tempo change</span>
-                  <span className={`font-mono tabular-nums whitespace-nowrap ${transitionToneClass(td.tempoTone)}`}>
-                    {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
+              <div className="flex flex-wrap items-center gap-2">
+                <p className={`text-xs sm:text-[13px] leading-relaxed ${transitionToneClass(td.tone)}`}>{td.text}</p>
+                {td.energyBoostLabel && (
+                  <span className="px-1.5 py-0.5 rounded bg-[rgba(214,252,85,0.12)] text-[#D6FC55] border border-[rgba(214,252,85,0.28)] text-[10px] font-mono">
+                    {td.energyBoostLabel}
                   </span>
+                )}
+              </div>
+              {td.showBpmChange && (
+                <div className="space-y-1 text-[11px] sm:text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[#7E8876]">Tempo change</span>
+                    <span className={`font-mono tabular-nums whitespace-nowrap ${transitionToneClass(td.tempoTone)}`}>
+                      {transition.bpmChange > 0 ? `+${transition.bpmChange}` : transition.bpmChange} BPM
+                      {typeof transition.tempoDiffPct === 'number' ? ` (${transition.tempoDiffPct}%)` : ''}
+                    </span>
+                  </div>
+                  {td.driftLabel && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[#7E8876]">Un-synced drift</span>
+                      <span className={`font-mono tabular-nums whitespace-nowrap ${td.driftBeats > 1.0 ? transitionToneClass(td.tempoTone) : 'text-[#BAC2B3]'}`}>
+                        {td.driftLabel}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {transition.isDeliberateReset && (
+                <p className="text-[11px] text-[#93C5FD] font-mono">
+                  {transition.resetLabel || 'Deliberate Energy Reset (Set Chapter Change)'}
+                </p>
+              )}
+              {td.loudnessWarning && (
+                <div className="rounded px-2 py-1 bg-[rgba(245,158,11,0.1)] border border-[rgba(245,158,11,0.28)] text-[11px] text-[#FBBF24] font-mono">
+                  {td.loudnessWarning}
+                  {td.loudnessChange !== null ? ` (${td.loudnessChange > 0 ? '+' : ''}${td.loudnessChange} dB)` : ''}
                 </div>
               )}
             </div>

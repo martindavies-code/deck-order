@@ -104,18 +104,48 @@ export function transitionDisplay(transition, fromTrack, toTrack) {
   const needsReview = !!(fromTrack?.recordingNeedsReview || fromTrack?.tempoNeedsReview
     || toTrack?.recordingNeedsReview || toTrack?.tempoNeedsReview);
   if (needsReview) {
-    return { text: 'Needs review - unconfirmed tempo/key', tone: 'review', tempoTone: 'review', showBpmChange: false };
+    return {
+      text: 'Needs review - unconfirmed tempo/key',
+      tone: 'review',
+      tempoTone: 'review',
+      showBpmChange: false,
+      driftBeats: null,
+      driftLabel: null,
+      isEnergyBoost: false,
+      energyBoostLabel: null,
+      loudnessRisk: false,
+      loudnessWarning: null,
+      loudnessChange: null
+    };
   }
+  const showBpmChange = typeof transition?.bpmChange === 'number' && Number.isFinite(transition.bpmChange);
+  const driftBeats = showBpmChange && typeof transition?.driftBeats === 'number' && Number.isFinite(transition.driftBeats)
+    ? transition.driftBeats
+    : null;
+  const driftLabel = driftBeats !== null
+    ? (driftBeats === 0 ? '0 beats drift / 16b' : `~${driftBeats} beats drift / 16b`)
+    : null;
+  const isEnergyBoost = transition?.harmEval?.directedStep === 2;
+  const loudnessRisk = Boolean(transition?.loudnessRisk);
   return {
     text: transition?.relation || 'Key match',
     // The relation describes keys, so never colour it from the combined grade.
     tone: transition?.harmEval?.grade || 'none',
     // Use the existing tempo cost, including its directional-drop penalty.
     // This changes presentation only, not the combined grade or sequencing.
-    tempoTone: typeof transition?.bpmChange === 'number' && Number.isFinite(transition?.tempoCost)
+    tempoTone: showBpmChange && Number.isFinite(transition?.tempoCost)
       ? (transition.tempoCost > 5 ? 'CLASH' : transition.tempoCost > 2 ? 'STRETCH' : 'SMOOTH')
       : 'none',
-    showBpmChange: typeof transition?.bpmChange === 'number' && Number.isFinite(transition.bpmChange)
+    showBpmChange,
+    driftBeats,
+    driftLabel,
+    isEnergyBoost,
+    energyBoostLabel: isEnergyBoost ? 'Energy boost' : null,
+    loudnessRisk,
+    loudnessWarning: loudnessRisk ? (transition.loudnessWarning || 'volume dip risk - trim in Mix') : null,
+    loudnessChange: typeof transition?.loudnessChange === 'number' && Number.isFinite(transition.loudnessChange)
+      ? transition.loudnessChange
+      : null
   };
 }
 
