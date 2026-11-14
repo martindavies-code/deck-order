@@ -123,18 +123,12 @@ function mergeOptionalMetric(valA, valB, scale) {
 export function evaluateTwoSources(recA, recB, options = {}) {
   const { minBpm = 90, maxBpm = 180 } = options;
 
-  // 1. Check for version mismatch
+  // 1. Check for version mismatch. A mismatch flags the recording identity
+  // for review, but it no longer invalidates the comparison by itself: when
+  // tempo and key still agree across both independent sources, the values are
+  // corroborated and stay visible pending recording review (same treatment as
+  // the single-source ISRC-mismatch case).
   const mismatch = detectVersionMismatch(recA, recB);
-  if (mismatch.isMismatch) {
-    return {
-      status: 'unverified',
-      confidence: 'version_mismatch',
-      reason: `Potential version mismatch (${mismatch.reason}). Cross-source comparison invalidated.`,
-      disputeDetails: null,
-      chosenBpm: recA.bpm || recB.bpm,
-      chosenCamelot: recA.camelot || recB.camelot
-    };
-  }
 
   // 2. Normalize tempos
   const normA = normalizeTempo(recA.bpm, minBpm, maxBpm);
@@ -174,12 +168,22 @@ export function evaluateTwoSources(recA, recB, options = {}) {
       energy,
       loudness,
       sources: [recA, recB],
+      recordingNeedsReview: mismatch.isMismatch,
+      recordingMismatch: mismatch.isMismatch
+        ? { reason: mismatch.reason, suppliedIsrc: recA.isrc || null, matchedIsrc: recB.isrc || null }
+        : null,
+      reason: mismatch.isMismatch
+        ? `Potential version mismatch (${mismatch.reason}); tempo and key still agree across both sources - values shown, recording identity needs review.`
+        : null,
       disputeDetails: null
     };
   }
 
   // They disagree! Mark as DISPUTED
   const disputeReasons = [];
+  if (mismatch.isMismatch) {
+    disputeReasons.push(`Potential version mismatch: ${mismatch.reason}`);
+  }
   if (!tempoAgrees) {
     disputeReasons.push(`BPM discrepancy: ${recA.provider || 'Source A'} has ${normA.workingBpm} BPM, ${recB.provider || 'Source B'} has ${normB.workingBpm} BPM (diff ${bpmDiffPercent.toFixed(1)}% > 2%)`);
   }
@@ -354,6 +358,8 @@ export class VerificationPipeline {
         status: evaluation.status,
         confidence: evaluation.confidence,
         disputeDetails: evaluation.disputeDetails,
+        recordingNeedsReview: evaluation.recordingNeedsReview || false,
+        recordingMismatch: evaluation.recordingMismatch || null,
         reason: evaluation.reason,
         sources: successfulHits
       };
