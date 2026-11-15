@@ -14,7 +14,14 @@ import { evaluateHarmonicTransition } from './camelot.js';
 // normally; the identity caution stays at row level.
 const CROSS_CONFIRMED_STATUSES = new Set(['verified', 'corroborated']);
 export function recordingBlocksGrading(track) {
-  return !!track && !!track.recordingNeedsReview && !CROSS_CONFIRMED_STATUSES.has(track.status);
+  if (!track || !track.recordingNeedsReview) return false;
+  // A recordingMismatch carrying the track's own ISRC means the matched
+  // record is proven to be a DIFFERENT recording: the confirmed values are
+  // that record's, not this track's, so they block grading even when two
+  // providers agreed on them. Without a supplied ISRC, cross-confirmed
+  // values are only edition-level cautions and grade normally.
+  if (track.recordingMismatch && track.recordingMismatch.suppliedIsrc) return true;
+  return !CROSS_CONFIRMED_STATUSES.has(track.status);
 }
 
 export function calculateTransitionCost(trackA, trackB, options = {}) {
