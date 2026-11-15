@@ -107,27 +107,6 @@ export function validateCsvPayload(req, res, next) {
 }
 
 /**
- * Validates sequencing request
- */
-export function validateSequencePayload(req, res, next) {
-  const { tracks, unverifiedStrategy } = req.body;
-  if (!Array.isArray(tracks) || tracks.length === 0) {
-    throw new ValidationError('Tracks array is required for sequencing.');
-  }
-
-  if (tracks.length > 500) {
-    throw new ValidationError('Exceeded maximum sequencing batch size of 500 tracks.');
-  }
-
-  const validStrategies = ['keep_relative_position', 'cluster_at_start', 'cluster_at_end', 'exclude'];
-  if (unverifiedStrategy && !validStrategies.includes(unverifiedStrategy)) {
-    throw new ValidationError(`Invalid unverifiedStrategy "${unverifiedStrategy}". Allowed: ${validStrategies.join(', ')}`);
-  }
-
-  next();
-}
-
-/**
  * Validates save confirmation request
  */
 export function validateSaveConfirmPayload(req, res, next) {
@@ -163,25 +142,6 @@ export function validateSaveConfirmPayload(req, res, next) {
   next();
 }
 
-export function validateOverridePayload(req, res, next) {
-  const { trackId, override } = req.body || {};
-  if (typeof trackId !== 'string' || !trackId.trim() || trackId.length > 128) {
-    throw new ValidationError('Valid trackId string is required.');
-  }
-  if (!override || typeof override !== 'object' || Array.isArray(override)) {
-    throw new ValidationError('Valid override object is required.');
-  }
-  if (override.bpm !== undefined && override.bpm !== null && String(override.bpm).trim() !== '') {
-    const bpmNum = Number(override.bpm);
-    if (!Number.isFinite(bpmNum) || bpmNum <= 0 || bpmNum > 400) {
-      throw new ValidationError(`Invalid override BPM: ${override.bpm}`);
-    }
-  }
-  if (override.key !== undefined && override.key !== null && (typeof override.key !== 'string' || override.key.length > 64)) {
-    throw new ValidationError('Invalid override key value.');
-  }
-  next();
-}
 
 /**
  * Central Error Handler Middleware

@@ -1,4 +1,3 @@
-import { parseKey } from './camelot.js';
 import { GetSongBPMProvider } from '../providers/getsongbpm.js';
 import { SonovaultProvider } from '../providers/sonovault.js';
 import { SoundNetProvider } from '../providers/soundnet.js';
@@ -242,26 +241,6 @@ export class VerificationPipeline {
     this.soundNet = new SoundNetProvider(options.soundNetKey, options.soundNetOptions || {});
     this.freqblog = new FreqBlogProvider(options.freqblogKey, options.freqblogOptions || {});
     this.musicae = new MusicaeProvider(options.rapidApiKey, options.musicaeOptions || {});
-    this.userOverrides = new Map(); // trackId -> { bpm, key, camelot, energy }
-  }
-
-  setManualOverride(trackId, overrideData) {
-    const parsedKey = overrideData.key ? parseKey(overrideData.key) : null;
-    this.userOverrides.set(trackId, {
-      bpm: overrideData.bpm ? parseFloat(overrideData.bpm) : undefined,
-      key: overrideData.key || undefined,
-      camelot: parsedKey?.camelot || overrideData.camelot,
-      energy: overrideData.energy !== undefined ? parseFloat(overrideData.energy) : undefined,
-      timestamp: Date.now()
-    });
-  }
-
-  getManualOverride(trackId) {
-    return this.userOverrides.get(trackId) || null;
-  }
-
-  clearManualOverride(trackId) {
-    this.userOverrides.delete(trackId);
   }
 
   /**
@@ -269,29 +248,6 @@ export class VerificationPipeline {
    */
   async processTrack(track) {
     const trackId = track.id || `${track.artist}-${track.title}`;
-
-    // 1. Check for user manual override (User override ALWAYS wins)
-    const override = this.getManualOverride(trackId);
-    if (override) {
-      const norm = normalizeTempo(override.bpm, this.minBpm, this.maxBpm);
-      return {
-        ...track,
-        bpm: norm.workingBpm,
-        rawBpm: override.bpm,
-        workingBpm: norm.workingBpm,
-        isNormalized: norm.isNormalized,
-        key: override.key || track.key,
-        camelot: override.camelot,
-        energy: override.energy !== undefined ? override.energy : (track.energy ?? null),
-        status: 'verified',
-        confidence: 'user_override',
-        provenance: 'Manual user override applied',
-        sources: [
-          ...(track.sources || []),
-          { name: 'User Override', bpm: override.bpm, camelot: override.camelot, key: override.key }
-        ]
-      };
-    }
 
     // 2. If track already came from Manual CSV without additional sources to compare
     if (track.source === 'manual_csv' && track.status === 'verified' && (!track.sources || track.sources.length < 2)) {
@@ -331,7 +287,7 @@ export class VerificationPipeline {
       title: track.title,
       isrc: track.isrc,
       version: track.version,
-      durationMs: track.duration_ms
+      durationMs: track.duration_ms ?? track.durationMs ?? null
     };
 
     const configuredProviders = [];

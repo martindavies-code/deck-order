@@ -7,7 +7,6 @@
 
 import {
   parseTracklistCSV,
-  DJSequencer,
   generateOfflineSuggestions,
   generatePlainTextTracklist,
   generateCSVExport,
@@ -961,53 +960,6 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
   };
 }
 
-export async function submitOverride(trackId, override) {
-  try {
-    const res = await fetch('/api/pipeline/override', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trackId, override }),
-      signal: AbortSignal.timeout(3000)
-    });
-    if (res.ok) return await res.json();
-  } catch {
-    // In-browser fallback
-  }
-  return { success: true, trackId, override };
-}
-
-export async function runSequencer(tracks, options = {}) {
-  try {
-    const res = await fetch('/api/pipeline/sequence', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tracks,
-        seed: options.seed || 42,
-        enableEnergy: options.enableEnergy || false,
-        unverifiedStrategy: options.unverifiedStrategy || 'keep_relative_position',
-        lockedOpenerId: options.lockedOpenerId || null,
-        lockedCloserId: options.lockedCloserId || null
-      }),
-      signal: AbortSignal.timeout(3000)
-    });
-    if (res.ok) return await res.json();
-  } catch {
-    // In-browser fallback
-  }
-
-  // Pure client-side 2-opt solver
-  const sequencer = new DJSequencer({
-    seed: options.seed || 42,
-    enableEnergy: Boolean(options.enableEnergy),
-    unverifiedStrategy: options.unverifiedStrategy || 'keep_relative_position',
-    lockedOpenerId: options.lockedOpenerId || null,
-    lockedCloserId: options.lockedCloserId || null
-  });
-
-  const result = sequencer.solve(tracks);
-  return { success: true, result };
-}
 
 export async function fetchSuggestions(evaluation, orderedTracks, token = null) {
   if (!isGitHubPages) {
