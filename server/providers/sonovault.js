@@ -27,8 +27,14 @@ export class SonovaultProvider {
     this.cache = options.cache || providerCache;
     this.fetchImpl = options.fetchImpl || ((...args) => fetch(...args));
     this.requestTimeoutMs = options.requestTimeoutMs ?? 8000;
+    this.missCacheTtlSeconds = options.missCacheTtlSeconds || 24 * 3600;
+    // Brief circuit breaker after a 429: burst limits reset in a minute, the
+    // monthly cap does not, and neither justifies hammering the API.
+    this.quotaCooldownSeconds = options.quotaCooldownSeconds || 15 * 60;
     this._inFlight = new Map();
   }
+
+  static QUOTA_COOLDOWN_QUERY = { artist: '__quota_cooldown__', title: '', isrc: null, version: null };
 
   isConfigured() {
     return Boolean(this.apiKey && this.apiKey.trim().length > 0);
@@ -49,7 +55,11 @@ export class SonovaultProvider {
     }
     if (!res.ok) {
       if (res.status === 429) {
-        return { success: false, reason: 'Monthly free quota or burst limit reached (1,000 req/month, 20 req/min). Paid tiers start at ~EUR 29/mo.' };
+        const reason = 'Monthly free quota or burst limit reached (1,000 req/month, 20 req/min). Paid tiers start at ~EUR 29/mo.';
+        try {
+          await this.cache.set(this.name, SonovaultProvider.QUOTA_COOLDOWN_QUERY, { miss: true, quota: true, reason }, this.quotaCooldownSeconds);
+        } catch { /* marker failures never block the response */ }
+        return { success: false, reason };
       }
       if (res.status === 401 || res.status === 403) {
         return { success: false, reason: `provider_http_${res.status} (API key rejected)` };
@@ -101,8 +111,21 @@ export class SonovaultProvider {
     }
 
     const queryKey = { artist, title, isrc, version };
+    // Circuit breaker: a recorded 429 short-circuits lookups until the
+    // cooldown entry expires instead of re-hitting the API every track.
+    try {
+      const cooldown = await this.cache.get(this.name, SonovaultProvider.QUOTA_COOLDOWN_QUERY);
+      if (cooldown && cooldown.data) {
+        return { success: false, reason: cooldown.data.reason || 'Provider rate limited (cooldown).', cached: true };
+      }
+    } catch { /* cooldown read failures never block a lookup */ }
     const cached = await this.cache.get(this.name, queryKey);
     if (cached) {
+      // Negative caching: known misses stay misses for missCacheTtlSeconds
+      // instead of burning quota on every re-verify of the same playlist.
+      if (cached.data && cached.data.miss) {
+        return { success: false, reason: cached.data.reason || 'Track not found (cached)', cached: true };
+      }
       return { success: true, data: cached.data, cached: true };
     }
 
@@ -144,6 +167,7 @@ export class SonovaultProvider {
       if (!r.success) return r;
       const results = Array.isArray(r.json?.results) ? r.json.results : [];
       if (!results.length) {
+        try { await this.cache.set(this.name, queryKey, { miss: true, reason: 'Track not found' }, this.missCacheTtlSeconds); } catch { /* ignore cache errors */ }
         return { success: false, reason: 'Track not found' };
       }
 
@@ -160,6 +184,7 @@ export class SonovaultProvider {
           return { success: true, data, cached: false };
         }
       }
+      try { await this.cache.set(this.name, queryKey, { miss: true, reason: 'Identity cross-check rejected search candidates' }, this.missCacheTtlSeconds); } catch { /* ignore cache errors */ }
       return { success: false, reason: 'Identity cross-check rejected search candidates' };
     });
   }
