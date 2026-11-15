@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { VerificationPipeline } from '../core/pipeline.js';
-import { DJSequencer } from '../core/solver.js';
 import { SuggestionEngine } from '../core/bridgeFinder.js';
 import { SpotifyClient } from '../spotify/client.js';
 import { SafePlaylistWriter, generatePlainTextTracklist, generateCSVExport } from '../spotify/safeWriter.js';
@@ -12,9 +11,7 @@ import {
   isValidSpotifyId,
   validateVerifyPayload,
   validateCsvPayload,
-  validateSequencePayload,
   validateSaveConfirmPayload,
-  validateOverridePayload,
   errorHandler
 } from '../middleware/security.js';
 import { ValidationError, SpotifyAuthError } from '../core/errors.js';
@@ -30,7 +27,9 @@ export function createApiRouter(config = {}) {
     maxBpm: config.maxBpm || 180,
     getSongBpmKey: config.getSongBpmKey,
     sonovaultKey: config.sonovaultKey,
-    soundNetKey: config.soundNetKey
+    soundNetKey: config.soundNetKey,
+    freqblogKey: config.freqblogKey,
+    rapidApiKey: config.rapidApiKey
   });
 
   const suggestionEngine = new SuggestionEngine(pipeline);
@@ -181,40 +180,6 @@ export function createApiRouter(config = {}) {
     try {
       const { tracks: verifiedTracks, report } = await pipeline.processPlaylist(tracks);
       res.json({ success: true, tracks: verifiedTracks, report });
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // Manual User Override (validated without mutating shared multi-tenant pipeline singleton)
-  router.post('/pipeline/override', validateOverridePayload, (req, res) => {
-    const { trackId, override } = req.body;
-    res.json({
-      success: true,
-      trackId,
-      override: {
-        bpm: override.bpm ?? null,
-        key: override.key ?? null,
-        camelot: override.camelot ?? null
-      }
-    });
-  });
-
-  // Solve & Sequence Tracks (Validated)
-  router.post('/pipeline/sequence', validateSequencePayload, (req, res, next) => {
-    const { tracks, seed, enableEnergy, unverifiedStrategy, lockedOpenerId, lockedCloserId } = req.body;
-
-    try {
-      const sequencer = new DJSequencer({
-        seed: seed || 42,
-        enableEnergy: enableEnergy !== undefined ? Boolean(enableEnergy) : true,
-        unverifiedStrategy: unverifiedStrategy || 'keep_relative_position',
-        lockedOpenerId: typeof lockedOpenerId === 'string' && lockedOpenerId.length <= 128 ? lockedOpenerId : null,
-        lockedCloserId: typeof lockedCloserId === 'string' && lockedCloserId.length <= 128 ? lockedCloserId : null
-      });
-
-      const result = sequencer.solve(tracks);
-      res.json({ success: true, result });
     } catch (err) {
       next(err);
     }
