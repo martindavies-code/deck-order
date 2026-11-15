@@ -4,7 +4,7 @@
  * so recommendations depend directly on tempo gap, beat drift, harmonic fit, and loudness delta.
  */
 
-import { evaluateSequence } from '../../../server/core/costMatrix.js';
+import { evaluateSequence, recordingBlocksGrading } from '../../../server/core/costMatrix.js';
 import { annotateEnergyResets } from '../../../server/core/energyArc.js';
 
 export const PHRASE_GUIDANCE =
@@ -78,10 +78,10 @@ export function buildSavedMixSnapshot(orderedTracks = [], manifest = null, optio
 
 export function recommendMixSetting(transition, fromTrack, toTrack) {
   const needsReview = !!(
-    fromTrack?.recordingNeedsReview ||
     fromTrack?.tempoNeedsReview ||
-    toTrack?.recordingNeedsReview ||
-    toTrack?.tempoNeedsReview
+    toTrack?.tempoNeedsReview ||
+    recordingBlocksGrading(fromTrack) ||
+    recordingBlocksGrading(toTrack)
   );
 
   if (
@@ -148,10 +148,10 @@ export function buildMixRecipe(orderedTracks = [], evaluation = null, setName = 
     const rec = nextTrack ? recommendMixSetting(transition, track, nextTrack) : null;
 
     const needsReview = !!(
-      track?.recordingNeedsReview ||
       track?.tempoNeedsReview ||
-      nextTrack?.recordingNeedsReview ||
-      nextTrack?.tempoNeedsReview
+      nextTrack?.tempoNeedsReview ||
+      recordingBlocksGrading(track) ||
+      recordingBlocksGrading(nextTrack)
     );
     const isUnverified = needsReview ||
       !transition ||
