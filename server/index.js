@@ -29,6 +29,7 @@ const apiConfig = {
   spotifyClientSecret: process.env.SPOTIFY_CLIENT_SECRET,
   getSongBpmKey: process.env.GETSONGBPM_API_KEY,
   sonovaultKey: process.env.SONOVAULT_API_KEY,
+  freqblogKey: process.env.FREQBLOG_API_KEY,
   soundNetKey: process.env.SOUNDNET_API_KEY,
   rapidApiKey: process.env.RAPIDAPI_KEY,
   minBpm: parseFloat(process.env.BPM_MIN) || 90,
