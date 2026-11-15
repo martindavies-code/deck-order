@@ -104,11 +104,11 @@ describe('Musicae provider', () => {
 
 describe('Musicae pipeline policy (tiebreaker/fallback only)', () => {
 
-  const STUB_HIT = (provider, bpm, camelot, key) => ({
-    provider, bpm, camelot, key, energy: null, source: 'stub', confidence: 'provider_api'
+  const STUB_HIT = (provider, bpm, camelot, key, isrc) => ({
+    provider, bpm, camelot, key, isrc: isrc || null, energy: null, source: 'stub', confidence: 'provider_api'
   });
 
-  function makePipeline({ primaryHits, musicaeData, musicaeFails }) {
+  function makePipeline({ primaryHits, musicaeData, musicaeFails, musicaeByIsrc }) {
     const pipeline = new VerificationPipeline({});
     const stubProvider = (hit) => ({
       isConfigured: () => true,
@@ -121,16 +121,22 @@ describe('Musicae pipeline policy (tiebreaker/fallback only)', () => {
     pipeline.soundNet = { isConfigured: () => false };
     pipeline.freqblog = { isConfigured: () => false };
     let musicaeCalls = 0;
+    const queriedIsrcs = [];
     pipeline.musicae = {
       isConfigured: () => true,
       name: 'Musicae',
-      lookupTrack: async () => {
+      lookupTrack: async (q) => {
         musicaeCalls++;
+        queriedIsrcs.push(q && q.isrc ? String(q.isrc).toUpperCase() : null);
         if (musicaeFails) return { success: false, reason: 'Daily quota reached (10 req/day free tier).' };
+        if (musicaeByIsrc) {
+          const hit = musicaeByIsrc[queriedIsrcs[queriedIsrcs.length - 1]];
+          return hit ? { success: true, data: hit } : { success: false, reason: 'Track not found' };
+        }
         return { success: true, data: musicaeData };
       }
     };
-    return { pipeline, musicaeCalls: () => musicaeCalls };
+    return { pipeline, musicaeCalls: () => musicaeCalls, queriedIsrcs };
   }
 
   const QUERY = { id: 'x', artist: 'Peggy Gou', title: '(It Goes Like) Nanana', isrc: 'GBBKS2300081' };
@@ -205,7 +211,7 @@ describe('Musicae pipeline policy (tiebreaker/fallback only)', () => {
     assert.equal(t.camelot, '5A');
   });
 
-  test('no ISRC means Musicae stays silent even when sources disagree', async () => {
+  test('no ISRC anywhere (query or matched records) means Musicae stays silent even when sources disagree', async () => {
     const { pipeline, musicaeCalls } = makePipeline({
       primaryHits: [STUB_HIT('GetSongBPM', 130, '5A', 'Cm'), STUB_HIT('Sonovault', 128, '8A', 'Am')],
       musicaeData: STUB_HIT('Musicae', 130, '5A', 'Cm')
@@ -213,6 +219,50 @@ describe('Musicae pipeline policy (tiebreaker/fallback only)', () => {
     const t = await pipeline.processTrack({ id: 'x', artist: 'Peggy Gou', title: '(It Goes Like) Nanana' });
     assert.equal(musicaeCalls(), 0);
     assert.equal(t.status, 'disputed');
+    assert.ok(!/tiebreak unavailable/.test(t.reason));
+  });
+
+  test('no-ISRC query: tiebreak fires using the matched records\' ISRCs', async () => {
+    const { pipeline, musicaeCalls, queriedIsrcs } = makePipeline({
+      primaryHits: [
+        STUB_HIT('GetSongBPM', 130, '7A', 'Dm', 'GBAHS2300020'),
+        STUB_HIT('Sonovault', 130, '7B', 'F', 'GBAHS2201033')
+      ],
+      musicaeData: STUB_HIT('Musicae', 130, '7B', 'F', 'GBAHS2300020')
+    });
+    const t = await pipeline.processTrack({ id: 'x', artist: 'Fred again..', title: 'Danielle (smile on my face)' });
+    assert.equal(musicaeCalls(), 1);
+    assert.deepEqual(queriedIsrcs, ['GBAHS2300020']);
+    assert.equal(t.status, 'verified');
+    assert.equal(t.confidence, 'tiebreaker_resolved');
+    assert.equal(t.camelot, '7B');
+    assert.match(t.reason, /Musicae tiebreak corroborated Sonovault/);
+  });
+
+  test('no-ISRC query: tries each matched ISRC until Musicae answers', async () => {
+    const { pipeline, musicaeCalls, queriedIsrcs } = makePipeline({
+      primaryHits: [
+        STUB_HIT('GetSongBPM', 130, '7A', 'Dm', 'GBAHS2300020'),
+        STUB_HIT('Sonovault', 130, '7B', 'F', 'GBAHS2201033')
+      ],
+      musicaeByIsrc: { 'GBAHS2201033': STUB_HIT('Musicae', 130, '7B', 'F', 'GBAHS2201033') }
+    });
+    const t = await pipeline.processTrack({ id: 'x', artist: 'Fred again..', title: 'Danielle (smile on my face)' });
+    assert.equal(musicaeCalls(), 2);
+    assert.deepEqual(queriedIsrcs, ['GBAHS2300020', 'GBAHS2201033']);
+    assert.equal(t.status, 'verified');
+    assert.equal(t.confidence, 'tiebreaker_resolved');
+    assert.match(t.reason, /Musicae tiebreak corroborated Sonovault/);
+  });
+
+  test('fallback stays addressed by the query ISRC only: a lone matched ISRC is not used', async () => {
+    const { pipeline, musicaeCalls } = makePipeline({
+      primaryHits: [STUB_HIT('Sonovault', 130, '5A', 'Cm', 'GBBKS2300081'), null],
+      musicaeData: STUB_HIT('Musicae', 130, '5A', 'Cm')
+    });
+    const t = await pipeline.processTrack({ id: 'x', artist: 'Peggy Gou', title: '(It Goes Like) Nanana' });
+    assert.equal(musicaeCalls(), 0);
+    assert.equal(t.status, 'single_source');
   });
 
   test('unconfigured Musicae leaves prior behavior unchanged', async () => {
