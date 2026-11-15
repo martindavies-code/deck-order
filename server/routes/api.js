@@ -65,6 +65,7 @@ export function createApiRouter(config = {}) {
           name: 'Musicae',
           isConfigured: pipeline.musicae.isConfigured(),
           quota: 'Free tier (10 req/day, RapidAPI)',
+          quotaExhausted: pipeline.musicae.quotaExhausted === true,
           condition: 'Tiebreaker/fallback only, ISRC-addressable, ISRC-cached'
         },
         soundNet: {
