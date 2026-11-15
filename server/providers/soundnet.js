@@ -69,6 +69,9 @@ export class SoundNetProvider {
           ? await this.cache.get(this.name, queryKey)
           : await this.cache.get(flightKey);
         if (cached) {
+          // Negative caching: known misses stay misses for missCacheTtlSeconds
+          // instead of re-hitting the API on every re-verify.
+          if (cached.data && cached.data.miss) return { success: false, reason: cached.data.reason || 'cached miss', cached: true };
           if (cached.data) return { success: true, data: cached.data, cached: true };
           if (cached.success === false && !cached.transient) return { ...cached, cached: true };
         }
@@ -107,8 +110,14 @@ export class SoundNetProvider {
         );
         if (!identity.ok) {
           const out = { success: false, reason: identity.reason };
-          if (this.cache && !isProviderCache) {
-            try { await this.cache.set(flightKey, out, this.missCacheTtlSeconds); } catch { /* ignore cache errors */ }
+          if (this.cache) {
+            try {
+              if (isProviderCache) {
+                await this.cache.set(this.name, queryKey, { miss: true, reason: out.reason }, this.missCacheTtlSeconds);
+              } else {
+                await this.cache.set(flightKey, out, this.missCacheTtlSeconds);
+              }
+            } catch { /* ignore cache errors */ }
           }
           return out;
         }
