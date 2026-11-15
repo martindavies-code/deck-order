@@ -126,7 +126,9 @@ export function transitionDisplay(transition, fromTrack, toTrack) {
     };
   }
   const isUnverified = !transition || transition.grade === 'UNVERIFIED' || transition.harmEval?.grade === 'UNVERIFIED' || !transition.grade;
-  const showBpmChange = typeof transition?.bpmChange === 'number' && Number.isFinite(transition.bpmChange);
+  // No confident BPM delta on an unverified handover: the number would wear
+  // the same visual weight as a graded one.
+  const showBpmChange = !isUnverified && typeof transition?.bpmChange === 'number' && Number.isFinite(transition.bpmChange);
   const driftBeats = !isUnverified && showBpmChange && typeof transition?.driftBeats === 'number' && Number.isFinite(transition.driftBeats)
     ? transition.driftBeats
     : null;
