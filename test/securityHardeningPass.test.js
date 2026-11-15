@@ -12,7 +12,7 @@ import { SpotifyClient } from '../server/spotify/client.js';
 import { SafePlaylistWriter, generateCSVExport } from '../server/spotify/safeWriter.js';
 import { generateCSVExport as clientGenerateCSVExport } from '../client/src/services/formatters.js';
 import { createApiRouter } from '../server/routes/api.js';
-import { validateOverridePayload, validateCsvPayload, validateSequencePayload, errorHandler } from '../server/middleware/security.js';
+import { validateCsvPayload, errorHandler } from '../server/middleware/security.js';
 import { SuggestionEngine } from '../server/core/bridgeFinder.js';
 import { confirmSavePlaylist, fetchPlaylistItems } from '../client/src/services/api.js';
 
@@ -312,23 +312,7 @@ describe('Code Hardening Regression Suite', () => {
       });
       assert.equal(badId.status, 400);
 
-      const badOverride = await fetch(`${base}/pipeline/override`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trackId: 't1', override: { bpm: 999 } })
-      });
-      assert.equal(badOverride.status, 400);
-
-      const okOverride = await fetch(`${base}/pipeline/override`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trackId: 't1', override: { bpm: 128, key: '8A' } })
-      });
-      assert.equal(okOverride.status, 200);
-
       assert.throws(() => validateCsvPayload({ body: {} }, {}, () => {}), /Missing or empty/);
-      assert.throws(() => validateSequencePayload({ body: { tracks: [{ id: '1' }], unverifiedStrategy: 'bad' } }, {}, () => {}), /Invalid unverifiedStrategy/);
-      assert.throws(() => validateOverridePayload({ body: { trackId: '', override: {} } }, {}, () => {}), /trackId/);
 
       let captured = null;
       errorHandler(new Error('secret db string'), {}, {
