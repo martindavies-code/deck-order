@@ -90,6 +90,19 @@ describe('Musicae provider', () => {
     assert.match(r.reason, /mismatch/i);
   });
 
+  test('429 marks the quota exhausted and short-circuits later lookups', async () => {
+    let calls = 0;
+    const p = makeProvider(async () => { calls++; return { ok: false, status: 429, json: async () => ({}) }; });
+    const r1 = await p.lookupTrack({ artist: 'Overmono', title: 'Good Lies', isrc: 'GBBKS2200249' });
+    assert.equal(r1.success, false);
+    assert.match(r1.reason, /Daily quota reached/);
+    assert.equal(await p.isQuotaExhausted(), true);
+    const r2 = await p.lookupTrack({ artist: 'Peggy Gou', title: '(It Goes Like) Nanana', isrc: 'GBBKS2300081' });
+    assert.equal(r2.success, false);
+    assert.match(r2.reason, /Daily quota reached/);
+    assert.equal(calls, 1, 'second lookup is short-circuited, not another burned request');
+  });
+
   test('caches by ISRC so repeats never burn the daily quota', async () => {
     let calls = 0;
     const p = makeProvider(async () => { calls++; return { ok: true, json: async () => MUS_NANANA }; });
@@ -186,6 +199,16 @@ describe('Musicae pipeline policy (tiebreaker/fallback only)', () => {
     assert.equal(musicaeCalls(), 1);
     assert.equal(t.status, 'disputed');
     assert.match(t.reason, /tiebreak unavailable/);
+  });
+
+  test('tiebreak-unavailable note carries the underlying cause (quota vs not-found)', async () => {
+    const { pipeline } = makePipeline({
+      primaryHits: [STUB_HIT('GetSongBPM', 130, '5A', 'Cm'), STUB_HIT('Sonovault', 128, '8A', 'Am')],
+      musicaeFails: true
+    });
+    const t = await pipeline.processTrack(QUERY);
+    assert.equal(t.status, 'disputed');
+    assert.match(t.reason, /Musicae tiebreak unavailable - Daily quota reached/);
   });
 
   test('fallback: a single priority hit is verified against Musicae', async () => {

@@ -25,6 +25,15 @@ const CAMELOT_RE = /^([1-9]|1[0-2])[AB]$/;
  * score.danceability. No artist name field exists on the record, so identity
  * is anchored on the exact ISRC plus a title cross-check.
  */
+const QUOTA_MARKER_KEY = 'musicae:quota_exhausted';
+const QUOTA_REASON = 'Daily quota reached (10 req/day free tier). Resets with the RapidAPI billing day.';
+
+function secondsUntilUtcMidnight() {
+  const now = new Date();
+  const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  return Math.max(60, Math.round((midnight - now.getTime()) / 1000));
+}
+
 export class MusicaeProvider {
   constructor(apiKey = process.env.RAPIDAPI_KEY, options = {}) {
     this.apiKey = apiKey || null;
@@ -89,6 +98,24 @@ export class MusicaeProvider {
     };
   }
 
+  // True once a 429 was seen (instance flag, plus a KV marker that survives
+  // worker isolate restarts until the RapidAPI billing day resets).
+  async isQuotaExhausted() {
+    if (this.quotaExhausted === true) return true;
+    if (this.cache && typeof this.cache.buildKey !== 'function') {
+      try {
+        const marker = await this.cache.get(QUOTA_MARKER_KEY);
+        if (marker && marker.exhausted) {
+          this.quotaExhausted = true;
+          return true;
+        }
+      } catch {
+        // Marker read failures never block lookups.
+      }
+    }
+    return false;
+  }
+
   async lookupTrack({ artist, title, isrc, version }) {
     if (!this.isConfigured()) {
       return { success: false, reason: `RapidAPI key not configured. (${this.costNotice})` };
@@ -96,6 +123,11 @@ export class MusicaeProvider {
     const cleanIsrc = typeof isrc === 'string' ? isrc.trim().toUpperCase() : '';
     if (!cleanIsrc) {
       return { success: false, reason: 'no_match: Musicae lookups require an ISRC' };
+    }
+    // Short-circuit once the daily quota is known to be spent: no point
+    // hammering RapidAPI for 429s until the billing day resets.
+    if (await this.isQuotaExhausted()) {
+      return { success: false, reason: QUOTA_REASON };
     }
 
     const queryKey = { artist, title, isrc: cleanIsrc, version };
@@ -129,7 +161,15 @@ export class MusicaeProvider {
 
         if (!res.ok) {
           if (res.status === 429) {
-            return { success: false, reason: 'Daily quota reached (10 req/day free tier). Resets with the RapidAPI billing day.' };
+            this.quotaExhausted = true;
+            if (this.cache && typeof this.cache.buildKey !== 'function') {
+              try {
+                await this.cache.set(QUOTA_MARKER_KEY, { exhausted: true }, secondsUntilUtcMidnight());
+              } catch {
+                // Marker write failures never block the response.
+              }
+            }
+            return { success: false, reason: QUOTA_REASON };
           }
           if (res.status === 401 || res.status === 403) {
             return { success: false, reason: `provider_http_${res.status} (API key rejected)` };

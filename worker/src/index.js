@@ -148,7 +148,13 @@ export default {
           soundnet: { name: 'SoundNet', isConfigured: Boolean(env.SOUNDNET_API_KEY) },
           getsongbpm: { name: 'GetSongBPM', isConfigured: Boolean(env.GETSONGBPM_API_KEY) },
           sonovault: { name: 'Sonovault', isConfigured: Boolean(env.SONOVAULT_API_KEY) },
-          musicae: { name: 'Musicae', isConfigured: Boolean(env.RAPIDAPI_KEY) }
+          musicae: {
+            name: 'Musicae',
+            isConfigured: Boolean(env.RAPIDAPI_KEY),
+            quotaExhausted: await env.FREQBLOG_KV.get('musicae:quota_exhausted', 'json')
+              .then(m => !!(m && m.exhausted))
+              .catch(() => false)
+          }
         }
       }, { headers: cors });
     }
