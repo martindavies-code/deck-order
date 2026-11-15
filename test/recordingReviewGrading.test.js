@@ -99,3 +99,62 @@ test('readiness inputs: mixed set reports graded plus unverified counts', () => 
   assert.equal(allReview.gradedCount, 0, 'fully unconfirmed set reports no graded transitions');
   assert.equal(allReview.unverifiedCount, 1);
 });
+
+// --- Corroborated-but-flagged (post-2026-11-14 softening): different edits of
+// the same recording whose tempo/key AGREE across sources. The identity
+// caution stays on the row; it must not blank grading or the fit line.
+
+const corroboratedFlagged = (id, bpm, camelot, over = {}) => ({
+  id, artist: 'A', title: id, bpm, workingBpm: bpm, camelot,
+  status: 'corroborated', recordingNeedsReview: true,
+  recordingMismatch: { suppliedIsrc: 'GBCFB2000044', matchedIsrc: 'GBCFB2000045' },
+  ...over
+});
+
+test('corroborated + recordingNeedsReview transitions grade normally', () => {
+  const tracks = [clean('a', 124, '8A'), corroboratedFlagged('b', 129, '2A'), clean('c', 122, '10B')];
+  const ev = evaluateSequence(tracks);
+  assert.ok(ev.transitions.every(t => t.grade !== 'UNVERIFIED'), 'no transition is blanked by a corroborated flag');
+  assert.equal(ev.unverifiedCount, 0);
+  assert.equal(ev.gradedCount, 2);
+});
+
+test('corroborated + recordingNeedsReview shows the real fit line (transitionDisplay)', () => {
+  const a = clean('a', 124, '8A');
+  const b = corroboratedFlagged('b', 124, '8A');
+  const ev = evaluateSequence([a, b]);
+  const td = transitionDisplay(ev.transitions[0], a, b);
+  assert.notEqual(td.text, 'Needs review - unconfirmed tempo/key');
+  assert.notEqual(td.tone, 'review');
+});
+
+test('a corroborated-flagged neighbour no longer poisons a clean corroborated row', () => {
+  // Rosewood case: clean track adjacent to a corroborated-but-flagged one.
+  const rosewood = clean('rosewood', 121, '2A');
+  const starry = corroboratedFlagged('starry', 123, '1A');
+  const ev = evaluateSequence([rosewood, starry]);
+  const td = transitionDisplay(ev.transitions[0], rosewood, starry);
+  assert.notEqual(td.text, 'Needs review - unconfirmed tempo/key');
+});
+
+test('server-status verified + recordingNeedsReview also grades (worker vocabulary)', () => {
+  const verifiedFlagged = { id: 'v', artist: 'A', title: 'v', bpm: 124, workingBpm: 124, camelot: '8A', status: 'verified', recordingNeedsReview: true };
+  const ev = evaluateSequence([clean('a', 124, '8A'), verifiedFlagged]);
+  assert.notEqual(ev.transitions[0].grade, 'UNVERIFIED');
+});
+
+test('single_source + recordingNeedsReview still blanks the fit (unchanged conservative case)', () => {
+  const a = clean('a', 124, '8A');
+  const b = reviewTrack();
+  const ev = evaluateSequence([a, b]);
+  const td = transitionDisplay(ev.transitions[0], a, b);
+  assert.equal(td.text, 'Needs review - unconfirmed tempo/key');
+});
+
+test('corroborated-flagged track with tempoNeedsReview still blanks the fit', () => {
+  const a = clean('a', 124, '8A');
+  const b = corroboratedFlagged('b', 124, '8A', { tempoNeedsReview: true });
+  const ev = evaluateSequence([a, b]);
+  const td = transitionDisplay(ev.transitions[0], a, b);
+  assert.equal(td.text, 'Needs review - unconfirmed tempo/key');
+});

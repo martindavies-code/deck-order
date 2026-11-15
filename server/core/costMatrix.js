@@ -6,6 +6,17 @@ import { evaluateHarmonicTransition } from './camelot.js';
  * 
  * Total Cost = Harmonic Cost + Tempo Cost + Energy Cost
  */
+// A recording-identity caution (recordingNeedsReview) blocks tempo/key
+// grading only while the values themselves lack two-source confirmation.
+// Since 2026-11-14 the pipeline can return verified (client: corroborated)
+// WITH the flag - the matched records are different edits, but tempo and key
+// agree across sources - so those values are confirmed and transitions grade
+// normally; the identity caution stays at row level.
+const CROSS_CONFIRMED_STATUSES = new Set(['verified', 'corroborated']);
+export function recordingBlocksGrading(track) {
+  return !!track && !!track.recordingNeedsReview && !CROSS_CONFIRMED_STATUSES.has(track.status);
+}
+
 export function calculateTransitionCost(trackA, trackB, options = {}) {
   const {
     enableEnergy = true,
@@ -23,10 +34,11 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
   // An unconfirmed octave suggestion is NOT trusted tempo: grade it like
   // unverified data instead of confidently scoring the raw/suggested jump.
   // Same for an unconfirmed recording match: when the matched record is a
-  // different recording than supplied (recordingNeedsReview), its tempo AND
-  // key values are unconfirmed, so the transition is never graded on them.
+  // different recording than supplied (recordingNeedsReview) and the values
+  // are not cross-confirmed by two sources, its tempo AND key values are
+  // unconfirmed, so the transition is never graded on them.
   const tempoUnconfirmed = !!(trackA.tempoNeedsReview || trackB.tempoNeedsReview);
-  const recordingUnconfirmed = !!(trackA.recordingNeedsReview || trackB.recordingNeedsReview);
+  const recordingUnconfirmed = recordingBlocksGrading(trackA) || recordingBlocksGrading(trackB);
   const valuesUnconfirmed = tempoUnconfirmed || recordingUnconfirmed;
   const bpmA = trackA.workingBpm || trackA.bpm;
   const bpmB = trackB.workingBpm || trackB.bpm;
