@@ -132,6 +132,7 @@ export function SourcePicker({
           <div className="flex flex-wrap items-center gap-4 pt-1">
             <button
               onClick={handleDemoSet}
+              disabled={isLoading}
               className="deck-btn-secondary text-xs sm:text-sm flex items-center gap-2 sm:px-4 sm:py-2.5"
               title="Load a 12-track demo set with sample metadata"
             >
@@ -167,7 +168,8 @@ export function SourcePicker({
                     key={setItem.id}
                     type="button"
                     onClick={() => onLoadRecentSet(setItem)}
-                    className="w-full text-left px-3 py-2 rounded bg-[#10120F] hover:bg-[#252B22] border border-[#394133] hover:border-[#D6FC55] transition-colors flex items-center justify-between gap-3 group"
+                    disabled={isLoading}
+                    className="w-full text-left px-3 py-2 rounded bg-[#10120F] hover:bg-[#252B22] border border-[#394133] hover:border-[#D6FC55] transition-colors flex items-center justify-between gap-3 group disabled:opacity-50 disabled:pointer-events-none"
                   >
                     <div className="min-w-0 flex-1">
                       <p className="text-xs sm:text-sm font-semibold text-[#F3F0E6] truncate group-hover:text-[#D6FC55]">
@@ -507,7 +509,8 @@ export function SourcePicker({
                   <button
                     onClick={handleDemoSet}
                     type="button"
-                    className="text-xs sm:text-sm text-[#BAC2B3] hover:text-[#F3F0E6] underline decoration-[#394133]"
+                    disabled={isLoading}
+                    className="text-xs sm:text-sm text-[#BAC2B3] hover:text-[#F3F0E6] underline decoration-[#394133] disabled:opacity-50"
                   >
                     Load sample data
                   </button>
