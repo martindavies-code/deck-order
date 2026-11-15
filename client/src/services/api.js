@@ -790,7 +790,7 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
 
     const processedAll = new Array(total).fill(null);
     const merged = {
-      corroborated: 0, singleSource: 0, disputed: 0, missing: 0,
+      corroborated: 0, singleSource: 0, supplied: 0, disputed: 0, missing: 0,
       disputedTracks: [], unverifiedTracks: [], tempoReviewTracks: [], recordingReviewTracks: []
     };
     let checkedCount = 0;
@@ -834,6 +834,7 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
         const r = data.report || {};
         merged.corroborated += r.verified || 0;
         merged.singleSource += r.singleSource || 0;
+        merged.supplied += r.supplied || 0;
         merged.disputed += r.disputed || 0;
         merged.missing += r.unverified || 0;
         merged.disputedTracks.push(...(r.disputedTracks || []));
@@ -879,7 +880,7 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
         total,
         corroborated: merged.corroborated,
         singleSource: merged.singleSource,
-        supplied: fallbackSupplied,
+        supplied: merged.supplied + fallbackSupplied,
         sample: 0,
         disputed: merged.disputed,
         missing: merged.missing + fallbackMissing,
