@@ -80,6 +80,25 @@ test('quota reserve failure blocks outgoing calls', async () => {
   assert.equal(called, 0);
 });
 
+test('quota denial reason is surfaced: hourly per-IP cap is not misreported as monthly exhaustion', async () => {
+  let called = 0;
+  const p = new FreqBlogProvider('k', {
+    fetchImpl: async () => { called++; return { ok: true, json: async () => GOOD_REC }; },
+    reserveQuota: async () => ({ allowed: false, reason: 'per_ip_hourly_cap', remaining: 900 })
+  });
+  const r = await p.lookupTrack({ artist: 'Bicep', title: 'Glue' });
+  assert.equal(r.success, false);
+  assert.equal(r.reason, 'provider_hourly_cap');
+  assert.equal(called, 0);
+
+  const monthly = new FreqBlogProvider('k', {
+    fetchImpl: async () => { called++; return { ok: true, json: async () => GOOD_REC }; },
+    reserveQuota: async () => ({ allowed: false, reason: 'monthly_cap', remaining: 0 })
+  });
+  const r2 = await monthly.lookupTrack({ artist: 'Bicep', title: 'Glue' });
+  assert.equal(r2.reason, 'provider_monthly_quota_exhausted');
+});
+
 test('pipeline single-source unconfirmed octave: raw stays raw, suggestion flagged', async () => {
   const halfTime = { ...GOOD_REC, bpm: 62.5 };
   const pipe = new VerificationPipeline({ freqblogKey: 'k', freqblogOptions: { fetchImpl: stubFetch({ '/lookup': halfTime }) } });
