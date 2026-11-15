@@ -140,6 +140,10 @@ export function App() {
 
   const toastTimerRef = useRef(null);
   const evalCacheRef = useRef({ tracks: null, enableEnergy: null, value: null });
+  // Monotonic load counter: when a second playlist/CSV load starts while an
+  // earlier one is still in flight, the stale request must not overwrite the
+  // newer set's state when it resolves.
+  const loadRequestRef = useRef(0);
   const suggestionRequestRef = useRef(0);
   // Set before applying suggestions: once the orderedTracks-change effect has
   // cleared the stale suggestions, re-run the finder so the panel reflects the
@@ -487,6 +491,7 @@ export function App() {
 
   // Ingest Spotify Playlist
   const handleSelectPlaylist = async (pl) => {
+    const requestId = ++loadRequestRef.current;
     setIsLoading(true);
     setLoadingPlaylistId(pl.id);
     setLoadProgress({ stage: 'fetch', fetched: 0, total: pl.itemCount || null });
@@ -495,8 +500,10 @@ export function App() {
     setIsSampleSet(false);
     try {
       const data = await fetchPlaylistItems(authToken, pl.id, setLoadProgress);
+      if (requestId !== loadRequestRef.current) return;
       setLoadProgress({ stage: 'verify', fetched: 0, total: data.items.length || null });
       const verifyRes = await verifyTracklist(data.items, false, setLoadProgress);
+      if (requestId !== loadRequestRef.current) return;
       const loadedCount = verifyRes.tracks.length;
       const totalReturned = data.totalItems ?? loadedCount;
       const skipped = data.skipped || { episodes: 0, localFiles: 0, unavailable: 0, unsupported: 0, total: 0 };
@@ -538,6 +545,7 @@ export function App() {
         showToast(toastInfo.text, toastInfo.type === 'warning' ? 5000 : 3000, toastInfo.type);
       }
     } catch (err) {
+      if (requestId !== loadRequestRef.current) return;
       if (err.status === 403 || err.message?.includes('403')) {
         showToast(SPOTIFY_403_MSG, 6000, 'error');
       } else if (err.status === 401) {
@@ -560,14 +568,17 @@ export function App() {
         showToast(`Could not read playlist: ${err.message}`, 5000, 'error');
       }
     } finally {
-      setIsLoading(false);
-      setLoadProgress(null);
-      setLoadingPlaylistId(null);
+      if (requestId === loadRequestRef.current) {
+        setIsLoading(false);
+        setLoadProgress(null);
+        setLoadingPlaylistId(null);
+      }
     }
   };
 
   // Ingest CSV / Demo Tracklist
   const handleParseCsv = async (csvContent, isSample = false) => {
+    const requestId = ++loadRequestRef.current;
     setIsLoading(true);
     setLoadProgress({ stage: 'parse', fetched: 0, total: null });
     setIsSampleSet(isSample);
@@ -577,8 +588,10 @@ export function App() {
 
     try {
       const parsed = await parseCsvText(csvContent);
+      if (requestId !== loadRequestRef.current) return;
       setLoadProgress({ stage: 'verify', fetched: 0, total: parsed.tracks.length || null });
       const verifyRes = await verifyTracklist(parsed.tracks, isSample, setLoadProgress);
+      if (requestId !== loadRequestRef.current) return;
       newSetIdentity();
       setLockedOpenerId(null);
       setLockedCloserId(null);
@@ -603,10 +616,13 @@ export function App() {
         showToast(`Loaded ${verifyRes.tracks.length} tracks.`);
       }
     } catch (err) {
+      if (requestId !== loadRequestRef.current) return;
       showToast(`Import issue: ${err.message}`, 5000);
     } finally {
-      setIsLoading(false);
-      setLoadProgress(null);
+      if (requestId === loadRequestRef.current) {
+        setIsLoading(false);
+        setLoadProgress(null);
+      }
     }
   };
 
