@@ -1,3 +1,5 @@
+import { recordingBlocksGrading } from './costMatrix.js';
+
 /**
  * DJ Energy Arc & Set Structure Modeler
  * 
@@ -11,8 +13,9 @@
 export function selectWarmUpCandidates(tracks, count = 3) {
   if (!tracks || tracks.length === 0) return [];
 
-  // Filter to tracks with verified BPM
-  const valid = tracks.filter(t => t.bpm);
+  // Filter to tracks with confirmed BPM: unconfirmed values (review flags)
+  // must not anchor the arc any more than they may sequence (solver gate).
+  const valid = tracks.filter(t => t.bpm && !t.tempoNeedsReview && !recordingBlocksGrading(t));
   if (valid.length === 0) return tracks.slice(0, count);
 
   // Score candidates: lower BPM + lower energy + original track 0 bonus
