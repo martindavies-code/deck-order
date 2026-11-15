@@ -26,6 +26,7 @@ const CAMELOT_RE = /^([1-9]|1[0-2])[AB]$/;
  * is anchored on the exact ISRC plus a title cross-check.
  */
 const QUOTA_MARKER_KEY = 'musicae:quota_exhausted';
+const QUOTA_MARKER_QUERY = { artist: '__quota_exhausted__', title: '', isrc: null, version: null };
 const QUOTA_REASON = 'Daily quota reached (10 req/day free tier). Resets with the RapidAPI billing day.';
 
 function secondsUntilUtcMidnight() {
@@ -102,16 +103,22 @@ export class MusicaeProvider {
   // worker isolate restarts until the RapidAPI billing day resets).
   async isQuotaExhausted() {
     if (this.quotaExhausted === true) return true;
-    if (this.cache && typeof this.cache.buildKey !== 'function') {
-      try {
-        const marker = await this.cache.get(QUOTA_MARKER_KEY);
-        if (marker && marker.exhausted) {
-          this.quotaExhausted = true;
-          return true;
-        }
-      } catch {
-        // Marker read failures never block lookups.
+    if (!this.cache) return false;
+    const isProviderCache = typeof this.cache.buildKey === 'function';
+    try {
+      // Both cache shapes are checked so the breaker holds in the worker too.
+      const marker = isProviderCache
+        ? await this.cache.get(this.name, QUOTA_MARKER_QUERY)
+        : await this.cache.get(QUOTA_MARKER_KEY);
+      const exhausted = isProviderCache
+        ? Boolean(marker && marker.data && marker.data.exhausted)
+        : Boolean(marker && marker.exhausted);
+      if (exhausted) {
+        this.quotaExhausted = true;
+        return true;
       }
+    } catch {
+      // Marker read failures never block lookups.
     }
     return false;
   }
@@ -140,6 +147,8 @@ export class MusicaeProvider {
           ? await this.cache.get(this.name, queryKey)
           : await this.cache.get(flightKey);
         if (cached) {
+          // Negative caching: known misses stay misses for missCacheTtlSeconds.
+          if (cached.data && cached.data.miss) return { success: false, reason: cached.data.reason || 'cached miss', cached: true };
           if (cached.data) return { success: true, data: cached.data, cached: true };
           if (cached.success === false && !cached.transient) return { ...cached, cached: true };
         }
@@ -162,9 +171,13 @@ export class MusicaeProvider {
         if (!res.ok) {
           if (res.status === 429) {
             this.quotaExhausted = true;
-            if (this.cache && typeof this.cache.buildKey !== 'function') {
+            if (this.cache) {
               try {
-                await this.cache.set(QUOTA_MARKER_KEY, { exhausted: true }, secondsUntilUtcMidnight());
+                if (typeof this.cache.buildKey === 'function') {
+                  await this.cache.set(this.name, QUOTA_MARKER_QUERY, { exhausted: true }, secondsUntilUtcMidnight());
+                } else {
+                  await this.cache.set(QUOTA_MARKER_KEY, { exhausted: true }, secondsUntilUtcMidnight());
+                }
               } catch {
                 // Marker write failures never block the response.
               }
@@ -176,8 +189,14 @@ export class MusicaeProvider {
           }
           if (res.status === 404) {
             const out = { success: false, reason: 'Track not found' };
-            if (this.cache && !isProviderCache) {
-              try { await this.cache.set(flightKey, out, this.missCacheTtlSeconds); } catch { /* ignore cache errors */ }
+            if (this.cache) {
+              try {
+                if (isProviderCache) {
+                  await this.cache.set(this.name, queryKey, { miss: true, reason: out.reason }, this.missCacheTtlSeconds);
+                } else {
+                  await this.cache.set(flightKey, out, this.missCacheTtlSeconds);
+                }
+              } catch { /* ignore cache errors */ }
             }
             return out;
           }
@@ -198,8 +217,14 @@ export class MusicaeProvider {
         );
         if (!identity.ok) {
           const out = { success: false, reason: identity.reason };
-          if (this.cache && !isProviderCache) {
-            try { await this.cache.set(flightKey, out, this.missCacheTtlSeconds); } catch { /* ignore cache errors */ }
+          if (this.cache) {
+            try {
+              if (isProviderCache) {
+                await this.cache.set(this.name, queryKey, { miss: true, reason: out.reason }, this.missCacheTtlSeconds);
+              } else {
+                await this.cache.set(flightKey, out, this.missCacheTtlSeconds);
+              }
+            } catch { /* ignore cache errors */ }
           }
           return out;
         }
