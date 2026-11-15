@@ -136,12 +136,30 @@ export function evaluateTwoSources(recA, recB, options = {}) {
   const normB = normalizeTempo(recB.bpm, minBpm, maxBpm);
 
   if (!normA.workingBpm || !normB.workingBpm || !recA.camelot || !recB.camelot) {
+    // Incomplete pair (e.g. a provider hit plus a BPM-only CSV row): the
+    // comparison cannot verify, but the values that DO exist must survive -
+    // returning them under the standard field names keeps the Case A mapping
+    // from wiping both the provider hit and the user-supplied data.
+    const chosenBpm = normA.workingBpm || normB.workingBpm || null;
+    const chosenCamelot = recA.camelot || recB.camelot || null;
     return {
       status: 'unverified',
       confidence: 'incomplete_data',
       reason: 'One or both sources lack verified tempo or musical key/mode.',
-      chosenBpm: normA.workingBpm || normB.workingBpm,
-      chosenCamelot: recA.camelot || recB.camelot
+      bpm: chosenBpm,
+      rawBpm: recA.rawBpm || recA.bpm || recB.rawBpm || recB.bpm || null,
+      workingBpm: chosenBpm,
+      isNormalized: normA.isNormalized || normB.isNormalized,
+      camelot: chosenCamelot,
+      key: recA.key || recB.key || chosenCamelot,
+      energy: mergeOptionalMetric(recA.energy, recB.energy, 100),
+      loudness: mergeOptionalMetric(recA.loudness, recB.loudness, 10),
+      sources: [recA, recB],
+      recordingNeedsReview: mismatch.isMismatch,
+      recordingMismatch: mismatch.isMismatch
+        ? { reason: mismatch.reason, suppliedIsrc: recA.isrc || null, matchedIsrc: recB.isrc || null }
+        : null,
+      disputeDetails: null
     };
   }
 
@@ -299,6 +317,10 @@ export class VerificationPipeline {
         isNormalized: false,
         tempoSuggestion,
         tempoNeedsReview,
+        // User-supplied values are exactly that - supplied. They must not
+        // keep the parser's 'verified' status, which the client badges as
+        // 'Corroborated (2+ sources agree)'.
+        status: 'supplied',
         confidence: 'manual'
       };
     }
@@ -595,10 +617,12 @@ export class VerificationPipeline {
   generateCoverageReport(tracks) {
     let verified = 0;
     let singleSource = 0;
+    let supplied = 0;
     let disputed = 0;
     let unverified = 0;
 
     const disputedList = [];
+    const suppliedList = [];
     const unverifiedList = [];
     const tempoReviewList = [];
     const recordingReviewList = [];
@@ -635,6 +659,12 @@ export class VerificationPipeline {
         verified++;
       } else if (t.status === 'single_source') {
         singleSource++;
+      } else if (t.status === 'supplied') {
+        supplied++;
+        suppliedList.push({
+          id: t.id,
+          name: `${t.artist} - ${t.title}`
+        });
       } else if (t.status === 'disputed') {
         disputed++;
         disputedList.push({
@@ -657,6 +687,7 @@ export class VerificationPipeline {
       total,
       verified,
       singleSource,
+      supplied,
       disputed,
       unverified,
       providerErrors: providerErrorList.length,
@@ -664,6 +695,7 @@ export class VerificationPipeline {
       providerOutcomeSummary,
       summaryText: `Verified ${verified}/${total}, Single-source ${singleSource}, Disputed ${disputed}, Unverified ${unverified}`,
       disputedTracks: disputedList,
+      suppliedTracks: suppliedList,
       unverifiedTracks: unverifiedList,
       tempoReviewTracks: tempoReviewList,
       recordingReviewTracks: recordingReviewList,

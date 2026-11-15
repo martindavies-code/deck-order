@@ -26,7 +26,15 @@ export function applyManualOverride(track, values) {
     fields.key = key;
   }
   if (!Object.keys(fields).length) throw new Error('Enter a tempo or key first.');
-  // Do not clear recording identity uncertainty or change provider status/sources.
+  // Do not clear recording identity uncertainty or change provider sources.
+  // Status, however, must advance once the user has supplied both values:
+  // the sequencer excludes 'unverified'/'missing' tracks outright, so a
+  // manual BPM+key on a missing track would otherwise stay dropped, and the
+  // coverage report's dispute count would never decrement on resolution.
+  const statusNeedsAdvance = updated.status === 'missing' || updated.status === 'unverified' || updated.status === 'disputed';
+  if (statusNeedsAdvance && updated.bpm && updated.camelot) {
+    updated.status = 'supplied';
+  }
   updated.manualOverride = { sourceTrack, fields };
   updated.confidence = 'user_override';
   return updated;

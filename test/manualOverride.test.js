@@ -16,6 +16,8 @@ test('manual exact-case 125 / F-Minor changes working values and grading without
   assert.equal(changed.tempoNeedsReview, false);
   assert.equal(changed.tempoSuggestion, null);
   assert.equal(changed.rawBpm, 62.5);
+  // A track with sourced values keeps its status; only missing/unverified/
+  // disputed tracks advance to 'supplied' (see the status-advance test below).
   assert.equal(changed.status, 'single_source');
   assert.deepEqual(changed.sources, before.sources);
   assert.deepEqual(track, before);
@@ -58,4 +60,14 @@ test('key-only override keeps unknown tempo unknown in transition metrics', () =
   const changed = applyManualOverride({ id: 'missing-tempo', bpm: null, key: null, camelot: null }, { key: '4A' });
   assert.equal(changed.bpm, null);
   assert.equal(evaluateCurrentOrder([neighbor, changed]).transitions[0].bpmChange, null);
+});
+
+test('manual BPM+key on a missing track advances status to supplied so it sequences', () => {
+  const missing = { id: 'was-missing', title: 'T', artist: 'A', bpm: null, camelot: null, status: 'missing', confidence: 'none' };
+  const changed = applyManualOverride(missing, { bpm: '126', key: '4A' });
+  assert.equal(changed.status, 'supplied');
+  assert.equal(changed.confidence, 'user_override');
+  // A partial edit (tempo only) leaves the status untouched.
+  const partial = applyManualOverride(missing, { bpm: '126' });
+  assert.equal(partial.status, 'missing');
 });
