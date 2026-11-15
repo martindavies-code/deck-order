@@ -88,6 +88,7 @@ const EVIDENCE_BADGES = {
   corroborated: { label: 'Corroborated', cls: 'badge-status-corroborated' },
   // Older saves use the pre-rename 'verified' status for the same meaning.
   verified: { label: 'Corroborated', cls: 'badge-status-corroborated' },
+  analysed: { label: 'Analysed', cls: 'badge-status-analysed' },
   single_source: { label: 'Single source', cls: 'badge-status-single' },
   reference: { label: 'Reference', cls: 'badge-status-single' },
   supplied: { label: 'Supplied', cls: 'badge-status-supplied' },

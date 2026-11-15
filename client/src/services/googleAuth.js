@@ -177,7 +177,7 @@ function trackSignatureIdentity(t) {
   return artistTitle || t.id || '';
 }
 
-function setSignature(name, tracks) {
+export function setSignature(name, tracks) {
   return JSON.stringify([
     name,
     (tracks || []).map(t => [
@@ -189,7 +189,9 @@ function setSignature(name, tracks) {
       t.key ?? null,
       t.camelot ?? null,
       t.status ?? null,
+      t.source ?? null,
       t.confidence ?? null,
+      Array.isArray(t.energyCurve) ? t.energyCurve.length : 0,
       t.recordingNeedsReview === true,
       t.tempoNeedsReview === true
     ])
@@ -207,6 +209,7 @@ export function saveSetToHistory(setRecord, accountKey = 'anonymous', { onError 
       smoothPct: setRecord.evaluation?.smoothPct ?? 0,
       totalCost: setRecord.evaluation?.totalCost ?? 0,
       tracks: setRecord.tracks || [],
+      originalTracks: setRecord.originalTracks || setRecord.tracks || [],
       evaluation: setRecord.evaluation || null,
       source: setRecord.source || 'Manual CSV'
     };
@@ -343,17 +346,19 @@ export function buildSavedSetsBackup(accountKey = 'anonymous') {
   };
 }
 
-function validateBackupTracks(tracks) {
+export function validateBackupTracks(tracks) {
   if (tracks.length > 1000) throw new Error('Backup tracklist exceeds 1000 tracks.');
-  const textFields = ['id', 'title', 'name', 'artist', 'version', 'isrc', 'spotifyId', 'uri', 'key', 'camelot', 'status', 'confidence'];
+  const textFields = ['id', 'title', 'name', 'artist', 'version', 'isrc', 'spotifyId', 'uri', 'key', 'camelot', 'status', 'confidence', 'source'];
   for (const track of tracks) {
     if (textFields.some(key => track[key] != null && typeof track[key] !== 'string') ||
         ['bpm', 'workingBpm', 'energy'].some(key => track[key] != null && typeof track[key] !== 'number') ||
-        (track.sources != null && (!Array.isArray(track.sources) || track.sources.some(s => !s || typeof s !== 'object' || Array.isArray(s))))) {
+        (track.sources != null && (!Array.isArray(track.sources) || track.sources.some(s => !s || typeof s !== 'object' || Array.isArray(s)))) ||
+        (track.energyCurve != null && (!Array.isArray(track.energyCurve) || track.energyCurve.some(pt => !pt || typeof pt.t !== 'number' || typeof pt.energy !== 'number')))) {
       throw new Error('Backup contains invalid track metadata. No saved sets were changed.');
     }
     if (track.manualOverride?.sourceTrack) validateBackupTracks([track.manualOverride.sourceTrack]);
   }
+  return tracks;
 }
 
 function backupSignature(set) {

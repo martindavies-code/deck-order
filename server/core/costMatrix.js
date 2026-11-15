@@ -12,7 +12,7 @@ import { evaluateHarmonicTransition } from './camelot.js';
 // WITH the flag - the matched records are different edits, but tempo and key
 // agree across sources - so those values are confirmed and transitions grade
 // normally; the identity caution stays at row level.
-const CROSS_CONFIRMED_STATUSES = new Set(['verified', 'corroborated']);
+const CROSS_CONFIRMED_STATUSES = new Set(['verified', 'corroborated', 'analysed']);
 export function recordingBlocksGrading(track) {
   if (!track || !track.recordingNeedsReview) return false;
   // A recordingMismatch carrying the track's own ISRC means the matched
@@ -22,6 +22,76 @@ export function recordingBlocksGrading(track) {
   // values are only edition-level cautions and grade normally.
   if (track.recordingMismatch && track.recordingMismatch.suppliedIsrc) return true;
   return !CROSS_CONFIRMED_STATUSES.has(track.status);
+}
+
+/**
+ * Checks whether a track carries a usable per-section energyCurve array
+ * produced by local browser audio analysis.
+ */
+export function hasValidEnergyCurve(track) {
+  return Boolean(
+    track &&
+    Array.isArray(track.energyCurve) &&
+    track.energyCurve.length >= 2 &&
+    track.energyCurve.every(pt => pt && typeof pt.energy === 'number' && Number.isFinite(pt.energy))
+  );
+}
+
+/**
+ * Extracts opening-section (intro) energy from track.energyCurve (first ~20%,
+ * up to 3 windows), falling back to scalar track.energy when no curve exists.
+ */
+export function getIntroEnergy(track) {
+  if (!hasValidEnergyCurve(track)) {
+    return typeof track?.energy === 'number' && Number.isFinite(track.energy) ? track.energy : null;
+  }
+  const curve = track.energyCurve;
+  const windowCount = Math.max(1, Math.min(3, Math.ceil(curve.length * 0.2)));
+  let sum = 0;
+  for (let i = 0; i < windowCount; i++) {
+    sum += curve[i].energy;
+  }
+  return Math.round((sum / windowCount) * 1000) / 1000;
+}
+
+/**
+ * Extracts final-section (outro) energy from track.energyCurve (last ~20%,
+ * up to 3 windows), falling back to scalar track.energy when no curve exists.
+ */
+export function getOutroEnergy(track) {
+  if (!hasValidEnergyCurve(track)) {
+    return typeof track?.energy === 'number' && Number.isFinite(track.energy) ? track.energy : null;
+  }
+  const curve = track.energyCurve;
+  const windowCount = Math.max(1, Math.min(3, Math.ceil(curve.length * 0.2)));
+  let sum = 0;
+  for (let i = curve.length - windowCount; i < curve.length; i++) {
+    sum += curve[i].energy;
+  }
+  return Math.round((sum / windowCount) * 1000) / 1000;
+}
+
+/**
+ * Computes transition energy delta (A -> B). When both tracks carry a valid
+ * per-section energyCurve, compares outgoing trackA's outro energy against
+ * incoming trackB's intro energy. Otherwise falls back to whole-track scalar
+ * energy (trackB.energy - trackA.energy).
+ */
+export function computeTransitionEnergyDelta(trackA, trackB) {
+  if (hasValidEnergyCurve(trackA) && hasValidEnergyCurve(trackB)) {
+    const outroA = getOutroEnergy(trackA);
+    const introB = getIntroEnergy(trackB);
+    if (outroA !== null && introB !== null) {
+      return introB - outroA;
+    }
+  }
+  if (
+    typeof trackA?.energy === 'number' && Number.isFinite(trackA.energy) &&
+    typeof trackB?.energy === 'number' && Number.isFinite(trackB.energy)
+  ) {
+    return trackB.energy - trackA.energy;
+  }
+  return null;
 }
 
 export function calculateTransitionCost(trackA, trackB, options = {}) {
@@ -88,16 +158,12 @@ export function calculateTransitionCost(trackA, trackB, options = {}) {
   const driftFraction = hasTempo ? Math.abs(bpmB - bpmA) / bpmA : null;
   const driftBeats = hasTempo ? Math.round(driftFraction * validBlendBeats * 10) / 10 : null;
 
-  // 3. Energy Cost (evaluated ONLY if both tracks provide real energy)
+  // 3. Energy Cost (evaluated ONLY if both tracks provide real energy or energyCurve)
   let energyCost = 0;
-  const hasRealEnergy = enableEnergy &&
-    typeof trackA.energy === 'number' &&
-    typeof trackB.energy === 'number' &&
-    !isNaN(trackA.energy) &&
-    !isNaN(trackB.energy);
+  const energyDelta = enableEnergy ? computeTransitionEnergyDelta(trackA, trackB) : null;
+  const hasRealEnergy = typeof energyDelta === 'number' && Number.isFinite(energyDelta);
 
   if (hasRealEnergy) {
-    const energyDelta = trackB.energy - trackA.energy;
     if (energyDelta >= -0.05) {
       // Steady or rising energy
       energyCost = 0;

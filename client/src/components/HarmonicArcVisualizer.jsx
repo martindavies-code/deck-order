@@ -109,7 +109,7 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
           </h3>
           <p className="text-xs text-[#BAC2B3]">
             {metric === 'energy'
-              ? "Energy is the catalogue's 0-1 intensity score. Tempo is one part of the story; listen for phrasing, vocals and room to mix."
+              ? 'Energy is a 0-1 intensity score from local audio analysis or the metadata catalogue. Tempo is one part of the story; listen for phrasing, vocals and room to mix.'
               : 'Tempo is one part of the story. Listen for phrasing, vocals and room to mix.'}
           </p>
         </div>
@@ -338,7 +338,7 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
         </p>
         <p>
           {metric === 'energy'
-            ? 'Energy score (0-1) comes from the metadata catalogue; tracks without one are skipped and manual BPM/key entries do not add one. The band above is a tempo-based target; it does not measure or target energy. '
+            ? 'Energy score (0-1) comes from local browser audio analysis or a metadata catalogue; tracks without one are skipped and manual BPM/key entries do not add one. When tracks include per-section audio energy curves, transition grading compares outgoing outro energy against incoming intro energy. '
             : ''}
           Ring colour grades the transition into the next track: green smooth, amber stretch, red clash, grey unverified.
           A dashed amber ring flags a tempo that still needs review; a dashed marker below the line means no value for this view.

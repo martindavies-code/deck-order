@@ -203,7 +203,9 @@ export default {
       // work and must never share a result.
       const batchKey = JSON.stringify(tracks.map(t => [
         t.artist || '', t.title || '', t.isrc || '', t.version || '',
-        t.bpm ?? null, t.key || '', t.rawBpm ?? null, t.duration_ms ?? t.durationMs ?? null
+        t.bpm ?? null, t.key || '', t.rawBpm ?? null, t.duration_ms ?? t.durationMs ?? null,
+        t.source || '', t.camelot || '',
+        Array.isArray(t.sources) ? t.sources.map(s => `${s?.name || s?.provider || ''}:${s?.bpm ?? ''}:${s?.camelot || ''}`).join('|') : ''
       ]));
       if (inFlightBatches.has(batchKey)) {
         const cachedRes = await inFlightBatches.get(batchKey);

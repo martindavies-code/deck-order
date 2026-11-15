@@ -4,6 +4,9 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   base: '/deck-order/',
+  worker: {
+    format: 'es'
+  },
   plugins: [
     tailwindcss(),
     react()

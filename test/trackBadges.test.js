@@ -75,6 +75,7 @@ test('remove out of bounds is a no-op; stale undo clamps safely', () => {
 
 test('evidence badge: one shared selector for desktop and mobile (regression: mobile dropped single_source)', () => {
   assert.deepEqual(evidenceBadge('single_source'), { label: 'Single source', cls: 'badge-status-single' });
+  assert.deepEqual(evidenceBadge('analysed'), { label: 'Analysed', cls: 'badge-status-analysed' });
   assert.deepEqual(evidenceBadge('corroborated').label, 'Corroborated');
   assert.deepEqual(evidenceBadge('sample').label, 'Sample');
   assert.deepEqual(evidenceBadge('supplied').label, 'Supplied');
