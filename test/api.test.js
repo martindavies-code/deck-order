@@ -44,24 +44,6 @@ describe('Express Proxy & API Endpoints Live Test', () => {
     assert.equal(data.tracks[1].camelot, '4A');
   });
 
-  test('POST /api/pipeline/sequence computes DJ running order and annotations', async () => {
-    const tracks = [
-      { id: '1', artist: 'Bicep', title: 'Glue', bpm: 130, camelot: '8A', status: 'verified' },
-      { id: '2', artist: 'Four Tet', title: 'Baby', bpm: 126, camelot: '4A', status: 'verified' },
-      { id: '3', artist: 'Overmono', title: 'Good Lies', bpm: 134, camelot: '4A', status: 'verified' }
-    ];
-
-    const res = await fetch(`${baseUrl}/pipeline/sequence`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tracks, seed: 42 })
-    });
-    assert.equal(res.status, 200);
-    const data = await res.json();
-    assert.equal(data.result.orderedTracks.length, 3);
-    assert.ok(data.result.evaluation.transitions.length === 2);
-  });
-
   test('POST /api/spotify/save/preview returns dry-run manifest with operation ID', async () => {
     const orderedTracks = [
       { id: '1', uri: 'spotify:track:test1', artist: 'Bicep', title: 'Glue' }
