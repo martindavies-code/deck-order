@@ -1,4 +1,4 @@
-import { calculateTransitionCost } from '../../../server/core/costMatrix.js';
+import { calculateTransitionCost, recordingBlocksGrading } from '../../../server/core/costMatrix.js';
 
 /**
  * Per-track data badges (colour-coded Camelot + BPM) and working-set
@@ -101,8 +101,11 @@ export function evidenceBadge(status) {
  * Otherwise key and tempo colours use their own costs, not the overall grade.
  */
 export function transitionDisplay(transition, fromTrack, toTrack) {
-  const needsReview = !!(fromTrack?.recordingNeedsReview || fromTrack?.tempoNeedsReview
-    || toTrack?.recordingNeedsReview || toTrack?.tempoNeedsReview);
+  // recordingNeedsReview only blanks the fit when the values are not
+  // cross-confirmed (see recordingBlocksGrading): a corroborated track whose
+  // matched records are different edits still has confirmed tempo/key.
+  const needsReview = !!(fromTrack?.tempoNeedsReview || toTrack?.tempoNeedsReview
+    || recordingBlocksGrading(fromTrack) || recordingBlocksGrading(toTrack));
   if (needsReview) {
     return {
       text: 'Needs review - unconfirmed tempo/key',
