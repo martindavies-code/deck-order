@@ -17,48 +17,56 @@ export function DisputeModal({ disputedTracks, onClose, onApplyOverride }) {
 
   if (!disputedTracks || disputedTracks.length === 0) return null;
 
-  const current = disputedTracks[activeTrackIndex];
+  // Clamp the index: resolving a dispute shrinks the list, and a stale index
+  // past the new end would crash on the next render.
+  const safeIndex = Math.min(activeTrackIndex, disputedTracks.length - 1);
+  const current = disputedTracks[safeIndex];
   const details = current?.details;
   const sA = details?.sourceA;
   const sB = details?.sourceB;
 
-  const handleSelectSource = (src) => {
-    // Apply the value the modal DISPLAYS (workingBpm), never a hidden raw
-    // measurement: the user picks what they see.
-    onApplyOverride(current.id, {
-      bpm: src.workingBpm ?? src.bpm ?? src.rawBpm,
-      key: src.key || src.camelot,
-      camelot: src.camelot
-    });
-    if (activeTrackIndex < disputedTracks.length - 1) {
-      setActiveTrackIndex(activeTrackIndex + 1);
+  // Advance to the next dispute only when the override was actually applied;
+  // a failed apply keeps the user on the same track so nothing closes over a
+  // silently failed override.
+  const advanceAfterApply = (applied) => {
+    if (applied === false) return;
+    if (safeIndex < disputedTracks.length - 1) {
+      setActiveTrackIndex(safeIndex + 1);
     } else {
       onClose();
     }
   };
 
+  const handleSelectSource = (src) => {
+    if (!src) return;
+    // Apply the value the modal DISPLAYS (workingBpm), never a hidden raw
+    // measurement: the user picks what they see.
+    const applied = onApplyOverride(current.id, {
+      bpm: src.workingBpm ?? src.bpm ?? src.rawBpm,
+      key: src.key || src.camelot,
+      camelot: src.camelot
+    });
+    advanceAfterApply(applied);
+  };
+
   const handleCustomSubmit = (e) => {
     e.preventDefault();
     if (!customBpm && !customKey) return;
-    // Never invent values: an unset field keeps the track's current value,
-    // and an unparsable BPM rejects the submit instead of closing the modal
-    // over a silently failed (or NaN) override.
-    let bpm;
+    // Never invent values: a blank field is omitted entirely so the override
+    // cannot coerce it into a bogus value, and an unparsable BPM rejects the
+    // submit instead of closing the modal over a silently failed override.
+    const override = {};
     if (customBpm) {
-      bpm = parseFloat(customBpm);
+      const bpm = parseFloat(customBpm);
       if (!Number.isFinite(bpm) || bpm <= 0) return;
-    } else {
-      bpm = current?.bpm ?? null;
+      override.bpm = bpm;
     }
-    const key = customKey || current?.key || current?.camelot || null;
-    onApplyOverride(current.id, { bpm, key });
+    if (customKey) override.key = customKey;
+    const applied = onApplyOverride(current.id, override);
+    if (applied === false) return;
     setCustomBpm('');
     setCustomKey('');
-    if (activeTrackIndex < disputedTracks.length - 1) {
-      setActiveTrackIndex(activeTrackIndex + 1);
-    } else {
-      onClose();
-    }
+    advanceAfterApply(applied);
   };
 
   return (
@@ -81,7 +89,7 @@ export function DisputeModal({ disputedTracks, onClose, onApplyOverride }) {
               Review source disagreement
             </h3>
             <p className="text-xs text-[#BAC2B3]">
-              Track {activeTrackIndex + 1} of {disputedTracks.length}: Conflicting values reported.
+              Track {safeIndex + 1} of {disputedTracks.length}: Conflicting values reported.
             </p>
           </div>
         </div>
