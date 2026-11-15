@@ -353,6 +353,7 @@ export class VerificationPipeline {
     // identity is exactly what the dispute is about.
     const musicaeConfigured = this.musicae.isConfigured();
     let musicaeConsulted = false;
+    let musicaeLastReason = null;
     const consultMusicae = async (isrcCandidates) => {
       if (!musicaeConfigured || musicaeConsulted) return null;
       const candidates = [...new Set((isrcCandidates || [])
@@ -368,6 +369,7 @@ export class VerificationPipeline {
           reason: r?.success ? null : String(r?.reason || 'unknown')
         });
         if (r && r.success && r.data && r.data.bpm && r.data.camelot) return r.data;
+        if (r && !r.success) musicaeLastReason = String(r.reason || 'unknown');
       }
       return null;
     };
@@ -428,7 +430,7 @@ export class VerificationPipeline {
         } else if (musicaeConfigured && tiebreakCandidates.some(v => typeof v === 'string' && v.trim().length > 0)) {
           evaluation = {
             ...evaluation,
-            reason: `${evaluation.reason} Musicae tiebreak unavailable.`
+            reason: `${evaluation.reason} Musicae tiebreak unavailable${musicaeLastReason ? ` - ${musicaeLastReason}` : ''}.`
           };
         }
       }
