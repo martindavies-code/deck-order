@@ -302,3 +302,13 @@ describe('Status lifecycle fixes (2026-11-15)', () => {
     assert.equal(report.unverified, 0);
   });
 });
+
+test('CSV Parsing: version detection does not span across parenthesised groups', () => {
+  const csvData = `
+Artist,Title,BPM,Key
+DJ Antoine,Song (Radio Edit) (Club Mix),128,8A
+  `.trim();
+  const tracks = parseTracklistCSV(csvData);
+  assert.equal(tracks.length, 1);
+  assert.equal(tracks[0].version, 'Radio Edit');
+});
