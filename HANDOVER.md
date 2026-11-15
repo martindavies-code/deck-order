@@ -1,5 +1,52 @@
 # Deck Order - Handover Notes
 
+Date: 2026-11-15
+Branch: `feature/audio-analysis` (off `main` at `2a636d31`)
+
+## What changed on this branch
+
+### 1. 100% Client-Side Audio Analysis (Essentia.js WASM in Web Worker)
+
+- **Audio analysis & Web Worker (`client/src/services/audioAnalysisCore.js`, `client/src/workers/essentiaWorker.js`, `client/src/services/localAudioService.js`, `client/vite.config.js`)**:
+  - Decodes MP3, WAV, FLAC, AIFF, and M4A/AAC locally via Web Audio API (`decodeAudioData`), downmixes/resamples to 44.1 kHz mono Float32Array, and transfers the PCM buffer to an ES-module Web Worker (`worker: { format: 'es' }` in `vite.config.js`). Audio bytes never leave the browser; TF.js mood/danceability models remain out of scope to keep the main bundle well under the budget.
+  - Dynamically imports `essentia.js` WASM/core (`0.1.3`) inside the worker only when audio analysis runs. Extracts BPM + normalized confidence (`RhythmExtractor2013` multifeature with `PercivalBpmEstimator` fallback), musical key/Camelot (`KeyExtractor` `'edma'` profile mapped through `parseKey` from `server/core/camelot.js`), and a full-track 10s-window per-section `energyCurve` (`[{ t, energy }]` normalized `0..1`) plus scalar `energy`, freeing all Emscripten `VectorFloat` allocations via `.delete()`.
+  - Supports per-file progress reporting, immediate worker termination on mid-batch Cancel (`AbortSignal`), and per-file unsupported/undecodable error reporting without aborting valid files in a batch.
+- **IndexedDB Cache & Persistence (`client/src/services/audioCache.js`, `client/src/services/googleAuth.js`)**:
+  - Content-addressed IndexedDB cache (`deck_order_audio_cache_db`, with in-memory fallback for Node/private browsing) keyed by `AUDIO_CACHE_VERSION:byteLength:hash` sampled across head/mid/tail 16 KB slices. Repeat imports return cached results in <1s without re-decoding or re-running WASM.
+  - `setSignature`, `updateActiveSet`, `validateBackupTracks`, and `handleLoadHistoricalSet` persist and validate `source`, `status: 'analysed'`, `audioFileName`, `audioConfidence`, and `energyCurve` across reloads and JSON backups.
+
+### 2. Track Matching & Evidence Integration
+
+- **Metadata & Filename Matcher (`client/src/services/audioMatcher.js`, `client/src/components/AudioMatchModal.jsx`)**:
+  - Pure-JS embedded tag parser (`parseEmbeddedAudioTags`) reads ID3v2.2/2.3/2.4 (Latin1, UTF-16LE/BE, UTF-8), FLAC Vorbis comments, and MP4/M4A `©nam`/`©ART` atoms; combines with normalized filename parsing (`Artist - Title`, version tags like `VIP`, `Extended Mix`, `Edit`, `Remix`, etc.) and duration proximity.
+  - Auto-matches unambiguous high-confidence hits, opens `AudioMatchModal` for ambiguous candidates (letting the user pair, add as new, or skip) and unmatched files/tracks, and supports standalone audio import without a separate text/CSV tracklist.
+- **Pipeline Provenance, Badges & Dispute Integration (`server/core/pipeline.js`, `worker/src/index.js`, `client/src/services/api.js`, `client/src/utils/trackBadges.js`, `client/src/index.css`)**:
+  - Added `'analysed'` status (`Analysed`, `.badge-status-analysed` in `trackBadges.js` / `index.css`) and `'audio_analysis'` source (`Audio Analysis`).
+  - `verifyTracklist` strips `energyCurve` from wire payloads (metadata JSON only leaves the browser) and preserves `status: 'analysed'` if no provider is configured/reachable.
+  - In `VerificationPipeline.processTrack` / `evaluateTwoSources`: `audio_analysis` alone returns `'analysed'` (`coverageReport.analysed`); if a catalogue provider agrees within tolerance it upgrades to `'verified'` (client `'corroborated'`) while keeping local audio's working BPM/key/energy as strongest provenance; if a catalogue provider or `Manual CSV` disagrees (>2% BPM or different Camelot), it surfaces `status: 'disputed'` with `Audio Analysis` as `sourceA` and default working values, never silently overwritten by Musicae tiebreaks. `manual_csv` alone still does not count as catalogue evidence.
+
+### 3. Section Energy Curve in Cost Matrix & UI
+
+- **Transition Boundary Energy (`server/core/costMatrix.js`)**:
+  - Added `'analysed'` to `CROSS_CONFIRMED_STATUSES`, plus `hasValidEnergyCurve`, `getIntroEnergy`, `getOutroEnergy`, and `computeTransitionEnergyDelta(trackA, trackB)`. When both adjacent tracks carry `energyCurve`, `calculateTransitionCost` compares `trackA`'s closing outro energy against `trackB`'s opening intro energy; falls back to scalar `trackB.energy - trackA.energy` when either lacks a curve.
+- **UI Entry & Workbench (`client/src/components/SourcePicker.jsx`, `CoverageReport.jsx`, `InspectorRail.jsx`, `HarmonicArcVisualizer.jsx`, `App.jsx`)**:
+  - Added drag-and-drop / multi-file audio picker to Step 1 (`SourcePicker.jsx`) alongside CSV paste/upload, `"Analyse local audio"` button + `"Analysed (N)"` pill to `CoverageReport.jsx`, `"Analysed (local audio)"` + filename + confidence + section energy curve mini-bars to `InspectorRail.jsx`, updated Energy toggle copy in `HarmonicArcVisualizer.jsx`, and added persistent dismissible `audioNotice` reporting cache hits and per-file decode failures.
+
+### 4. Windows Path Normalization in Security Scanners
+
+- Normalized `path.relative` separators (`replace(/\\/g, '/')`) in `test/forbiddenEndpoints.test.js` and `scripts/verify_security.js` so existing allowlist paths (e.g. `server/providers/musicae.js`) match identically on Windows and POSIX without adding any allowlist entries.
+
+## Tested
+
+- `npm test`: **304/304 pass** across 31 suites (including 11 new tests in `test/audioAnalysis.test.js` covering ID3/FLAC parsing, matching/disambiguation, Camelot conversion, `energyCurve` + `costMatrix.js` boundary energy, IndexedDB cache hashing/versioning, `VerificationPipeline` `analysed`/`corroborated`/`disputed`/`Manual CSV` paths, persistence, real Essentia.js WASM synthesis extraction in Node, and static privacy scan; plus `'analysed'` badge check in `test/trackBadges.test.js`).
+- `npm run verify:security`: **ALL PASS** (59 production code files, 34 client files checked).
+- `cd client && npm run build`: **pass**. Measured uncompressed emitted sizes:
+  - Main app & initial/non-Essentia-WASM assets (`index.html` 1,954 B + `index-*.js` 499,303 B + `index-*.css` 44,658 B + `essentiaWorker-*.js` 8,278 B): **554,193 bytes (~0.55 MB)** — under the 2 MB gate.
+  - Lazy Essentia WASM/core chunks loaded on demand in the Web Worker: `essentia-wasm.es-*.js` **2,506,379 bytes** (2,506.38 kB, gzip 783.09 kB) and `essentia.js-core.es-*.js` **42,839 bytes** (42.84 kB, gzip 8.65 kB).
+- Headless Chrome verification against local Express + Vite app with real MP3/WAV files (`Demo Track 1.mp3`, `Demo Track 2.mp3`, `House1.wav`, `Techno1.wav`, `Breaks1.wav`, and a corrupt text `.mp3`): verified standalone audio import, `"Analysed"` badges, `InspectorRail` section energy curve, solver + `HarmonicArcVisualizer` Energy view, desktop (1440px) & mobile (390px) zero horizontal overflow, IndexedDB cache hit (140ms re-import), reload persistence from saved history, `AudioMatchModal` ambiguous + unmatched + conflicting CSV dispute flow, mid-batch cancellation, zero audio/PCM payload on `/api/pipeline/verify`, and zero console/page errors.
+
+---
+
 Date: 2026-11-14 (later same day)
 Branch: `provider-resilience`
 

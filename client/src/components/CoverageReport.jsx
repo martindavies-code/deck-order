@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, AlertTriangle, Play, HelpCircle } from 'lucide-react';
+import { Check, AlertTriangle, Play, HelpCircle, Music } from 'lucide-react';
 
 export function CoverageReport({
   report,
@@ -7,6 +7,7 @@ export function CoverageReport({
   onChangeStrategy,
   onOpenDisputes,
   onRunSequencer,
+  onAttachAudioFiles,
   isLoading,
   enableEnergy,
   onToggleEnergy
@@ -33,6 +34,13 @@ export function CoverageReport({
               <span className="badge-status badge-status-corroborated">
                 <Check className="w-3.5 h-3.5 text-[#86EFAC]" />
                 <span>Corroborated ({report.corroborated})</span>
+              </span>
+            )}
+
+            {/* Analysed from local audio */}
+            {report.analysed > 0 && (
+              <span className="badge-status badge-status-analysed">
+                <span>Analysed ({report.analysed})</span>
               </span>
             )}
 
@@ -146,6 +154,28 @@ export function CoverageReport({
                 className="w-4 h-4 accent-[#D6FC55] rounded cursor-pointer shrink-0"
               />
               <span className="whitespace-nowrap">Energy-aware costing</span>
+            </label>
+          )}
+
+          {typeof onAttachAudioFiles === 'function' && (
+            <label
+              className="deck-btn-secondary text-xs sm:text-sm min-h-[44px] px-3.5 py-2 cursor-pointer justify-center"
+              title="Analyse local MP3, WAV, FLAC, AIFF, or M4A files in your browser to enrich this set"
+            >
+              <Music className="w-4 h-4 text-[#7DD3FC]" />
+              <span>Analyse local audio</span>
+              <input
+                type="file"
+                multiple
+                accept=".mp3,.wav,.flac,.aiff,.aif,.m4a,.aac,.ogg,audio/*"
+                disabled={isLoading}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  if (files.length > 0) onAttachAudioFiles(files);
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
             </label>
           )}
 

@@ -137,11 +137,51 @@ export function InspectorRail({
           <span className="font-mono capitalize text-[#BAC2B3]">
             {track.status === 'sample' ? 'Sample data' :
              track.status === 'corroborated' ? 'Corroborated' :
+             track.status === 'analysed' ? 'Analysed (local audio)' :
              track.status === 'single_source' ? 'Single source' :
              track.status === 'supplied' ? 'Supplied by you' :
              track.status === 'disputed' ? 'Sources disagree' : 'Missing data'}
           </span>
         </div>
+        {track.audioFileName && (
+          <div className="flex justify-between gap-2 font-mono">
+            <span className="text-[#7E8876] shrink-0">Audio file:</span>
+            <span className="text-[#7DD3FC] truncate text-right" title={track.audioFileName}>
+              {track.audioFileName}
+            </span>
+          </div>
+        )}
+        {typeof track.audioConfidence === 'number' && (
+          <div className="flex justify-between font-mono">
+            <span className="text-[#7E8876]">BPM confidence:</span>
+            <span className="text-[#BAC2B3] tabular-nums">
+              {Math.round(track.audioConfidence * 100)}%
+            </span>
+          </div>
+        )}
+        {Array.isArray(track.energyCurve) && track.energyCurve.length >= 2 && (
+          <div className="pt-1 space-y-1">
+            <div className="flex justify-between font-mono text-[11px]">
+              <span className="text-[#7E8876]">Section energy curve:</span>
+              <span className="text-[#BAC2B3] tabular-nums">
+                {typeof track.energy === 'number' ? `avg ${track.energy.toFixed(2)}` : ''}
+              </span>
+            </div>
+            <div
+              className="flex items-end gap-0.5 h-7 p-1 rounded bg-[#10120F] border border-[#252B22]"
+              aria-label={`Per-section audio energy curve (${track.energyCurve.length} windows)`}
+            >
+              {track.energyCurve.map((pt, idx) => (
+                <div
+                  key={idx}
+                  className="flex-1 bg-[#7DD3FC]/75 rounded-t-[1px] min-w-[2px]"
+                  style={{ height: `${Math.max(12, Math.round((pt.energy || 0) * 100))}%` }}
+                  title={`${pt.t}s: ${(pt.energy ?? 0).toFixed(2)}`}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Recording identity uncertainty: matched record carries a different ISRC */}

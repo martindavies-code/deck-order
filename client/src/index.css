@@ -251,6 +251,11 @@ code, pre, .font-mono {
     color: #86EFAC;
     border: 1px solid rgba(74, 222, 128, 0.3);
   }
+  .badge-status-analysed {
+    background-color: rgba(56, 189, 248, 0.14);
+    color: #7DD3FC;
+    border: 1px solid rgba(56, 189, 248, 0.35);
+  }
   .badge-status-single {
     background-color: rgba(214, 252, 85, 0.1);
     color: #E2FFA1;

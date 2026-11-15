@@ -104,6 +104,54 @@ export function classifyProviderOutcome(result) {
   return 'error';
 }
 
+export function isAudioAnalysisSource(s) {
+  if (!s) return false;
+  const src = String(s.source || '').toLowerCase();
+  const name = String(s.name || s.provider || '').toLowerCase();
+  return src === 'audio_analysis' || name === 'audio analysis';
+}
+
+function evaluateManualCsvVsAudio(audioHit, manualSources, minBpm = 90, maxBpm = 180) {
+  if (!audioHit || !Array.isArray(manualSources) || manualSources.length === 0) return null;
+  const manual = manualSources.find(s => s && (typeof s.bpm === 'number' || s.camelot));
+  if (!manual) return null;
+
+  const rawAudioBpm = audioHit.rawBpm || audioHit.bpm;
+  const normA = normalizeTempo(rawAudioBpm, minBpm, maxBpm);
+  const workingAudioBpm = normA.workingBpm || rawAudioBpm;
+  const suppliedBpm = typeof manual.bpm === 'number' && manual.bpm > 0 ? manual.bpm : null;
+  const suppliedCamelot = manual.camelot || null;
+
+  const disputeReasons = [];
+  if (suppliedBpm && workingAudioBpm && !bpmWithin(suppliedBpm, workingAudioBpm) && !bpmWithin(suppliedBpm, rawAudioBpm)) {
+    const avg = (workingAudioBpm + suppliedBpm) / 2;
+    const diffPct = (Math.abs(workingAudioBpm - suppliedBpm) / avg) * 100;
+    disputeReasons.push(
+      `BPM discrepancy: Audio Analysis has ${workingAudioBpm} BPM, Manual CSV has ${suppliedBpm} BPM (diff ${diffPct.toFixed(1)}% > 2%)`
+    );
+  }
+  if (suppliedCamelot && audioHit.camelot && suppliedCamelot !== audioHit.camelot) {
+    disputeReasons.push(
+      `Key discrepancy: Audio Analysis has ${audioHit.camelot} (${audioHit.key || 'unknown'}), Manual CSV has ${suppliedCamelot} (${manual.key || 'unknown'})`
+    );
+  }
+  if (disputeReasons.length === 0) return null;
+
+  return {
+    reason: disputeReasons.join('; '),
+    disputeDetails: {
+      sourceA: { ...audioHit, workingBpm: workingAudioBpm, isNormalized: normA.isNormalized },
+      sourceB: {
+        ...manual,
+        provider: manual.provider || manual.name || 'Manual CSV',
+        workingBpm: suppliedBpm,
+        isNormalized: false
+      },
+      disputeReasons
+    }
+  };
+}
+
 function mergeOptionalMetric(valA, valB, scale) {
   const hasA = typeof valA === 'number' && Number.isFinite(valA);
   const hasB = typeof valB === 'number' && Number.isFinite(valB);
@@ -133,25 +181,32 @@ export function evaluateTwoSources(recA, recB, options = {}) {
   // 2. Normalize tempos
   const normA = normalizeTempo(recA.bpm, minBpm, maxBpm);
   const normB = normalizeTempo(recB.bpm, minBpm, maxBpm);
+  const audioRec = isAudioAnalysisSource(recA) ? recA : (isAudioAnalysisSource(recB) ? recB : null);
+  const audioNorm = audioRec ? (audioRec === recA ? normA : normB) : null;
 
   if (!normA.workingBpm || !normB.workingBpm || !recA.camelot || !recB.camelot) {
     // Incomplete pair (e.g. a provider hit plus a BPM-only CSV row): the
     // comparison cannot verify, but the values that DO exist must survive -
     // returning them under the standard field names keeps the Case A mapping
     // from wiping both the provider hit and the user-supplied data.
-    const chosenBpm = normA.workingBpm || normB.workingBpm || null;
-    const chosenCamelot = recA.camelot || recB.camelot || null;
+    const chosenBpm = audioNorm?.workingBpm || normA.workingBpm || normB.workingBpm || null;
+    const chosenCamelot = audioRec?.camelot || recA.camelot || recB.camelot || null;
+    const hasCompleteAudio = Boolean(audioRec && audioNorm?.workingBpm && audioRec.camelot);
     return {
-      status: 'unverified',
-      confidence: 'incomplete_data',
-      reason: 'One or both sources lack verified tempo or musical key/mode.',
+      status: hasCompleteAudio ? 'analysed' : 'unverified',
+      confidence: hasCompleteAudio ? (audioRec.confidence || 'audio_analysis') : 'incomplete_data',
+      reason: hasCompleteAudio
+        ? 'Analysed directly from local audio file in your browser; second source lacked complete tempo or key.'
+        : 'One or both sources lack verified tempo or musical key/mode.',
       bpm: chosenBpm,
-      rawBpm: recA.rawBpm || recA.bpm || recB.rawBpm || recB.bpm || null,
+      rawBpm: audioRec?.rawBpm || audioRec?.bpm || recA.rawBpm || recA.bpm || recB.rawBpm || recB.bpm || null,
       workingBpm: chosenBpm,
       isNormalized: normA.isNormalized || normB.isNormalized,
       camelot: chosenCamelot,
-      key: recA.key || recB.key || chosenCamelot,
-      energy: mergeOptionalMetric(recA.energy, recB.energy, 100),
+      key: audioRec?.key || recA.key || recB.key || chosenCamelot,
+      energy: (audioRec && typeof audioRec.energy === 'number' && Number.isFinite(audioRec.energy))
+        ? audioRec.energy
+        : mergeOptionalMetric(recA.energy, recB.energy, 100),
       loudness: mergeOptionalMetric(recA.loudness, recB.loudness, 10),
       sources: [recA, recB],
       recordingNeedsReview: mismatch.isMismatch,
@@ -170,19 +225,27 @@ export function evaluateTwoSources(recA, recB, options = {}) {
   // Check key agreement: identical Camelot value
   const keyAgrees = recA.camelot === recB.camelot;
 
-  const energy = mergeOptionalMetric(recA.energy, recB.energy, 100);
+  const energy = (audioRec && typeof audioRec.energy === 'number' && Number.isFinite(audioRec.energy))
+    ? audioRec.energy
+    : mergeOptionalMetric(recA.energy, recB.energy, 100);
   const loudness = mergeOptionalMetric(recA.loudness, recB.loudness, 10);
 
   if (tempoAgrees && keyAgrees) {
+    // When one of the agreeing sources is local audio analysis, audio has the
+    // strongest provenance (actual audio bytes) so its values stay primary.
+    const agreedBpm = audioNorm ? audioNorm.workingBpm : Math.round(avgBpm * 10) / 10;
+    const agreedRawBpm = audioRec ? (audioRec.rawBpm || audioRec.bpm) : (recA.rawBpm || recA.bpm);
+    const agreedCamelot = audioRec ? audioRec.camelot : recA.camelot;
+    const agreedKey = audioRec ? (audioRec.key || audioRec.camelot) : (recA.key || recA.camelot);
     return {
       status: 'verified',
       confidence: 'two_sources_agreed',
-      bpm: Math.round(avgBpm * 10) / 10,
-      rawBpm: recA.rawBpm || recA.bpm,
-      workingBpm: Math.round(avgBpm * 10) / 10,
-      isNormalized: normA.isNormalized || normB.isNormalized,
-      camelot: recA.camelot,
-      key: recA.key || recA.camelot,
+      bpm: agreedBpm,
+      rawBpm: agreedRawBpm,
+      workingBpm: agreedBpm,
+      isNormalized: audioNorm ? audioNorm.isNormalized : (normA.isNormalized || normB.isNormalized),
+      camelot: agreedCamelot,
+      key: agreedKey,
       energy,
       loudness,
       sources: [recA, recB],
@@ -197,33 +260,40 @@ export function evaluateTwoSources(recA, recB, options = {}) {
     };
   }
 
-  // They disagree! Mark as DISPUTED
+  // They disagree! Mark as DISPUTED. When local audio analysis is present, keep
+  // audio as the primary source (sourceA) and default working values.
+  const primaryRec = audioRec || recA;
+  const secondaryRec = primaryRec === recA ? recB : recA;
+  const primaryNorm = primaryRec === recA ? normA : normB;
+  const secondaryNorm = primaryRec === recA ? normB : normA;
+
   const disputeReasons = [];
   if (mismatch.isMismatch) {
     disputeReasons.push(`Potential version mismatch: ${mismatch.reason}`);
   }
   if (!tempoAgrees) {
-    disputeReasons.push(`BPM discrepancy: ${recA.provider || 'Source A'} has ${normA.workingBpm} BPM, ${recB.provider || 'Source B'} has ${normB.workingBpm} BPM (diff ${bpmDiffPercent.toFixed(1)}% > 2%)`);
+    disputeReasons.push(`BPM discrepancy: ${primaryRec.provider || 'Source A'} has ${primaryNorm.workingBpm} BPM, ${secondaryRec.provider || 'Source B'} has ${secondaryNorm.workingBpm} BPM (diff ${bpmDiffPercent.toFixed(1)}% > 2%)`);
   }
   if (!keyAgrees) {
-    disputeReasons.push(`Key discrepancy: ${recA.provider || 'Source A'} has ${recA.camelot} (${recA.key || 'unknown'}), ${recB.provider || 'Source B'} has ${recB.camelot} (${recB.key || 'unknown'})`);
+    disputeReasons.push(`Key discrepancy: ${primaryRec.provider || 'Source A'} has ${primaryRec.camelot} (${primaryRec.key || 'unknown'}), ${secondaryRec.provider || 'Source B'} has ${secondaryRec.camelot} (${secondaryRec.key || 'unknown'})`);
   }
 
   return {
     status: 'disputed',
     confidence: 'disputed',
     reason: disputeReasons.join('; '),
-    bpm: normA.workingBpm, // default view, pending user override
-    workingBpm: normA.workingBpm,
-    isNormalized: normA.isNormalized,
-    camelot: recA.camelot,
-    key: recA.key,
+    bpm: primaryNorm.workingBpm, // default view, pending user override
+    rawBpm: primaryRec.rawBpm || primaryRec.bpm,
+    workingBpm: primaryNorm.workingBpm,
+    isNormalized: primaryNorm.isNormalized,
+    camelot: primaryRec.camelot,
+    key: primaryRec.key,
     energy,
     loudness,
-    sources: [recA, recB],
+    sources: [primaryRec, secondaryRec],
     disputeDetails: {
-      sourceA: { ...recA, workingBpm: normA.workingBpm, isNormalized: normA.isNormalized },
-      sourceB: { ...recB, workingBpm: normB.workingBpm, isNormalized: normB.isNormalized },
+      sourceA: { ...primaryRec, workingBpm: primaryNorm.workingBpm, isNormalized: primaryNorm.isNormalized },
+      sourceB: { ...secondaryRec, workingBpm: secondaryNorm.workingBpm, isNormalized: secondaryNorm.isNormalized },
       disputeReasons
     }
   };
@@ -323,10 +393,55 @@ export class VerificationPipeline {
           manualSources.push(s);
           continue;
         }
+        // Local browser audio analysis is a first-class, highest-provenance
+        // evidence source. Normalize its identity and place it first so it
+        // serves as primary provenance (sourceA) in comparisons and disputes.
+        if (isAudioAnalysisSource(s)) {
+          const audioBpm = s.bpm ?? track.bpm;
+          const audioCamelot = s.camelot ?? track.camelot;
+          if (audioBpm && audioCamelot && !successfulHits.some(h => isAudioAnalysisSource(h))) {
+            successfulHits.unshift({
+              ...s,
+              name: 'Audio Analysis',
+              provider: 'Audio Analysis',
+              source: 'audio_analysis',
+              bpm: audioBpm,
+              rawBpm: s.rawBpm ?? audioBpm,
+              workingBpm: s.workingBpm ?? audioBpm,
+              key: s.key ?? track.key ?? audioCamelot,
+              camelot: audioCamelot,
+              energy: s.energy ?? track.energy ?? null,
+              durationMs: s.durationMs ?? track.durationMs ?? track.duration_ms ?? null,
+              confidence: s.confidence ?? track.audioConfidence ?? 'audio_analysis'
+            });
+          }
+          continue;
+        }
         if (!successfulHits.some(h => h.provider === s.name)) {
           successfulHits.push(s);
         }
       }
+    }
+
+    if (
+      track.source === 'audio_analysis' &&
+      track.bpm &&
+      track.camelot &&
+      !successfulHits.some(h => isAudioAnalysisSource(h))
+    ) {
+      successfulHits.unshift({
+        name: 'Audio Analysis',
+        provider: 'Audio Analysis',
+        source: 'audio_analysis',
+        bpm: track.bpm,
+        rawBpm: track.rawBpm ?? track.bpm,
+        workingBpm: track.workingBpm ?? track.bpm,
+        key: track.key ?? track.camelot,
+        camelot: track.camelot,
+        energy: track.energy ?? null,
+        durationMs: track.durationMs ?? track.duration_ms ?? null,
+        confidence: track.audioConfidence ?? track.confidence ?? 'audio_analysis'
+      });
     }
 
     // Musicae consultation policy (owner decision 2026-11-14, extended
@@ -399,17 +514,27 @@ export class VerificationPipeline {
           if (agreesA !== agreesB) {
             const winner = agreesA ? successfulHits[0] : successfulHits[1];
             const loser = agreesA ? successfulHits[1] : successfulHits[0];
-            const resolved = evaluateTwoSources(winner, tiebreak, {
-              minBpm: this.minBpm,
-              maxBpm: this.maxBpm
-            });
-            evaluation = {
-              ...resolved,
-              confidence: resolved.status === 'verified' ? 'tiebreaker_resolved' : resolved.confidence,
-              reason: `Priority sources ${successfulHits[0].provider} and ${successfulHits[1].provider} disagreed; Musicae tiebreak corroborated ${winner.provider} over ${loser.provider}.`
-                + (resolved.reason ? ` ${resolved.reason}` : ''),
-              disputeDetails: evaluation.disputeDetails
-            };
+            // Never silently overwrite local audio analysis with a catalogue
+            // tiebreak: when the user's actual audio file disagrees with
+            // catalogue records, keep the dispute visible with audio primary.
+            if (isAudioAnalysisSource(loser)) {
+              evaluation = {
+                ...evaluation,
+                reason: `${evaluation.reason} Musicae tiebreak corroborated ${winner.provider}, which conflicts with local audio analysis; dispute stands.`
+              };
+            } else {
+              const resolved = evaluateTwoSources(winner, tiebreak, {
+                minBpm: this.minBpm,
+                maxBpm: this.maxBpm
+              });
+              evaluation = {
+                ...resolved,
+                confidence: resolved.status === 'verified' ? 'tiebreaker_resolved' : resolved.confidence,
+                reason: `Priority sources ${successfulHits[0].provider} and ${successfulHits[1].provider} disagreed; Musicae tiebreak corroborated ${winner.provider} over ${loser.provider}.`
+                  + (resolved.reason ? ` ${resolved.reason}` : ''),
+                disputeDetails: evaluation.disputeDetails
+              };
+            }
           } else {
             evaluation = {
               ...evaluation,
@@ -420,6 +545,22 @@ export class VerificationPipeline {
           evaluation = {
             ...evaluation,
             reason: `${evaluation.reason} Musicae tiebreak unavailable${musicaeLastReason ? ` - ${musicaeLastReason}` : ''}.`
+          };
+        }
+      }
+
+      // If local audio analysis agreed with a catalogue source, still cross-check
+      // against any user-supplied Manual CSV values so CSV-vs-audio discrepancies
+      // are surfaced rather than silently dropped.
+      if (evaluation.status !== 'disputed' && isAudioAnalysisSource(successfulHits[0])) {
+        const csvConflict = evaluateManualCsvVsAudio(successfulHits[0], manualSources, this.minBpm, this.maxBpm);
+        if (csvConflict) {
+          evaluation = {
+            ...evaluation,
+            status: 'disputed',
+            confidence: 'disputed',
+            disputeDetails: csvConflict.disputeDetails,
+            reason: evaluation.reason ? `${evaluation.reason}; ${csvConflict.reason}` : csvConflict.reason
           };
         }
       }
@@ -477,9 +618,13 @@ export class VerificationPipeline {
     // Case B: Exactly 1 source found
     if (successfulHits.length === 1) {
       const hit = successfulHits[0];
+      const isAudioHit = isAudioAnalysisSource(hit);
       const rawBpm = hit.rawBpm || hit.bpm;
       const norm = normalizeTempo(rawBpm, this.minBpm, this.maxBpm);
-      const suppliedBpm = typeof track.bpm === 'number' && track.bpm > 0 ? track.bpm : null;
+      const manualCsvWithBpm = manualSources.find(s => typeof s?.bpm === 'number' && s.bpm > 0);
+      const suppliedBpm = isAudioHit
+        ? (manualCsvWithBpm ? manualCsvWithBpm.bpm : null)
+        : (typeof track.bpm === 'number' && track.bpm > 0 ? track.bpm : null);
       // A generic placeholder version (e.g. parser default 'Original Mix')
       // is not real version identity: show the matched record's tag instead.
       const trackVersion = (track.version || '').toLowerCase().trim();
@@ -499,9 +644,11 @@ export class VerificationPipeline {
       let isNormalized = false;
       let tempoSuggestion = null;
       let tempoNeedsReview = false;
-      let status = 'single_source';
+      let status = isAudioHit ? 'analysed' : 'single_source';
       let disputeDetails = null;
-      let reason = 'Only one source available. Can be cross-checked via CSV or confirmed.';
+      let reason = isAudioHit
+        ? 'Analysed directly from local audio file in your browser.'
+        : 'Only one source available. Can be cross-checked via CSV or confirmed.';
 
       if (norm.isNormalized) {
         const kind = norm.workingBpm > rawBpm ? 'doubled' : 'halved';
@@ -521,6 +668,14 @@ export class VerificationPipeline {
           // Supplied BPM matches neither raw nor octave-adjusted: conflict.
           status = 'disputed';
           reason = `Supplied ${suppliedBpm} BPM matches neither the raw ${rawBpm} BPM nor the octave-adjusted ${norm.workingBpm} BPM.`;
+          const suppliedSource = {
+            provider: 'Supplied',
+            bpm: suppliedBpm,
+            workingBpm: suppliedBpm,
+            camelot: manualCsvWithBpm?.camelot || track.camelot || null,
+            key: manualCsvWithBpm?.key || track.key || null
+          };
+          const hitSource = { ...hit, bpm: rawBpm, workingBpm: norm.workingBpm, isNormalized: true };
           disputeDetails = {
             type: 'bpm_conflict',
             supplied: suppliedBpm,
@@ -528,9 +683,10 @@ export class VerificationPipeline {
             suggested: norm.workingBpm,
             // The dispute modal renders sourceA/sourceB cards: an octave
             // conflict between the supplied value and one provider record is
-            // still a two-sided dispute and must populate both.
-            sourceA: { provider: 'Supplied', bpm: suppliedBpm, workingBpm: suppliedBpm, camelot: track.camelot || null, key: track.key || null },
-            sourceB: { ...hit, bpm: rawBpm, workingBpm: norm.workingBpm, isNormalized: true },
+            // still a two-sided dispute and must populate both. When the hit is
+            // local audio analysis, audio stays sourceA (primary provenance).
+            sourceA: isAudioHit ? hitSource : suppliedSource,
+            sourceB: isAudioHit ? suppliedSource : hitSource,
             disputeReasons: [reason]
           };
         } else {
@@ -544,6 +700,15 @@ export class VerificationPipeline {
           };
           tempoNeedsReview = true;
           reason = `Raw tempo ${rawBpm} BPM is outside the ${this.minBpm}-${this.maxBpm} BPM working range. Suggested ${kind} value ${norm.workingBpm} BPM needs review before it is trusted.`;
+        }
+      }
+
+      if (status !== 'disputed' && isAudioHit) {
+        const csvConflict = evaluateManualCsvVsAudio(hit, manualSources, this.minBpm, this.maxBpm);
+        if (csvConflict) {
+          status = 'disputed';
+          disputeDetails = csvConflict.disputeDetails;
+          reason = csvConflict.reason;
         }
       }
 
@@ -568,7 +733,7 @@ export class VerificationPipeline {
         energy: hit.energy ?? results.find(r => r.success && typeof r.data?.energy === 'number')?.data?.energy ?? track.energy ?? null,
         loudness: hit.loudness ?? results.find(r => r.success && typeof r.data?.loudness === 'number')?.data?.loudness ?? track.loudness ?? null,
         status,
-        confidence: hit.confidence || 'single_source',
+        confidence: status === 'disputed' ? 'disputed' : (hit.confidence || (isAudioHit ? 'audio_analysis' : 'single_source')),
         disputeDetails,
         sources: [...successfulHits, ...manualSources],
         providerError: providerOutcomes.some(o => o.outcome === 'error'),
@@ -624,11 +789,13 @@ export class VerificationPipeline {
    */
   generateCoverageReport(tracks) {
     let verified = 0;
+    let analysed = 0;
     let singleSource = 0;
     let supplied = 0;
     let disputed = 0;
     let unverified = 0;
 
+    const analysedList = [];
     const disputedList = [];
     const suppliedList = [];
     const unverifiedList = [];
@@ -665,6 +832,12 @@ export class VerificationPipeline {
       }
       if (t.status === 'verified') {
         verified++;
+      } else if (t.status === 'analysed') {
+        analysed++;
+        analysedList.push({
+          id: t.id,
+          name: `${t.artist} - ${t.title}`
+        });
       } else if (t.status === 'single_source') {
         singleSource++;
       } else if (t.status === 'supplied') {
@@ -694,6 +867,7 @@ export class VerificationPipeline {
     return {
       total,
       verified,
+      analysed,
       singleSource,
       supplied,
       disputed,
@@ -701,7 +875,8 @@ export class VerificationPipeline {
       providerErrors: providerErrorList.length,
       providerErrorTracks: providerErrorList,
       providerOutcomeSummary,
-      summaryText: `Verified ${verified}/${total}, Single-source ${singleSource}, Disputed ${disputed}, Unverified ${unverified}`,
+      summaryText: `Verified ${verified}/${total}${analysed > 0 ? `, Analysed ${analysed}` : ''}, Single-source ${singleSource}, Disputed ${disputed}, Unverified ${unverified}`,
+      analysedTracks: analysedList,
       disputedTracks: disputedList,
       suppliedTracks: suppliedList,
       unverifiedTracks: unverifiedList,

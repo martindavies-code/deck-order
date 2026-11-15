@@ -13,12 +13,20 @@ import { DisputeModal } from './components/DisputeModal.jsx';
 import { DryRunModal } from './components/DryRunModal.jsx';
 import { MixInstructionsModal } from './components/MixInstructionsModal.jsx';
 import { HistoryDrawer } from './components/HistoryDrawer.jsx';
+import { AudioMatchModal } from './components/AudioMatchModal.jsx';
+import { analyseAudioBatch } from './services/localAudioService.js';
+import {
+  matchAudioFilesToTracks,
+  attachAudioAnalysisToTrack,
+  buildTrackFromAudioFile
+} from './services/audioMatcher.js';
 import {
   fetchStatus,
   exchangeAuthCode,
   fetchPlaylists,
   fetchPlaylistItems,
   formatPlaylistLoadToast,
+  formatLoadProgress,
   parseCsvText,
   verifyTracklist,
   computeCoverageCounts,
@@ -134,11 +142,14 @@ export function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [showRedoConfirm, setShowRedoConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  // Real loading progress for the import UI: { stage: 'fetch'|'verify'|'parse', fetched, total }
+  // Real loading progress for the import UI: { stage: 'fetch'|'verify'|'parse'|'audio', fetched, total }
   const [loadProgress, setLoadProgress] = useState(null);
   const [loadingPlaylistId, setLoadingPlaylistId] = useState(null);
+  const [pendingAudioMatch, setPendingAudioMatch] = useState(null);
+  const [audioNotice, setAudioNotice] = useState(null);
 
   const toastTimerRef = useRef(null);
+  const audioAbortRef = useRef(null);
   const evalCacheRef = useRef({ tracks: null, enableEnergy: null, value: null });
   // Monotonic load counter: when a second playlist/CSV load starts while an
   // earlier one is still in flight, the stale request must not overwrite the
@@ -465,6 +476,7 @@ export function App() {
       ...computeCoverageCounts(savedTracks),
       total: savedTracks.length,
       corroborated: countSaved(t => t.status === 'corroborated' || t.status === 'verified'),
+      analysed: countSaved(t => t.status === 'analysed'),
       singleSource: countSaved(t => t.status === 'single_source'),
       supplied: countSaved(t => t.status === 'supplied'),
       sample: countSaved(t => t.status === 'sample' || t.isSampleData),
@@ -475,6 +487,7 @@ export function App() {
       // show no provider line.
       providerOutcomeSummary: historicalSet.providerOutcomeSummary || {},
       summaryText: `Saved set (${savedTracks.length} tracks)`,
+      analysedTracks: savedTracks.filter(t => t.status === 'analysed').map(t => ({ id: t.id, name: `${t.artist} - ${t.title}` })),
       disputedTracks: savedTracks.filter(t => t.status === 'disputed').map(t => ({ id: t.id, name: `${t.artist} - ${t.title}`, details: t.disputeDetails })),
       unverifiedTracks: savedTracks.filter(t => t.status === 'missing' || t.status === 'unverified'),
       tempoReviewTracks: savedTracks.filter(t => t.tempoNeedsReview),
@@ -648,6 +661,265 @@ export function App() {
     }
   };
 
+  const handleCancelAudioAnalysis = () => {
+    if (audioAbortRef.current) {
+      audioAbortRef.current.abort();
+      audioAbortRef.current = null;
+    }
+    loadRequestRef.current += 1;
+    setIsLoading(false);
+    setLoadProgress(null);
+    showToast('Audio analysis cancelled.', 3000, 'warning');
+  };
+
+  const finalizeAudioTracklist = async (
+    mergedTracks,
+    {
+      isEnrichingLoadedSet = false,
+      unsupportedFiles = [],
+      cachedCount = 0,
+      analysedCount = 0,
+      setTitle = 'Local Audio Set'
+    } = {}
+  ) => {
+    const requestId = ++loadRequestRef.current;
+    setIsLoading(true);
+    setLoadProgress({ stage: 'verify', fetched: 0, total: mergedTracks.length || null });
+
+    try {
+      const verifyRes = await verifyTracklist(mergedTracks, false, setLoadProgress);
+      if (requestId !== loadRequestRef.current) return;
+
+      if (isEnrichingLoadedSet) {
+        const verifiedById = new Map(verifyRes.tracks.map(t => [t.id, t]));
+        const nextOrdered = orderedTracks.map(t => verifiedById.get(t.id) || t);
+        // Append any newly added standalone audio tracks not yet in orderedTracks
+        for (const vt of verifyRes.tracks) {
+          if (!nextOrdered.some(o => o.id === vt.id)) {
+            nextOrdered.push(vt);
+          }
+        }
+        setTracks(verifyRes.tracks);
+        setOriginalTracks(verifyRes.tracks);
+        setOrderedTracks(nextOrdered);
+        setCoverageReport({ ...verifyRes.report, ...computeCoverageCounts(verifyRes.tracks) });
+        if (evaluation) {
+          setEvaluation(evaluateCurrentOrder(nextOrdered, { enableEnergy }));
+        }
+        if (originalEvaluation) {
+          setOriginalEvaluation(evaluateCurrentOrder(verifyRes.tracks, { enableEnergy }));
+        }
+      } else {
+        newSetIdentity();
+        setIsSampleSet(false);
+        setSelectedPlaylist({ name: setTitle, id: null, itemCount: verifyRes.tracks.length });
+        setSetName(setTitle);
+        setLockedOpenerId(null);
+        setLockedCloserId(null);
+        setBridgeSuggestions([]);
+        setBonusTunes([]);
+        setTracks(verifyRes.tracks);
+        setCoverageReport({ ...verifyRes.report, ...computeCoverageCounts(verifyRes.tracks) });
+        setOrderedTracks(verifyRes.tracks);
+        setLastRemoved(null);
+        setOriginalTracks(verifyRes.tracks);
+        setEvaluation(null);
+        setOriginalEvaluation(null);
+        setViewMode('original');
+        setSelectedTrackIndex(null);
+      }
+
+      const cacheNote = cachedCount > 0 ? ` (${cachedCount} from cache)` : '';
+      const unsupportedNote = unsupportedFiles.length > 0 ? ` · ${unsupportedFiles.length} unsupported file(s) skipped` : '';
+      const summary = `Analysed ${analysedCount} audio ${analysedCount === 1 ? 'file' : 'files'} in browser${cacheNote}${unsupportedNote}.`;
+      setAudioNotice({
+        summary,
+        unsupportedFiles,
+        cachedCount,
+        analysedCount
+      });
+      showToast(
+        summary,
+        unsupportedFiles.length > 0 ? 5500 : 3500,
+        unsupportedFiles.length > 0 ? 'warning' : 'success'
+      );
+    } catch (err) {
+      if (requestId !== loadRequestRef.current) return;
+      showToast(`Audio verification issue: ${err.message}`, 5000, 'warning');
+    } finally {
+      if (requestId === loadRequestRef.current) {
+        setIsLoading(false);
+        setLoadProgress(null);
+      }
+    }
+  };
+
+  const runAudioAnalysisWorkflow = async ({ csvContent = '', audioFiles = [], isEnrichingLoadedSet = false }) => {
+    const files = Array.from(audioFiles || []);
+    if (files.length === 0) return;
+
+    const requestId = ++loadRequestRef.current;
+    const controller = new AbortController();
+    audioAbortRef.current = controller;
+    setAudioNotice(null);
+    setIsLoading(true);
+    setLoadProgress({ stage: 'audio', current: 0, total: files.length, fileName: files[0]?.name || '' });
+
+    try {
+      let baseTracks = [];
+      if (isEnrichingLoadedSet) {
+        baseTracks = tracks.map(t => ({ ...t }));
+      } else if (csvContent && csvContent.trim()) {
+        const parsed = await parseCsvText(csvContent.trim());
+        if (requestId !== loadRequestRef.current) return;
+        baseTracks = parsed.tracks || [];
+      }
+
+      const batchRes = await analyseAudioBatch(files, {
+        onProgress: (p) => {
+          if (requestId === loadRequestRef.current) {
+            setLoadProgress(p);
+          }
+        },
+        signal: controller.signal
+      });
+
+      if (batchRes.cancelled || requestId !== loadRequestRef.current) {
+        return;
+      }
+
+      const { succeeded, unsupported, cachedCount } = batchRes;
+
+      if (succeeded.length === 0) {
+        setIsLoading(false);
+        setLoadProgress(null);
+        const firstErr = unsupported[0]?.error || 'No supported audio files could be decoded.';
+        setAudioNotice({
+          summary: `No supported audio files could be decoded (${unsupported.length} skipped).`,
+          unsupportedFiles: unsupported,
+          cachedCount: 0,
+          analysedCount: 0
+        });
+        if (baseTracks.length > 0 && !isEnrichingLoadedSet) {
+          showToast(`Audio files could not be decoded (${firstErr}). Importing tracklist without local audio.`, 6000, 'warning');
+          await handleParseCsv(csvContent, false);
+        } else {
+          showToast(`Could not decode audio: ${firstErr}`, 6000, 'error');
+        }
+        return;
+      }
+
+      // Standalone audio import (no separate tracklist)
+      if (baseTracks.length === 0) {
+        const builtTracks = succeeded.map((f, idx) => buildTrackFromAudioFile(f, idx));
+        await finalizeAudioTracklist(builtTracks, {
+          isEnrichingLoadedSet: false,
+          unsupportedFiles: unsupported,
+          cachedCount,
+          analysedCount: succeeded.length,
+          setTitle: succeeded.length === 1
+            ? `${builtTracks[0].artist} - ${builtTracks[0].title}`
+            : 'Local Audio Set'
+        });
+        return;
+      }
+
+      // Match analysed files against the tracklist
+      const matchSummary = matchAudioFilesToTracks(succeeded, baseTracks);
+      const needsConfirmation = matchSummary.ambiguous.length > 0 || matchSummary.unmatchedFiles.length > 0;
+
+      if (!needsConfirmation) {
+        const nextTracks = baseTracks.map(t => ({ ...t }));
+        for (const m of matchSummary.autoMatched) {
+          const idx = nextTracks.findIndex(t => t.id === m.trackId);
+          if (idx !== -1) {
+            nextTracks[idx] = attachAudioAnalysisToTrack(nextTracks[idx], m.file);
+          }
+        }
+        await finalizeAudioTracklist(nextTracks, {
+          isEnrichingLoadedSet,
+          unsupportedFiles: unsupported,
+          cachedCount,
+          analysedCount: matchSummary.autoMatched.length,
+          setTitle: isEnrichingLoadedSet ? setName : 'Imported Tracklist'
+        });
+        return;
+      }
+
+      // Open confirmation modal for ambiguous or unmatched files
+      setIsLoading(false);
+      setLoadProgress(null);
+      setPendingAudioMatch({
+        matchSummary,
+        baseTracks,
+        succeededFiles: succeeded,
+        unsupportedFiles: unsupported,
+        cachedCount,
+        isEnrichingLoadedSet
+      });
+    } catch (err) {
+      if (requestId !== loadRequestRef.current) return;
+      setIsLoading(false);
+      setLoadProgress(null);
+      showToast(`Audio analysis error: ${err.message}`, 5000, 'error');
+    } finally {
+      if (audioAbortRef.current === controller) {
+        audioAbortRef.current = null;
+      }
+    }
+  };
+
+  const handleConfirmAudioMatches = async (decisions = {}) => {
+    if (!pendingAudioMatch) return;
+    const {
+      matchSummary,
+      baseTracks,
+      succeededFiles,
+      unsupportedFiles,
+      cachedCount,
+      isEnrichingLoadedSet
+    } = pendingAudioMatch;
+    setPendingAudioMatch(null);
+
+    const nextTracks = baseTracks.map(t => ({ ...t }));
+    let attachedCount = 0;
+
+    // 1. Apply all unambiguous auto-matches
+    for (const m of matchSummary.autoMatched) {
+      const idx = nextTracks.findIndex(t => t.id === m.trackId);
+      if (idx !== -1) {
+        nextTracks[idx] = attachAudioAnalysisToTrack(nextTracks[idx], m.file);
+        attachedCount++;
+      }
+    }
+
+    // 2. Apply user decisions for ambiguous and unmatched files
+    for (const [fileIdxStr, target] of Object.entries(decisions)) {
+      const fileIndex = Number(fileIdxStr);
+      const analysedFile = succeededFiles[fileIndex];
+      if (!analysedFile || !target || target === '__skip__') continue;
+
+      if (target === '__add_new__') {
+        nextTracks.push(buildTrackFromAudioFile(analysedFile, nextTracks.length));
+        attachedCount++;
+      } else {
+        const idx = nextTracks.findIndex(t => t.id === target);
+        if (idx !== -1) {
+          nextTracks[idx] = attachAudioAnalysisToTrack(nextTracks[idx], analysedFile);
+          attachedCount++;
+        }
+      }
+    }
+
+    await finalizeAudioTracklist(nextTracks, {
+      isEnrichingLoadedSet,
+      unsupportedFiles,
+      cachedCount,
+      analysedCount: attachedCount,
+      setTitle: isEnrichingLoadedSet ? setName : 'Imported Tracklist'
+    });
+  };
+
   // Run Sequencer
   const handleRunSequencer = () => {
     if (orderedTracks.length > 0) setShowRedoConfirm(true);
@@ -750,7 +1022,7 @@ export function App() {
     // tempo or recording review) it must re-enter the order at its original
     // position instead of vanishing from the sequenced set.
     if (!updatedOrdered.some(t => t.id === trackId)) {
-      const crossConfirmed = replacement.status === 'corroborated' || replacement.status === 'verified';
+      const crossConfirmed = replacement.status === 'corroborated' || replacement.status === 'verified' || replacement.status === 'analysed';
       const recordingBlocked = replacement.recordingNeedsReview
         && (replacement.recordingMismatch?.suppliedIsrc || !crossConfirmed);
       const sequencable = replacement.bpm && replacement.camelot
@@ -779,11 +1051,13 @@ export function App() {
         ...previous,
         ...computeCoverageCounts(updatedTracks),
         corroborated: count(t => t.status === 'corroborated' || t.status === 'verified'),
+        analysed: count(t => t.status === 'analysed'),
         singleSource: count(t => t.status === 'single_source'),
         supplied: count(t => t.status === 'supplied'),
         disputed: stillDisputed.length,
         missing: count(t => t.status === 'missing' || t.status === 'unverified'),
         unverified: count(t => t.status === 'missing' || t.status === 'unverified'),
+        analysedTracks: updatedTracks.filter(t => t.status === 'analysed').map(t => ({ id: t.id, name: `${t.artist} - ${t.title}` })),
         disputedTracks: stillDisputed.map(t => ({ id: t.id, name: `${t.artist} - ${t.title}`, details: t.disputeDetails })),
         tempoReviewTracks: (previous.tempoReviewTracks || []).filter(t => t.id !== trackId)
           .concat(replacement.tempoNeedsReview ? [replacement] : []),
@@ -1048,6 +1322,7 @@ export function App() {
     setBonusTunes([]);
     setIsSampleSet(false);
     setShowRedoConfirm(false);
+    setAudioNotice(null);
     return true;
   };
 
@@ -1124,6 +1399,36 @@ export function App() {
         }}>Retry save</button>
       </div>}
       <main className="flex-1 max-w-[1480px] w-full mx-auto px-4 pt-5 sm:px-6 sm:pt-6 lg:px-10 lg:pt-8 space-y-6 lg:space-y-8 pb-48 sm:pb-40">
+        {audioNotice && (
+          <div
+            role={audioNotice.unsupportedFiles?.length ? 'alert' : 'status'}
+            className={`deck-panel p-3.5 sm:p-4 text-xs space-y-2 ${
+              audioNotice.unsupportedFiles?.length
+                ? 'border-[rgba(245,158,11,0.45)]'
+                : 'border-[rgba(125,211,252,0.35)]'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="font-semibold text-[#F3F0E6]">{audioNotice.summary}</p>
+              <button
+                type="button"
+                onClick={() => setAudioNotice(null)}
+                className="text-[#7E8876] hover:text-[#F3F0E6] font-mono text-[11px] shrink-0"
+              >
+                Dismiss
+              </button>
+            </div>
+            {audioNotice.unsupportedFiles?.length > 0 && (
+              <ul className="space-y-1 text-[11px] font-mono text-[#FCA5A5]">
+                {audioNotice.unsupportedFiles.map((u, idx) => (
+                  <li key={`${u.fileName}-${idx}`}>
+                    <strong className="text-[#F3F0E6]">{u.fileName}:</strong> {u.error}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         {!isSetLoaded ? (
           /* Composition A: Before a Set is Loaded */
           <SourcePicker
@@ -1134,6 +1439,10 @@ export function App() {
             onRefreshPlaylists={handleRefreshPlaylists}
             onSelectPlaylist={handleSelectPlaylist}
             onParseCsv={handleParseCsv}
+            onImportWithAudio={({ csvContent, audioFiles }) =>
+              runAudioAnalysisWorkflow({ csvContent, audioFiles, isEnrichingLoadedSet: false })
+            }
+            onCancelAudioAnalysis={handleCancelAudioAnalysis}
             onConnectSpotify={handleConnectSpotify}
             isLoading={isLoading}
             loadProgress={loadProgress}
@@ -1198,6 +1507,39 @@ export function App() {
               )}
             </div>
 
+            {loadProgress && (() => {
+              const info = formatLoadProgress(loadProgress);
+              if (!info) return null;
+              const pct = info.determinate ? Math.round(info.ratio * 100) : null;
+              return (
+                <div className="deck-panel p-3.5 space-y-2" role="status" aria-live="polite">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-mono text-[#BAC2B3] truncate">{info.text}</p>
+                    {loadProgress.stage === 'audio' && (
+                      <button
+                        type="button"
+                        onClick={handleCancelAudioAnalysis}
+                        className="text-xs font-mono text-[#FCA5A5] hover:underline shrink-0"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                  <div
+                    className="deck-progress"
+                    {...(info.determinate
+                      ? { role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': pct, 'aria-label': info.text }
+                      : {})}
+                  >
+                    <div
+                      className={`deck-progress-fill${info.determinate ? '' : ' deck-progress-indeterminate'}`}
+                      style={info.determinate ? { width: `${pct}%` } : undefined}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Coverage / Verification Summary */}
             {coverageReport && (
               <CoverageReport
@@ -1206,6 +1548,9 @@ export function App() {
                 onChangeStrategy={setUnverifiedStrategy}
                 onOpenDisputes={() => setShowDisputeModal(true)}
                 onRunSequencer={handleRunSequencer}
+                onAttachAudioFiles={(files) =>
+                  runAudioAnalysisWorkflow({ audioFiles: files, isEnrichingLoadedSet: true })
+                }
                 isLoading={isLoading}
                 enableEnergy={enableEnergy}
                 onToggleEnergy={() => {
@@ -1495,6 +1840,16 @@ export function App() {
           disputedTracks={coverageReport?.disputedTracks || []}
           onClose={() => setShowDisputeModal(false)}
           onApplyOverride={handleApplyOverride}
+        />
+      )}
+
+      {pendingAudioMatch && (
+        <AudioMatchModal
+          matchSummary={pendingAudioMatch.matchSummary}
+          tracks={pendingAudioMatch.baseTracks}
+          unsupportedFiles={pendingAudioMatch.unsupportedFiles}
+          onConfirm={handleConfirmAudioMatches}
+          onCancel={() => setPendingAudioMatch(null)}
         />
       )}
 

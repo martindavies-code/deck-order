@@ -58,7 +58,7 @@ const allCodeFiles = scanDir('.', ['.js', '.jsx', '.ts', '.tsx', '.json', '.html
 let endpointViolations = 0;
 for (const file of allCodeFiles) {
   const content = fs.readFileSync(file, 'utf8');
-  const rel = file.startsWith('./') ? file.slice(2) : file;
+  const rel = (file.startsWith('./') ? file.slice(2) : file).replace(/\\/g, '/');
   for (const forbidden of FORBIDDEN_ENDPOINTS) {
     if ((ENDPOINT_ALLOWLIST[rel] || []).includes(forbidden)) continue;
     if (content.includes(forbidden)) {

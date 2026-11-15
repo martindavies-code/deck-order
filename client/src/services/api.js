@@ -491,6 +491,23 @@ export function formatLoadProgress(progress) {
     return { text: 'Checking tempo and key…', determinate: false, ratio: null };
   }
 
+  if (progress.stage === 'audio') {
+    const current = Math.max(0, progress.current || progress.completedCount || 0);
+    const labelName = progress.fileName ? ` (${progress.fileName})` : '';
+    if (total) {
+      return {
+        text: `Analysing local audio in browser - ${Math.min(current, total)} of ${total}${labelName}`,
+        determinate: true,
+        ratio: Math.min(current / total, 1)
+      };
+    }
+    return {
+      text: `Analysing local audio in browser${labelName}…`,
+      determinate: false,
+      ratio: null
+    };
+  }
+
   return { text: 'Reading tracklist…', determinate: false, ratio: null };
 }
 
@@ -777,8 +794,22 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
   const total = tracks.length;
 
   // Per-track client-side marking used when the provider cannot be reached.
-  // Honest: these tracks were NOT checked against a provider.
+  // Honest: these tracks were NOT checked against a provider. Audio-analysed
+  // tracks keep their 'analysed' status because their values come from local audio.
   const markUnchecked = (t, reason) => {
+    const isAudioAnalysed = t.source === 'audio_analysis'
+      || t.status === 'analysed'
+      || (Array.isArray(t.sources) && t.sources.some(
+        s => s?.source === 'audio_analysis' || s?.name === 'Audio Analysis' || s?.provider === 'Audio Analysis'
+      ));
+    if (isAudioAnalysed && t.bpm && t.camelot) {
+      return {
+        ...t,
+        status: 'analysed',
+        confidence: t.confidence || 'audio_analysis',
+        ...(reason ? { reason: `Analysed directly from local audio file in your browser. (${reason})` } : {})
+      };
+    }
     const hasData = Boolean(t.bpm && t.camelot);
     return {
       ...t,
@@ -798,8 +829,8 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
 
     const processedAll = new Array(total).fill(null);
     const merged = {
-      corroborated: 0, singleSource: 0, supplied: 0, disputed: 0, missing: 0,
-      disputedTracks: [], unverifiedTracks: [], tempoReviewTracks: [], recordingReviewTracks: [],
+      corroborated: 0, analysed: 0, singleSource: 0, supplied: 0, disputed: 0, missing: 0,
+      analysedTracks: [], disputedTracks: [], unverifiedTracks: [], tempoReviewTracks: [], recordingReviewTracks: [],
       providerErrors: 0, providerErrorTracks: [], providerOutcomeSummary: {}
     };
     const mergeOutcomeSummary = (summary) => {
@@ -830,10 +861,11 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
       }
       let batchErr = null;
       try {
+        const wireBatch = batch.map(({ energyCurve: _ec, ...rest }) => rest);
         const res = await fetch(`${API_BASE}/api/pipeline/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tracks: batch }),
+          body: JSON.stringify({ tracks: wireBatch }),
           // Cold batches can take minutes; the timeout must exceed worst-case
           // server-side analysis so the client never aborts mid-analysis.
           signal: (typeof AbortSignal.any === 'function' && signal)
@@ -845,16 +877,37 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
         if (!data || !Array.isArray(data.tracks)) throw new Error('Malformed provider response');
 
         data.tracks.forEach((t, idx) => {
+          const orig = batch[idx] || {};
           let status = t.status;
           if (status === 'verified') status = 'corroborated';
-          processedAll[b * VERIFY_BATCH_SIZE + idx] = { ...t, status };
+          const nonManualSources = (t.sources || []).filter(s => s && s.name !== 'Manual CSV');
+          const onlyAudioSource = nonManualSources.length === 1 && (
+            nonManualSources[0].source === 'audio_analysis' ||
+            nonManualSources[0].name === 'Audio Analysis' ||
+            nonManualSources[0].provider === 'Audio Analysis'
+          );
+          if (status === 'single_source' && onlyAudioSource) {
+            status = 'analysed';
+          }
+          const preservedCurve = Array.isArray(t.energyCurve) && t.energyCurve.length > 0
+            ? t.energyCurve
+            : (Array.isArray(orig.energyCurve) ? orig.energyCurve : undefined);
+          processedAll[b * VERIFY_BATCH_SIZE + idx] = {
+            ...t,
+            status,
+            ...(preservedCurve ? { energyCurve: preservedCurve } : {}),
+            ...(orig.audioFileName && !t.audioFileName ? { audioFileName: orig.audioFileName } : {}),
+            ...(orig.audioConfidence !== undefined && t.audioConfidence === undefined ? { audioConfidence: orig.audioConfidence } : {})
+          };
         });
         const r = data.report || {};
         merged.corroborated += r.verified || 0;
+        merged.analysed += r.analysed || 0;
         merged.singleSource += r.singleSource || 0;
         merged.supplied += r.supplied || 0;
         merged.disputed += r.disputed || 0;
         merged.missing += r.unverified || 0;
+        merged.analysedTracks.push(...(r.analysedTracks || []));
         merged.disputedTracks.push(...(r.disputedTracks || []));
         merged.unverifiedTracks.push(...(r.unverifiedTracks || []));
         merged.tempoReviewTracks.push(...(r.tempoReviewTracks || []));
@@ -886,15 +939,20 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
     }
 
     // Any track the provider never processed is marked honestly as unchecked.
+    let fallbackAnalysed = 0;
     let fallbackSupplied = 0;
     let fallbackMissing = 0;
     for (let i = 0; i < total; i++) {
       if (processedAll[i]) continue;
       const marked = markUnchecked(tracks[i], 'Tempo/key check did not finish - the metadata provider did not respond.');
-      if (marked.status === 'supplied') fallbackSupplied++; else fallbackMissing++;
+      if (marked.status === 'analysed') fallbackAnalysed++;
+      else if (marked.status === 'supplied') fallbackSupplied++;
+      else fallbackMissing++;
       processedAll[i] = marked;
     }
     const uncheckedCount = total - checkedCount;
+    const totalAnalysed = processedAll.filter(t => t && t.status === 'analysed').length;
+    const totalSingleSource = processedAll.filter(t => t && t.status === 'single_source').length;
 
     return {
       success: true,
@@ -902,7 +960,8 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
       report: {
         total,
         corroborated: merged.corroborated,
-        singleSource: merged.singleSource,
+        analysed: totalAnalysed || (merged.analysed + fallbackAnalysed),
+        singleSource: totalSingleSource,
         supplied: merged.supplied + fallbackSupplied,
         sample: 0,
         disputed: merged.disputed,
@@ -916,6 +975,7 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
         summaryText: providerFailed
           ? `Checked ${checkedCount}/${total} via provider; ${uncheckedCount} unchecked (provider did not respond)`
           : `Provider check complete (${total} tracks)`,
+        analysedTracks: merged.analysedTracks,
         disputedTracks: merged.disputedTracks,
         unverifiedTracks: merged.unverifiedTracks,
         tempoReviewTracks: merged.tempoReviewTracks,
@@ -928,11 +988,14 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
   }
 
   // No provider configured on this deployment: pure client-side marking.
+  let analysed = 0;
   let supplied = 0;
   let missing = 0;
   const processed = tracks.map(t => {
     const marked = markUnchecked(t);
-    if (marked.status === 'supplied') supplied++; else missing++;
+    if (marked.status === 'analysed') analysed++;
+    else if (marked.status === 'supplied') supplied++;
+    else missing++;
     return marked;
   });
 
@@ -942,6 +1005,7 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
     report: {
       total,
       corroborated: 0,
+      analysed,
       singleSource: 0,
       supplied,
       sample: 0,
@@ -953,7 +1017,8 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
       providerConfigured: false,
       providerUnreachable: false,
       providerPartialFailure: false,
-      summaryText: `User supplied (${supplied} valid, ${missing} missing)`,
+      summaryText: `User supplied (${analysed} analysed, ${supplied} supplied, ${missing} missing)`,
+      analysedTracks: processed.filter(t => t.status === 'analysed'),
       disputedTracks: [],
       unverifiedTracks: processed.filter(t => t.status === 'missing'),
       tempoReviewTracks: [],

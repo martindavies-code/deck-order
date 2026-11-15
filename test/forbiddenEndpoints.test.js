@@ -55,7 +55,7 @@ describe('Phase 0 Compliance: Zero Forbidden Endpoints Verification', () => {
     for (const filePath of filesToScan) {
       const content = fs.readFileSync(filePath, 'utf8');
       for (const forbidden of FORBIDDEN_STRINGS) {
-        const rel = path.relative(rootDir, filePath);
+        const rel = path.relative(rootDir, filePath).replace(/\\/g, '/');
         if ((ALLOWLIST[rel] || []).includes(forbidden)) continue;
         if (content.includes(forbidden)) {
           violations.push({

@@ -24,6 +24,8 @@ export function SourcePicker({
   onRefreshPlaylists,
   onSelectPlaylist,
   onParseCsv,
+  onImportWithAudio,
+  onCancelAudioAnalysis,
   onConnectSpotify,
   isLoading,
   loadProgress = null,
@@ -39,8 +41,11 @@ export function SourcePicker({
   const [playlistSort, setPlaylistSort] = useState('default');
   const [csvInput, setCsvInput] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedAudioFiles, setSelectedAudioFiles] = useState([]);
+  const [isDraggingAudio, setIsDraggingAudio] = useState(false);
   const [rowErrors, setRowErrors] = useState([]);
   const fileInputRef = useRef(null);
+  const audioInputRef = useRef(null);
   const spotifyClientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
 
   const trimmedPlaylistQuery = playlistQuery.trim().toLowerCase();
@@ -82,31 +87,67 @@ export function SourcePicker({
     setRowErrors([]);
   };
 
-  const handleRunImport = () => {
-    if (!csvInput.trim()) return;
-    // Validate rows for user feedback
-    const lines = csvInput.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#'));
-    const errors = [];
-    lines.forEach((line, idx) => {
-      if (idx === 0 && line.toLowerCase().includes('artist')) return; // Header line
-      const parts = line.split(/[,\t;]/);
-      if (parts.length < 2 && !line.includes(' - ')) {
-        errors.push(`Row ${idx + 1}: Expected at least Artist and Title.`);
-      }
-    });
+  const handleAudioFilesChange = (e) => {
+    const incoming = Array.from(e.target.files || []);
+    if (incoming.length > 0) {
+      setSelectedAudioFiles(prev => [...prev, ...incoming]);
+    }
+    if (audioInputRef.current) {
+      audioInputRef.current.value = '';
+    }
+  };
 
-    if (errors.length > 0 && errors.length === lines.length) {
-      setRowErrors(errors.slice(0, 3));
-      return;
+  const handleAudioDrop = (e) => {
+    e.preventDefault();
+    setIsDraggingAudio(false);
+    const dropped = Array.from(e.dataTransfer?.files || []);
+    if (dropped.length > 0) {
+      setSelectedAudioFiles(prev => [...prev, ...dropped]);
+    }
+  };
+
+  const handleRemoveAudioFile = (idx) => {
+    setSelectedAudioFiles(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleClearAudioFiles = () => {
+    setSelectedAudioFiles([]);
+  };
+
+  const handleRunImport = () => {
+    const trimmedCsv = csvInput.trim();
+    if (!trimmedCsv && selectedAudioFiles.length === 0) return;
+
+    if (trimmedCsv) {
+      // Validate rows for user feedback
+      const lines = trimmedCsv.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#'));
+      const errors = [];
+      lines.forEach((line, idx) => {
+        if (idx === 0 && line.toLowerCase().includes('artist')) return; // Header line
+        const parts = line.split(/[,\t;]/);
+        if (parts.length < 2 && !line.includes(' - ')) {
+          errors.push(`Row ${idx + 1}: Expected at least Artist and Title.`);
+        }
+      });
+
+      if (errors.length > 0 && errors.length === lines.length) {
+        setRowErrors(errors.slice(0, 3));
+        return;
+      }
     }
 
     setRowErrors([]);
-    onParseCsv(csvInput, false);
+    if (selectedAudioFiles.length > 0 && typeof onImportWithAudio === 'function') {
+      onImportWithAudio({ csvContent: trimmedCsv, audioFiles: selectedAudioFiles });
+      return;
+    }
+    onParseCsv(trimmedCsv, false);
   };
 
   const handleDemoSet = () => {
     setCsvInput(DEMO_ELECTRONIC_CSV);
     setSelectedFile(null);
+    setSelectedAudioFiles([]);
     setRowErrors([]);
     onParseCsv(DEMO_ELECTRONIC_CSV, true);
   };
@@ -495,6 +536,77 @@ export function SourcePicker({
                   </p>
                 </div>
 
+                {/* Local Audio File Dropzone / Picker (100% client-side Essentia WASM) */}
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDraggingAudio(true);
+                  }}
+                  onDragLeave={() => setIsDraggingAudio(false)}
+                  onDrop={handleAudioDrop}
+                  className={`p-3 rounded border border-dashed transition-colors ${
+                    isDraggingAudio
+                      ? 'border-[#7DD3FC] bg-[rgba(56,189,248,0.08)]'
+                      : 'border-[#394133] bg-[#10120F]/70 hover:border-[#7DD3FC]/60'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold text-[#F3F0E6] flex items-center gap-1.5">
+                        <Music className="w-3.5 h-3.5 text-[#7DD3FC] shrink-0" />
+                        <span>Analyse local audio files (optional)</span>
+                      </p>
+                      <p className="text-[11px] text-[#7E8876] leading-snug">
+                        Drop MP3, WAV, FLAC, AIFF, or M4A files here to extract BPM, key, and section energy in your browser. Audio never leaves your device.
+                      </p>
+                    </div>
+                    <label className="deck-btn-secondary text-xs px-3 py-1.5 min-h-[38px] shrink-0 cursor-pointer">
+                      <Upload className="w-3.5 h-3.5 text-[#7DD3FC]" />
+                      <span>Select audio files</span>
+                      <input
+                        ref={audioInputRef}
+                        type="file"
+                        multiple
+                        accept=".mp3,.wav,.flac,.aiff,.aif,.m4a,.aac,.ogg,audio/*"
+                        onChange={handleAudioFilesChange}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {selectedAudioFiles.length > 0 && (
+                    <div className="mt-2.5 pt-2.5 border-t border-[#252B22] space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-mono">
+                        <span className="text-[#7DD3FC]">
+                          {selectedAudioFiles.length} audio {selectedAudioFiles.length === 1 ? 'file' : 'files'} queued for local analysis
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleClearAudioFiles}
+                          className="text-[#BAC2B3] hover:text-[#FCA5A5] underline"
+                        >
+                          Clear all
+                        </button>
+                      </div>
+                      <ul className="max-h-24 overflow-y-auto space-y-1 text-[11px] font-mono text-[#BAC2B3]">
+                        {selectedAudioFiles.map((file, idx) => (
+                          <li key={`${file.name}-${idx}`} className="flex items-center justify-between gap-2 bg-[#161914] px-2 py-1 rounded">
+                            <span className="truncate">{file.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAudioFile(idx)}
+                              className="text-[#7E8876] hover:text-[#FCA5A5] shrink-0"
+                              aria-label={`Remove ${file.name}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
                 {/* Row Errors if any */}
                 {rowErrors.length > 0 && (
                   <div className="p-2.5 rounded bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.3)] text-xs text-[#FCA5A5] space-y-1">
@@ -517,10 +629,14 @@ export function SourcePicker({
 
                   <button
                     onClick={handleRunImport}
-                    disabled={isLoading || !csvInput.trim()}
+                    disabled={isLoading || (!csvInput.trim() && selectedAudioFiles.length === 0)}
                     className="deck-btn-primary text-xs sm:text-sm sm:px-4 sm:py-2.5"
                   >
-                    <span>Check track details</span>
+                    <span>
+                      {selectedAudioFiles.length > 0
+                        ? `Analyse ${selectedAudioFiles.length} ${selectedAudioFiles.length === 1 ? 'file' : 'files'} & check details`
+                        : 'Check track details'}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -529,7 +645,7 @@ export function SourcePicker({
             {/* Real loading progress: visible immediately on click, driven by
                 actual fetch/verify signals - never a fabricated percentage. */}
             {loadProgress && (
-              <LoadProgressIndicator progress={loadProgress} />
+              <LoadProgressIndicator progress={loadProgress} onCancel={onCancelAudioAnalysis} />
             )}
           </div>
         </div>
@@ -554,13 +670,24 @@ export function SourcePicker({
   );
 }
 
-function LoadProgressIndicator({ progress }) {
+function LoadProgressIndicator({ progress, onCancel }) {
   const info = formatLoadProgress(progress);
   if (!info) return null;
   const pct = info.determinate ? Math.round(info.ratio * 100) : null;
   return (
     <div className="pt-1 space-y-1.5" role="status" aria-live="polite">
-      <p className="text-[11px] font-mono text-[#BAC2B3]">{info.text}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-mono text-[#BAC2B3] truncate">{info.text}</p>
+        {progress?.stage === 'audio' && typeof onCancel === 'function' && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-[11px] font-mono text-[#FCA5A5] hover:underline shrink-0"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
       <div
         className="deck-progress"
         {...(info.determinate
