@@ -457,6 +457,29 @@ export class VerificationPipeline {
         }
       }
 
+      // Cross-check the matched records against the track's own ISRC: two
+      // providers agreeing about a DIFFERENT recording (or a tiebreak won on
+      // a candidate ISRC that is not this track's) is not corroboration of
+      // this recording's values. detectVersionMismatch only compares the two
+      // matched records with each other, so this check must happen here.
+      if (evaluation.status === 'verified' && track.isrc && !evaluation.recordingNeedsReview) {
+        const trackIsrc = String(track.isrc).toUpperCase();
+        const foreign = (evaluation.sources || []).find(s => s.isrc && String(s.isrc).toUpperCase() !== trackIsrc);
+        if (foreign) {
+          const note = `Matched record ISRC ${foreign.isrc} differs from this track's ${track.isrc}: tempo/key come from that record and need confirmation.`;
+          evaluation = {
+            ...evaluation,
+            recordingNeedsReview: true,
+            recordingMismatch: {
+              reason: note,
+              suppliedIsrc: track.isrc,
+              matchedIsrc: foreign.isrc
+            },
+            reason: evaluation.reason ? `${evaluation.reason} ${note}` : note
+          };
+        }
+      }
+
       return {
         ...track,
         bpm: evaluation.bpm,
