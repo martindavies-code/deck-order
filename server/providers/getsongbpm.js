@@ -1,6 +1,6 @@
 import { providerCache } from './cache.js';
 import { parseKey } from '../core/camelot.js';
-import { crossCheckTrackIdentity, withSingleflight } from './matchGuard.js';
+import { crossCheckTrackIdentity, versionTokens, withSingleflight } from './matchGuard.js';
 
 /**
  * GetSongBPM API client (https://getsongbpm.com/api)
@@ -41,7 +41,8 @@ export class GetSongBPMProvider {
         const searchUrl = new URL(`${this.baseUrl}/search/`);
         searchUrl.searchParams.set('api_key', this.apiKey);
         searchUrl.searchParams.set('type', 'both');
-        searchUrl.searchParams.set('lookup', `${artist} ${title}`);
+        const versionSuffix = version && versionTokens(version).length > 0 ? ` ${version}` : '';
+        searchUrl.searchParams.set('lookup', `${artist} ${title}${versionSuffix}`);
 
         const res = await fetch(searchUrl.toString(), {
           headers: { 'Accept': 'application/json' },
