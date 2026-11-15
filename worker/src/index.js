@@ -196,8 +196,15 @@ export default {
         return Response.json({ success: false, error: 'no_tracks' }, { status: 400, headers: cors });
       }
 
-      // In-flight batch deduplication (singleflight) to prevent duplicate provider work and quota usage
-      const batchKey = JSON.stringify(tracks.map(t => [t.artist || '', t.title || '', t.isrc || '', t.version || '']));
+      // In-flight batch deduplication (singleflight) to prevent duplicate provider work and quota usage.
+      // The key must cover every track field the pipeline reads: two requests
+      // whose tracks differ only in supplied tempo/key (a dispute correction
+      // re-verified while the first batch is still in flight) are different
+      // work and must never share a result.
+      const batchKey = JSON.stringify(tracks.map(t => [
+        t.artist || '', t.title || '', t.isrc || '', t.version || '',
+        t.bpm ?? null, t.key || '', t.rawBpm ?? null, t.duration_ms ?? t.durationMs ?? null
+      ]));
       if (inFlightBatches.has(batchKey)) {
         const cachedRes = await inFlightBatches.get(batchKey);
         return Response.json(cachedRes.data, { status: cachedRes.status, headers: cors });
