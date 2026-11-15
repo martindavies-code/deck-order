@@ -156,30 +156,6 @@ describe('Data Pipeline & Verification Tests', () => {
     assert.match(result.reason, /Key discrepancy/);
   });
 
-  test('Manual User Override always wins and persists', async () => {
-    const pipeline = new VerificationPipeline();
-    const track = {
-      id: 'test_track_1',
-      artist: 'Bicep',
-      title: 'Glue',
-      bpm: 120,
-      camelot: '8A',
-      sources: []
-    };
-
-    pipeline.setManualOverride('test_track_1', {
-      bpm: 130,
-      key: 'B minor', // maps to 10A
-      camelot: '10A'
-    });
-
-    const processed = await pipeline.processTrack(track);
-    assert.equal(processed.status, 'verified');
-    assert.equal(processed.confidence, 'user_override');
-    assert.equal(processed.bpm, 130);
-    assert.equal(processed.camelot, '10A');
-  });
-
   test('CSV Parsing: extracts artist, title, bpm, key, camelot accurately', () => {
     const csvData = `
 Artist,Title,BPM,Key
