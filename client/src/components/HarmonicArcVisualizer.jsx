@@ -25,8 +25,12 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
   // Check if energy data actually exists
   const hasEnergyData = tracks.some(t => typeof t.energy === 'number' && !isNaN(t.energy));
 
-  // Extract valid BPMs
-  const validBpms = tracks.map(t => t.bpm).filter(b => typeof b === 'number' && !isNaN(b));
+  // Extract valid BPMs - only confirmed ones: an unconfirmed octave value or
+  // a grading-blocking recording flag must not stretch the chart's scale.
+  const validBpms = tracks
+    .filter(t => !t.tempoNeedsReview && !recordingBlocksGrading(t))
+    .map(t => t.bpm)
+    .filter(b => typeof b === 'number' && !isNaN(b));
   const hasTempoData = validBpms.length > 0;
   const minBpm = hasTempoData ? Math.min(...validBpms) : 120;
   const maxBpm = hasTempoData ? Math.max(...validBpms) : 130;
@@ -215,9 +219,12 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
           {/* Track Nodes */}
           {points.map((p, i) => {
             const trans = evaluation.transitions[i];
+            // The final track has no outgoing transition: fall back to its own
+            // confirmation state instead of defaulting to a confident green.
             const nodeStroke = trans?.grade === 'CLASH' ? '#EF4444' :
                                trans?.grade === 'STRETCH' ? '#EAB308' :
-                               trans?.grade === 'UNVERIFIED' ? '#7E8876' : '#D6FC55';
+                               trans?.grade === 'UNVERIFIED' ? '#7E8876' :
+                               !trans && (!p.hasValue || p.track.status === 'unverified') ? '#7E8876' : '#D6FC55';
 
             // Unconfirmed values get the amber dashed ring: an octave
             // suggestion (tempoNeedsReview) or a recording match that blocks
