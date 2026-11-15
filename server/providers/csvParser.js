@@ -109,7 +109,9 @@ export function parseTracklistCSV(csvContent) {
     if (!version && title) {
       // [^()]* rather than .*: a title like "Song (Radio Edit) (Club Mix)"
       // must capture one parenthesised version, not span across both.
-      const match = title.match(/\(([^()]*(?:mix|edit|remix|dub|version)[^()]*)\)/i);
+      const match = title.match(/\(([^()]*(?:mix|edit|remix|dub|version|vip|extended|instrumental|acoustic|live|rework|bootleg|remaster)[^()]*)\)/i)
+        || title.match(/\[([^\[\]]*(?:mix|edit|remix|dub|version|vip|extended|instrumental|acoustic|live|rework|bootleg|remaster)[^\[\]]*)\]/i)
+        || title.match(/ - ([^-]*(?:mix|edit|remix|dub|version|vip|extended|instrumental|acoustic|live|rework|bootleg|remaster)[^-]*)$/i);
       if (match) {
         version = match[1];
       }
