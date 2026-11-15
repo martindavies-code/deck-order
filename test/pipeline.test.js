@@ -224,6 +224,7 @@ Floating Points,LesAlpx,128,C# minor
     assert.equal(report.unverified, 1);
     assert.equal(report.isReadyForSequencing, false);
     assert.match(report.summaryText, /Verified 2\/4, Single-source 0, Disputed 1, Unverified 1/);
+    assert.equal(report.supplied, 0);
   });
 });
 
@@ -244,4 +245,60 @@ test('Sequencer objective: suggested order never worse than original than origin
     r.evaluation.objectiveCost <= r.originalEvaluation.objectiveCost + 1e-9,
     `objective regression: ${r.originalEvaluation.objectiveCost} -> ${r.evaluation.objectiveCost}`
   );
+});
+
+describe('Status lifecycle fixes (2026-11-15)', () => {
+  test('BPM-only CSV row plus one provider hit keeps both values instead of wiping them', async () => {
+    const pipeline = new VerificationPipeline();
+    pipeline.freqblog = {
+      isConfigured: () => true,
+      lookupTrack: async () => ({
+        success: true,
+        data: { provider: 'FreqBlog', bpm: 128, camelot: '8A', key: 'A minor', energy: 0.7 }
+      })
+    };
+    const track = {
+      id: 'csv-bpm-only',
+      artist: 'Bicep',
+      title: 'Glue',
+      bpm: 128,
+      camelot: null,
+      source: 'manual_csv',
+      status: 'partially_verified',
+      sources: [{ name: 'Manual CSV', bpm: 128, key: null, camelot: null, confidence: 'manual' }]
+    };
+    const processed = await pipeline.processTrack(track);
+    assert.equal(processed.status, 'unverified');
+    assert.equal(processed.confidence, 'incomplete_data');
+    // The provider hit and the user-supplied BPM must both survive.
+    assert.equal(processed.bpm, 128);
+    assert.equal(processed.camelot, '8A');
+    assert.equal(processed.sources.length, 2);
+  });
+
+  test('manual CSV rows with BPM+key come back supplied, never corroborated', async () => {
+    const pipeline = new VerificationPipeline();
+    const track = {
+      id: 'csv-full',
+      artist: 'Bicep',
+      title: 'Glue',
+      bpm: 130,
+      rawBpm: 130,
+      camelot: '8A',
+      key: '8A',
+      source: 'manual_csv',
+      status: 'verified',
+      confidence: 'manual',
+      sources: [{ name: 'Manual CSV', bpm: 130, key: '8A', camelot: '8A', confidence: 'manual' }]
+    };
+    const processed = await pipeline.processTrack(track);
+    assert.equal(processed.status, 'supplied');
+    assert.equal(processed.confidence, 'manual');
+
+    const { report } = await pipeline.processPlaylist([track]);
+    assert.equal(report.verified, 0);
+    assert.equal(report.supplied, 1);
+    assert.equal(report.suppliedTracks.length, 1);
+    assert.equal(report.unverified, 0);
+  });
 });
