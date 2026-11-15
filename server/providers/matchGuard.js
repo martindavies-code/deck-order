@@ -12,7 +12,11 @@ export function normalizeText(s) {
 }
 
 export function titleCore(s) {
-  const core = normalizeText((s || '').split('(')[0]);
+  // Strip trailing version carriers - (...), [...] and " - Some Mix" suffixes -
+  // so "Go - Club Mix" core-matches a provider's track_name "Go", and an
+  // ISRC-matched "Song - Original Mix" is not vetoed against "Song - Radio
+  // Edit" when the version check is the one meant to gate that.
+  const core = normalizeText((s || '').split('(')[0].split('[')[0].split(' - ')[0]);
   // Titles that BEGIN with a parenthesised segment - "(It Goes Like) Nanana" -
   // split to an empty core, which used to veto every identity cross-check and
   // leave the track bare. Fall back to the full normalized title in that case.
@@ -36,6 +40,12 @@ function tokenMatches(haystack, needleTokens, fallbackNeedle) {
   const significant = needleTokens.filter(t => !GENERIC_ARTIST_TOKENS.has(t));
   const primary = significant[0] || needleTokens[0] || fallbackNeedle.split(' ')[0];
   if (!primary) return false;
+  if (GENERIC_VERSION_TOKENS.has(primary)) {
+    // Stopword-led artist ("The The"): require every token as an exact word
+    // match and never use the substring fallback - 'the' lives inside
+    // unrelated names like "Breathe" and "Father".
+    return needleTokens.length > 0 && needleTokens.every(t => hayTokens.has(t));
+  }
   if (hayTokens.has(primary)) return true;
   // Require length >= 3 for substring fallback so 1-2 char artist tokens cannot match unrelated names.
   return primary.length >= 3 && haystack.includes(primary);
@@ -50,7 +60,14 @@ export function crossCheckTrackIdentity(query, rec, { skipVersion = false, requi
   const recMix = rec?.mix_name || rec?.remixer || rec?.version || '';
 
   if (requireFields || recArtist) {
-    const artistTokens = normalizeText(query?.artist).split(' ').filter(t => t && !GENERIC_VERSION_TOKENS.has(t));
+    // Artist stopwords ('the', 'a', 'of') are dropped only when the artist
+    // has other tokens: "The Prodigy" must key on 'prodigy' (keying on 'the'
+    // accepts "The Who"), while stopword-only artists ("The The") keep their
+    // tokens, which tokenMatches then exact-matches instead of substringing
+    // into unrelated names ("Breathe").
+    const allArtistTokens = normalizeText(query?.artist).split(' ').filter(Boolean);
+    const contentArtistTokens = allArtistTokens.filter(t => !GENERIC_VERSION_TOKENS.has(t));
+    const artistTokens = contentArtistTokens.length ? contentArtistTokens : allArtistTokens;
     const gotArtist = normalizeText(recArtist);
     if (!tokenMatches(gotArtist, artistTokens, normalizeText(query?.artist))) {
       return { ok: false, reason: `artist_mismatch: wanted "${query?.artist || ''}", provider has "${recArtist}"` };
