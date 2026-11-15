@@ -136,7 +136,9 @@ test('key and tempo colours are independent without changing the combined grade'
     assert.equal(display.tempoTone, tempoTone);
     assert.equal(t.grade, overall);
     assert.equal(JSON.stringify(t), snapshot, 'display never changes evaluation');
-    assert.equal(display.showBpmChange, b.bpm !== null);
+    // BPM-change chip only on graded handovers: an UNVERIFIED transition
+    // shows no confident delta even when both BPMs are present.
+    assert.equal(display.showBpmChange, b.bpm !== null && overall !== 'UNVERIFIED');
   }
   const flagged = { bpm: 125, camelot: '4A', recordingNeedsReview: true };
   const display = transitionDisplay(calculateTransitionCost(a, flagged), a, flagged);

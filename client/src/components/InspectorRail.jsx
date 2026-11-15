@@ -152,7 +152,9 @@ export function InspectorRail({
             <span>Recording match needs review</span>
           </div>
           <p className="text-[11px] text-[#BAC2B3]">
-            {track.recordingMismatch ? (
+            {track.recordingMismatch?.reason ? (
+              track.recordingMismatch.reason
+            ) : track.recordingMismatch?.matchedIsrc && track.recordingMismatch?.suppliedIsrc ? (
               <>
                 The matched record's ISRC ({track.recordingMismatch.matchedIsrc}) differs from this track's
                 ({track.recordingMismatch.suppliedIsrc}). Tempo and key shown are from that record -
@@ -196,9 +198,17 @@ export function InspectorRail({
         <span className="text-[10px] sm:text-xs font-mono uppercase tracking-wider text-[#7E8876] block">
           Placement in set
         </span>
-        {[['Incoming', 'From previous track', transitionBefore], ['Outgoing', 'To next track', transitionAfter]].map(([label, direction, transition]) => {
+        {[['Incoming', 'From previous track', transitionBefore, 'before'], ['Outgoing', 'To next track', transitionAfter, 'after']].map(([label, direction, transition, dir]) => {
           if (!transition) return null;
-          const td = transitionDisplay(transition, track, null);
+          // Pass the actual neighbor track: with a null toTrack the review
+          // check misses the neighbor's flags and the tone can render a
+          // graded color for an UNVERIFIED handover.
+          const neighbor = typeof trackIndex === 'number'
+            ? (dir === 'before' ? allTracks?.[trackIndex - 1] : allTracks?.[trackIndex + 1])
+            : null;
+          const td = dir === 'before'
+            ? transitionDisplay(transition, neighbor, track)
+            : transitionDisplay(transition, track, neighbor);
           return (
             <div key={label} className="rounded border border-[#394133] bg-[#10120F]/50 p-3 space-y-2">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
