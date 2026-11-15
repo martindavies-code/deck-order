@@ -1,6 +1,6 @@
 import { providerCache } from './cache.js';
 import { parseKey } from '../core/camelot.js';
-import { crossCheckTrackIdentity, withSingleflight } from './matchGuard.js';
+import { crossCheckTrackIdentity, versionTokens, withSingleflight } from './matchGuard.js';
 
 const CAMELOT_RE = /^([1-9]|1[0-2])[AB]$/;
 
@@ -115,7 +115,7 @@ export class SonovaultProvider {
           const exactRecording = typeof r.json.isrc === 'string' && r.json.isrc.toUpperCase() === isrc.trim().toUpperCase();
           const identity = crossCheckTrackIdentity(
             { artist, title, isrc, version },
-            { artist_name: r.json.artists?.find(a => a && a.is_primary)?.name || r.json.artists?.[0]?.name, track_name: r.json.title },
+            { artist_name: (r.json.artists || []).map(a => a && a.name).filter(Boolean).join(', ') || r.json.artists?.[0]?.name, track_name: r.json.title },
             { skipVersion: exactRecording, requireFields: false }
           );
           if (identity.ok) {
@@ -134,7 +134,12 @@ export class SonovaultProvider {
       }
 
       // 2) Name search.
-      const q = `/tracks/search?artist=${encodeURIComponent(artist || '')}&title=${encodeURIComponent(title || '')}`;
+      // Carry a meaningful version tag into the search term: providers index
+      // remixes/edits as distinct records, and the identity cross-check below
+      // still vets whatever comes back. Generic tags ('Original Mix') add
+      // nothing and are left out.
+      const versionSuffix = version && versionTokens(version).length > 0 ? ` ${version}` : '';
+      const q = `/tracks/search?artist=${encodeURIComponent(artist || '')}&title=${encodeURIComponent((title || '') + versionSuffix)}`;
       const r = await this._call(q);
       if (!r.success) return r;
       const results = Array.isArray(r.json?.results) ? r.json.results : [];
@@ -145,7 +150,7 @@ export class SonovaultProvider {
       for (const rec of results) {
         const identity = crossCheckTrackIdentity(
           { artist, title, isrc, version },
-          { artist_name: rec.artists?.find(a => a && a.is_primary)?.name || rec.artists?.[0]?.name, track_name: rec.title },
+          { artist_name: (rec.artists || []).map(a => a && a.name).filter(Boolean).join(', ') || rec.artists?.[0]?.name, track_name: rec.title },
           { requireFields: true }
         );
         if (!identity.ok) continue;
