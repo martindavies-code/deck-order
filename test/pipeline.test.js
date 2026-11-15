@@ -244,12 +244,18 @@ describe('Status lifecycle fixes (2026-11-15)', () => {
       sources: [{ name: 'Manual CSV', bpm: 128, key: null, camelot: null, confidence: 'manual' }]
     };
     const processed = await pipeline.processTrack(track);
-    assert.equal(processed.status, 'unverified');
-    assert.equal(processed.confidence, 'incomplete_data');
+    // Audit round 2, finding 4: 'Manual CSV' is user-supplied data, not
+    // catalogue evidence, so one provider hit + a CSV row is single_source -
+    // never corroborated (and not 'unverified': one catalogue source did
+    // supply complete tempo/key data, cross-checked against the supplied BPM).
+    assert.equal(processed.status, 'single_source');
+    assert.equal(processed.confidence, 'single_source');
     // The provider hit and the user-supplied BPM must both survive.
     assert.equal(processed.bpm, 128);
     assert.equal(processed.camelot, '8A');
+    // Both provenance entries stay visible: the catalogue hit and the CSV row.
     assert.equal(processed.sources.length, 2);
+    assert.ok(processed.sources.some(src => src.name === 'Manual CSV'));
   });
 
   test('manual CSV rows with BPM+key come back supplied, never corroborated', async () => {

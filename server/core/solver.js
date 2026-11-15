@@ -1,4 +1,4 @@
-import { calculateTransitionCost, evaluateSequence } from './costMatrix.js';
+import { calculateTransitionCost, evaluateSequence, recordingBlocksGrading } from './costMatrix.js';
 import { selectWarmUpCandidates, calculateArcPositionPenalty, annotateEnergyResets } from './energyArc.js';
 
 /**
@@ -200,8 +200,13 @@ export class DJSequencer {
     const unverified = [];
 
     rawTracks.forEach((t, origIdx) => {
-      // Must have BPM and Camelot for harmonic sequencing
-      if (t.bpm && t.camelot && t.status !== 'unverified' && t.status !== 'missing') {
+      // Must have BPM and Camelot for harmonic sequencing. Tracks whose
+      // values still need review (unconfirmed octave, proven foreign-ISRC
+      // record) must NOT sequence: the cost matrix grades their transitions
+      // UNVERIFIED at a flat 4.0, which would let 2-opt park them inside
+      // harmonic clashes as cheap wildcard bridges.
+      if (t.bpm && t.camelot && t.status !== 'unverified' && t.status !== 'missing'
+        && !t.tempoNeedsReview && !recordingBlocksGrading(t)) {
         sequencable.push({ track: t, originalIndex: origIdx });
       } else {
         unverified.push({ track: t, originalIndex: origIdx });

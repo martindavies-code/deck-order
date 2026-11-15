@@ -182,11 +182,13 @@ export function App() {
       originalTracks,
       lockedOpenerId,
       lockedCloserId,
+      isSampleSet,
+      providerOutcomeSummary: coverageReport?.providerOutcomeSummary,
       evaluation: getCachedEvaluation(orderedTracks, enableEnergy)
     }, accountKey);
     setCrateHistory(result.history);
     setSaveError(!result.saved);
-  }, [activeSetId, orderedTracks, originalTracks, setName, enableEnergy, lockedOpenerId, lockedCloserId, accountKey]);
+  }, [activeSetId, orderedTracks, originalTracks, setName, enableEnergy, lockedOpenerId, lockedCloserId, accountKey, isSampleSet, coverageReport]);
 
   useEffect(() => {
     if (!saveError) return;
@@ -431,20 +433,33 @@ export function App() {
 
   const handleLoadHistoricalSet = (historicalSet) => {
     if (saveError && !window.confirm('Your latest changes are not saved. Load another set and discard those changes?')) return false;
+    // Invalidate any in-flight playlist/CSV load so its late resolution
+    // cannot clobber the set being loaded now.
+    loadRequestRef.current += 1;
     const loadedId = historicalSet.id || `set_${crypto.randomUUID()}`;
     setActiveSetId(loadedId); setSaveError(false);
-    setOrderedTracks(historicalSet.tracks || []);
+    // Canonicalize legacy status: older saves said 'verified' where the
+    // pipeline now says 'corroborated'.
+    const normalize = (list) => (list || []).map(t => (t && t.status === 'verified') ? { ...t, status: 'corroborated' } : t);
+    // The master list is originalTracks (every ingested track); the saved
+    // `tracks` list is the ordered running order, which can legitimately omit
+    // tracks excluded by the missing-data strategy. Loading the ordered list
+    // as the master would silently drop those tracks from coverage, dispute
+    // review and any future re-sequencing.
+    const fullTracks = normalize(historicalSet.originalTracks || historicalSet.tracks || []);
+    const loadedOrder = normalize(historicalSet.tracks || []);
+    setOrderedTracks(loadedOrder);
     setLastRemoved(null);
-    setOriginalTracks(historicalSet.originalTracks || historicalSet.tracks || []);
-    setTracks(historicalSet.tracks || []);
-    setEvaluation(evaluateCurrentOrder(historicalSet.tracks || [], { enableEnergy }));
-    setOriginalEvaluation(evaluateCurrentOrder(historicalSet.originalTracks || historicalSet.tracks || [], { enableEnergy }));
-    setSelectedPlaylist({ name: historicalSet.name, id: null, itemCount: historicalSet.tracks?.length || 0 });
+    setOriginalTracks(fullTracks);
+    setTracks(fullTracks);
+    setEvaluation(evaluateCurrentOrder(loadedOrder, { enableEnergy }));
+    setOriginalEvaluation(evaluateCurrentOrder(fullTracks, { enableEnergy }));
+    setSelectedPlaylist({ name: historicalSet.name, id: null, itemCount: fullTracks.length });
     setSetName(historicalSet.name || 'Saved Set');
     // Rebuild the coverage report from the saved tracks: without it the
     // CoverageReport panel (and its "Build my running order" action) never
     // renders on a fresh page, or keeps the previous set's counts.
-    const savedTracks = historicalSet.tracks || [];
+    const savedTracks = fullTracks;
     const countSaved = (pred) => savedTracks.filter(pred).length;
     setCoverageReport({
       ...computeCoverageCounts(savedTracks),
@@ -456,13 +471,20 @@ export function App() {
       disputed: countSaved(t => t.status === 'disputed'),
       missing: countSaved(t => t.status === 'missing' || t.status === 'unverified'),
       unverified: countSaved(t => t.status === 'missing' || t.status === 'unverified'),
+      // Persisted at save time; older saves predate the field and simply
+      // show no provider line.
+      providerOutcomeSummary: historicalSet.providerOutcomeSummary || {},
       summaryText: `Saved set (${savedTracks.length} tracks)`,
       disputedTracks: savedTracks.filter(t => t.status === 'disputed').map(t => ({ id: t.id, name: `${t.artist} - ${t.title}`, details: t.disputeDetails })),
       unverifiedTracks: savedTracks.filter(t => t.status === 'missing' || t.status === 'unverified'),
       tempoReviewTracks: savedTracks.filter(t => t.tempoNeedsReview),
       recordingReviewTracks: savedTracks.filter(t => t.recordingNeedsReview)
     });
-    setIsSampleSet(false);
+    // Sample sets keep their badge after reload instead of silently
+    // presenting as real playlist data.
+    setIsSampleSet(historicalSet.isSampleSet != null
+      ? Boolean(historicalSet.isSampleSet)
+      : (fullTracks.length > 0 && fullTracks.every(t => t.isSampleData || t.status === 'sample')));
     setViewMode('sequenced');
     setSelectedTrackIndex(0);
     setLockedOpenerId(historicalSet.lockedOpenerId || null);
@@ -721,8 +743,25 @@ export function App() {
   // Change working metadata locally. No provider calls, remote writes or re-optimisation.
   const commitTrackValue = (trackId, replacement, message) => {
     const updatedTracks = replaceTrackById(tracks, trackId, replacement);
-    const updatedOrdered = replaceTrackById(orderedTracks, trackId, replacement);
+    let updatedOrdered = replaceTrackById(orderedTracks, trackId, replacement);
     const updatedOriginal = replaceTrackById(originalTracks, trackId, replacement);
+    // A track excluded from the running order by the missing-data strategy is
+    // absent from orderedTracks. Once resolved (real BPM and key, no pending
+    // tempo or recording review) it must re-enter the order at its original
+    // position instead of vanishing from the sequenced set.
+    if (!updatedOrdered.some(t => t.id === trackId)) {
+      const crossConfirmed = replacement.status === 'corroborated' || replacement.status === 'verified';
+      const recordingBlocked = replacement.recordingNeedsReview
+        && (replacement.recordingMismatch?.suppliedIsrc || !crossConfirmed);
+      const sequencable = replacement.bpm && replacement.camelot
+        && replacement.status !== 'unverified' && replacement.status !== 'missing'
+        && !replacement.tempoNeedsReview && !recordingBlocked;
+      if (sequencable) {
+        const originalIndex = updatedOriginal.findIndex(t => t.id === trackId);
+        updatedOrdered = [...updatedOrdered];
+        updatedOrdered.splice(Math.min(Math.max(originalIndex, 0), updatedOrdered.length), 0, replacement);
+      }
+    }
     const updatedEvaluation = evaluateCurrentOrder(updatedOrdered, { enableEnergy });
     setTracks(updatedTracks);
     setOrderedTracks(updatedOrdered);
@@ -990,6 +1029,9 @@ export function App() {
   // Reset to home state
   const handleStartFresh = () => {
     if (saveError && !window.confirm('Your latest changes could not be saved. Start a new set and discard them?')) return false;
+    // Invalidate any in-flight playlist/CSV load so its late resolution
+    // cannot repopulate the cleared workspace.
+    loadRequestRef.current += 1;
     setActiveSetId(null); setSaveError(false);
     setSetName('Untitled Set');
     setTracks([]);
@@ -1076,7 +1118,7 @@ export function App() {
         <button type="button" className="deck-btn-secondary ml-3 text-xs" onClick={() => {
           if (!activeSetId) newSetIdentity();
           else {
-            const result = updateActiveSet({ id: activeSetId, name: setName, tracks: orderedTracks, originalTracks, lockedOpenerId, lockedCloserId, evaluation }, accountKey);
+            const result = updateActiveSet({ id: activeSetId, name: setName, tracks: orderedTracks, originalTracks, lockedOpenerId, lockedCloserId, isSampleSet, providerOutcomeSummary: coverageReport?.providerOutcomeSummary, evaluation }, accountKey);
             setCrateHistory(result.history); setSaveError(!result.saved);
           }
         }}>Retry save</button>

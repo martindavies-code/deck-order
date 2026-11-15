@@ -339,7 +339,11 @@ test('pipeline: CSV-shaped track (clean title + version) reaches the mix record,
   // Different-ISRC match is not a proven recording: flagged for review and
   // excluded from confident grading until confirmed.
   assert.equal(tracks[0].recordingNeedsReview, true);
-  assert.deepEqual(tracks[0].recordingMismatch, { suppliedIsrc: 'GBENL2802692', matchedIsrc: 'GBENL2002692' });
+  assert.deepEqual(tracks[0].recordingMismatch, {
+    suppliedIsrc: 'GBENL2802692',
+    matchedIsrc: 'GBENL2002692',
+    reason: "Matched record ISRC GBENL2002692 differs from this track's GBENL2802692: tempo/key come from that record and need confirmation."
+  });
   assert.match(tracks[0].reason, /GBENL2002692/);
   assert.equal(report.recordingReviewTracks.length, 1);
   assert.equal(report.recordingReviewTracks[0].matchedIsrc, 'GBENL2002692');

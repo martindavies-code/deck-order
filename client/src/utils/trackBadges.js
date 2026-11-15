@@ -86,6 +86,8 @@ export function restoreTrackAt(tracks, track, index) {
 const EVIDENCE_BADGES = {
   sample: { label: 'Sample', cls: 'badge-status-sample' },
   corroborated: { label: 'Corroborated', cls: 'badge-status-corroborated' },
+  // Older saves use the pre-rename 'verified' status for the same meaning.
+  verified: { label: 'Corroborated', cls: 'badge-status-corroborated' },
   single_source: { label: 'Single source', cls: 'badge-status-single' },
   reference: { label: 'Reference', cls: 'badge-status-single' },
   supplied: { label: 'Supplied', cls: 'badge-status-supplied' },

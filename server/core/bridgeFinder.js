@@ -1,5 +1,5 @@
 import { detectGaps } from './gapDetector.js';
-import { calculateTransitionCost } from './costMatrix.js';
+import { calculateTransitionCost, recordingBlocksGrading } from './costMatrix.js';
 
 function normalizeName(value) {
   return (value || '').toString().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -165,20 +165,26 @@ export class SuggestionEngine {
   async findBonusTunes(orderedTracks) {
     if (!orderedTracks || orderedTracks.length === 0) return [];
 
-    // Find dominant Camelot keys and median BPM
+    // Find dominant Camelot keys and median BPM over CONFIRMED tracks only:
+    // unconfirmed values (review flags, missing data) would skew both the
+    // median and the key distribution with numbers nobody has trusted yet.
+    const confirmed = orderedTracks.filter(t => t.bpm && t.camelot
+      && t.status !== 'unverified' && t.status !== 'missing'
+      && !t.tempoNeedsReview && !recordingBlocksGrading(t));
     const keyFreq = new Map();
     const bpms = [];
 
-    for (const t of orderedTracks) {
-      if (t.camelot) {
-        keyFreq.set(t.camelot, (keyFreq.get(t.camelot) || 0) + 1);
-      }
-      if (t.bpm) bpms.push(t.bpm);
+    for (const t of confirmed) {
+      keyFreq.set(t.camelot, (keyFreq.get(t.camelot) || 0) + 1);
+      bpms.push(t.bpm);
     }
 
     const sortedBpms = [...bpms].sort((a, b) => a - b);
     const medianBpm = sortedBpms.length > 0 ? sortedBpms[Math.floor(sortedBpms.length / 2)] : 128;
-    const bonusCandidates = [];
+    const maxKeyFreq = keyFreq.size ? Math.max(...keyFreq.values()) : 0;
+    const dominantKeys = new Set([...keyFreq.entries()].filter(([, n]) => n === maxKeyFreq).map(([k]) => k));
+    const bpmCandidates = [];
+    const keyMatchedCandidates = [];
 
     for (const item of VERIFIED_REFERENCE_CATALOG) {
       if (isTrackInSet(orderedTracks, item)) {
@@ -187,26 +193,33 @@ export class SuggestionEngine {
 
       const bpmDiff = Math.abs(item.bpm - medianBpm);
       if (bpmDiff <= 4) {
-        bonusCandidates.push({
-          id: `bonus_${item.artist}_${item.title}`.replace(/[^a-zA-Z0-9_]/g, '_'),
-          artist: item.artist,
-          title: item.title,
-          version: item.version,
-          isrc: item.isrc || null,
-          bpm: item.bpm,
-          workingBpm: item.bpm,
-          key: item.key,
-          camelot: item.camelot,
-          source: item.source || 'Reference catalogue',
-          status: 'reference',
-          confidence: 'reference_catalog',
-          isSuggestedTrack: true,
-          isBonus: true,
-          selected: false, // OFF by default
-          reason: `Matches dominant vibe (${item.camelot}, ${item.bpm} BPM, close to set median ${medianBpm} BPM)`
-        });
+        bpmCandidates.push(item);
+        // "Same vibe" means key compatibility, not just tempo: prefer the
+        // set's dominant keys, falling back to tempo-only when nothing fits.
+        if (dominantKeys.has(item.camelot)) {
+          keyMatchedCandidates.push(item);
+        }
       }
     }
+
+    const bonusCandidates = (keyMatchedCandidates.length ? keyMatchedCandidates : bpmCandidates).map((item) => ({
+      id: `bonus_${item.artist}_${item.title}`.replace(/[^a-zA-Z0-9_]/g, '_'),
+      artist: item.artist,
+      title: item.title,
+      version: item.version,
+      isrc: item.isrc || null,
+      bpm: item.bpm,
+      workingBpm: item.bpm,
+      key: item.key,
+      camelot: item.camelot,
+      source: item.source || 'Reference catalogue',
+      status: 'reference',
+      confidence: 'reference_catalog',
+      isSuggestedTrack: true,
+      isBonus: true,
+      selected: false, // OFF by default
+      reason: `Matches dominant vibe (${item.camelot}, ${item.bpm} BPM, close to set median ${medianBpm} BPM)`
+    }));
 
     return bonusCandidates.slice(0, 5);
   }

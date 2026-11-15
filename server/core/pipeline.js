@@ -307,11 +307,22 @@ export class VerificationPipeline {
       .map(r => r.data);
 
     // If manual sources were already attached to track (e.g. from CSV or previous lookup)
+    const manualSources = [];
     if (track.sources && track.sources.length > 0) {
       for (const s of track.sources) {
         // A manual/CSV entry with no tempo or key is an empty placeholder,
         // not evidence: it must not count as a corroborating source.
         if (!(s && (s.bpm || s.camelot))) continue;
+        // User-supplied values ('Manual CSV') are not catalogue evidence at
+        // all: they are cross-checked via the supplied-BPM comparisons, never
+        // counted toward 2-source corroboration or Musicae tie-breaking.
+        // Otherwise a partially supplied CSV row plus ONE provider response
+        // would read as two agreeing sources. They still ride along in the
+        // returned sources list so the provenance stays visible.
+        if (s.name === 'Manual CSV') {
+          manualSources.push(s);
+          continue;
+        }
         if (!successfulHits.some(h => h.provider === s.name)) {
           successfulHits.push(s);
         }
@@ -418,7 +429,10 @@ export class VerificationPipeline {
       // a candidate ISRC that is not this track's) is not corroboration of
       // this recording's values. detectVersionMismatch only compares the two
       // matched records with each other, so this check must happen here.
-      if (evaluation.status === 'verified' && track.isrc && !evaluation.recordingNeedsReview) {
+      // Runs whenever the track carries an ISRC, not only on 'verified': a
+      // single-source or incomplete_data outcome built from a foreign-ISRC
+      // record needs the same recording-identity flag.
+      if (track.isrc && !evaluation.recordingNeedsReview) {
         const trackIsrc = String(track.isrc).toUpperCase();
         const foreign = (evaluation.sources || []).find(s => s.isrc && String(s.isrc).toUpperCase() !== trackIsrc);
         if (foreign) {
@@ -452,7 +466,7 @@ export class VerificationPipeline {
         recordingNeedsReview: evaluation.recordingNeedsReview || false,
         recordingMismatch: evaluation.recordingMismatch || null,
         reason: evaluation.reason,
-        sources: successfulHits,
+        sources: [...successfulHits, ...manualSources],
         // Per-provider outcomes ride along on every path, not just Case C,
         // so the coverage report can show who hit, missed and errored.
         providerError: providerOutcomes.some(o => o.outcome === 'error'),
@@ -475,7 +489,8 @@ export class VerificationPipeline {
       // name/version match, not a proven recording: keep the values visible
       // but flag the recording identity for review and keep the track out of
       // confident grading until confirmed.
-      const recordingMismatch = track.isrc && hit.isrc && hit.isrc !== track.isrc
+      const recordingMismatch = track.isrc && hit.isrc
+        && String(hit.isrc).toUpperCase() !== String(track.isrc).toUpperCase()
         ? { suppliedIsrc: track.isrc, matchedIsrc: hit.isrc }
         : null;
 
@@ -505,13 +520,19 @@ export class VerificationPipeline {
         } else if (suppliedBpm) {
           // Supplied BPM matches neither raw nor octave-adjusted: conflict.
           status = 'disputed';
+          reason = `Supplied ${suppliedBpm} BPM matches neither the raw ${rawBpm} BPM nor the octave-adjusted ${norm.workingBpm} BPM.`;
           disputeDetails = {
             type: 'bpm_conflict',
             supplied: suppliedBpm,
             raw: rawBpm,
-            suggested: norm.workingBpm
+            suggested: norm.workingBpm,
+            // The dispute modal renders sourceA/sourceB cards: an octave
+            // conflict between the supplied value and one provider record is
+            // still a two-sided dispute and must populate both.
+            sourceA: { provider: 'Supplied', bpm: suppliedBpm, workingBpm: suppliedBpm, camelot: track.camelot || null, key: track.key || null },
+            sourceB: { ...hit, bpm: rawBpm, workingBpm: norm.workingBpm, isNormalized: true },
+            disputeReasons: [reason]
           };
-          reason = `Supplied ${suppliedBpm} BPM matches neither the raw ${rawBpm} BPM nor the octave-adjusted ${norm.workingBpm} BPM.`;
         } else {
           // Unconfirmed octave: keep the raw measurement raw and offer the
           // adjusted value only as a visibly flagged suggestion, excluded
@@ -527,7 +548,8 @@ export class VerificationPipeline {
       }
 
       if (recordingMismatch) {
-        reason += ` Matched record ISRC ${recordingMismatch.matchedIsrc} differs from this track's ${recordingMismatch.suppliedIsrc}: tempo/key come from that record and need confirmation.`;
+        recordingMismatch.reason = `Matched record ISRC ${recordingMismatch.matchedIsrc} differs from this track's ${recordingMismatch.suppliedIsrc}: tempo/key come from that record and need confirmation.`;
+        reason += ` ${recordingMismatch.reason}`;
       }
 
       return {
@@ -548,7 +570,7 @@ export class VerificationPipeline {
         status,
         confidence: hit.confidence || 'single_source',
         disputeDetails,
-        sources: successfulHits,
+        sources: [...successfulHits, ...manualSources],
         providerError: providerOutcomes.some(o => o.outcome === 'error'),
         providerOutcomes,
         reason
@@ -570,7 +592,8 @@ export class VerificationPipeline {
       loudness: track.loudness ?? null,
       status: 'unverified',
       confidence: 'none',
-      sources: [],
+      // Manual CSV provenance survives even with no catalogue hit.
+      sources: manualSources,
       providerError,
       providerOutcomes,
       reason: providerError

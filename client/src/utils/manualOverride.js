@@ -5,7 +5,9 @@ export function applyManualOverride(track, values) {
   const sourceTrack = track.manualOverride?.sourceTrack || track;
   const updated = { ...track };
   const fields = { ...track.manualOverride?.fields };
-  if (Object.hasOwn(values, 'bpm') && String(values.bpm).trim() !== '') {
+  // null/undefined mean "not provided", not a value: String(null) would
+  // coerce to 'null' and either throw or, worse, pass Number() as 0.
+  if (Object.hasOwn(values, 'bpm') && values.bpm != null && String(values.bpm).trim() !== '') {
     const bpm = Number(values.bpm);
     if (!Number.isFinite(bpm) || bpm <= 0 || bpm > 400) {
       throw new Error('Enter a tempo above 0 and no more than 400 BPM.');
@@ -17,7 +19,7 @@ export function applyManualOverride(track, values) {
     updated.isNormalized = false;
     fields.bpm = bpm;
   }
-  if (Object.hasOwn(values, 'key') && String(values.key).trim() !== '') {
+  if (Object.hasOwn(values, 'key') && values.key != null && String(values.key).trim() !== '') {
     const key = String(values.key).trim();
     const parsed = parseKey(key.replace(/^([A-Ga-g][#b]?)\s*[-–]\s*(?=major$|minor$|maj$|min$)/i, '$1 '));
     if (!parsed.camelot) throw new Error('Enter a Camelot code or a key with major/minor, e.g. 4A or F minor.');

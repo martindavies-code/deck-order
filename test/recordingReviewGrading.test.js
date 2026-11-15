@@ -100,9 +100,15 @@ test('readiness inputs: mixed set reports graded plus unverified counts', () => 
   assert.equal(allReview.unverifiedCount, 1);
 });
 
-// --- Corroborated-but-flagged (post-2026-11-14 softening): different edits of
-// the same recording whose tempo/key AGREE across sources. The identity
-// caution stays on the row; it must not blank grading or the fit line.
+// --- Corroborated-but-flagged. Two sub-cases with different rules:
+// (a) recordingMismatch carries the track's own ISRC: the matched record is
+//     PROVEN to be a different recording, so cross-provider agreement about
+//     that record is not corroboration of this track's values. Grading is
+//     blanked until the user confirms (2026-11-15 audit round 2, finding 6a;
+//     this reverses the 2026-11-14 softening for this sub-case).
+// (b) recordingMismatch without a supplied ISRC (matched record carries no
+//     ISRC): edition-level caution only - cross-confirmed values grade
+//     normally (the 2026-11-14 softening still holds here).
 
 const corroboratedFlagged = (id, bpm, camelot, over = {}) => ({
   id, artist: 'A', title: id, bpm, workingBpm: bpm, camelot,
@@ -110,31 +116,44 @@ const corroboratedFlagged = (id, bpm, camelot, over = {}) => ({
   recordingMismatch: { suppliedIsrc: 'GBCFB2000044', matchedIsrc: 'GBCFB2000045' },
   ...over
 });
-
-test('corroborated + recordingNeedsReview transitions grade normally', () => {
-  const tracks = [clean('a', 124, '8A'), corroboratedFlagged('b', 129, '2A'), clean('c', 122, '10B')];
-  const ev = evaluateSequence(tracks);
-  assert.ok(ev.transitions.every(t => t.grade !== 'UNVERIFIED'), 'no transition is blanked by a corroborated flag');
-  assert.equal(ev.unverifiedCount, 0);
-  assert.equal(ev.gradedCount, 2);
+const corroboratedEditionFlagged = (id, bpm, camelot, over = {}) => ({
+  id, artist: 'A', title: id, bpm, workingBpm: bpm, camelot,
+  status: 'corroborated', recordingNeedsReview: true,
+  recordingMismatch: { matchedIsrc: null, reason: 'Matched record carries no ISRC; edition-level caution only.' },
+  ...over
 });
 
-test('corroborated + recordingNeedsReview shows the real fit line (transitionDisplay)', () => {
+test('corroborated + recordingNeedsReview with a proven foreign ISRC still blocks grading', () => {
+  const tracks = [clean('a', 124, '8A'), corroboratedFlagged('b', 129, '2A'), clean('c', 122, '10B')];
+  const ev = evaluateSequence(tracks);
+  assert.ok(ev.transitions.every(t => t.grade === 'UNVERIFIED'), 'foreign-ISRC values are blanked even when two providers agreed on them');
+  assert.equal(ev.unverifiedCount, 2);
+  assert.equal(ev.gradedCount, 0);
+});
+
+test('corroborated + recordingNeedsReview with a proven foreign ISRC shows the review fit line', () => {
   const a = clean('a', 124, '8A');
   const b = corroboratedFlagged('b', 124, '8A');
   const ev = evaluateSequence([a, b]);
   const td = transitionDisplay(ev.transitions[0], a, b);
-  assert.notEqual(td.text, 'Needs review - unconfirmed tempo/key');
-  assert.notEqual(td.tone, 'review');
+  assert.equal(td.text, 'Needs review - unconfirmed tempo/key');
+  assert.equal(td.tone, 'review');
 });
 
-test('a corroborated-flagged neighbour no longer poisons a clean corroborated row', () => {
-  // Rosewood case: clean track adjacent to a corroborated-but-flagged one.
+test('a corroborated-flagged (foreign ISRC) neighbour blanks the transition against a clean row', () => {
   const rosewood = clean('rosewood', 121, '2A');
   const starry = corroboratedFlagged('starry', 123, '1A');
   const ev = evaluateSequence([rosewood, starry]);
   const td = transitionDisplay(ev.transitions[0], rosewood, starry);
-  assert.notEqual(td.text, 'Needs review - unconfirmed tempo/key');
+  assert.equal(td.text, 'Needs review - unconfirmed tempo/key');
+});
+
+test('corroborated + edition-level flag (no supplied ISRC) still grades normally', () => {
+  const tracks = [clean('a', 124, '8A'), corroboratedEditionFlagged('b', 129, '2A'), clean('c', 122, '10B')];
+  const ev = evaluateSequence(tracks);
+  assert.ok(ev.transitions.every(t => t.grade !== 'UNVERIFIED'), 'edition-level caution does not blank cross-confirmed values');
+  assert.equal(ev.unverifiedCount, 0);
+  assert.equal(ev.gradedCount, 2);
 });
 
 test('server-status verified + recordingNeedsReview also grades (worker vocabulary)', () => {
@@ -161,7 +180,14 @@ test('corroborated-flagged track with tempoNeedsReview still blanks the fit', ()
 
 test('PR20 predicate rollout: corroborated-but-flagged tracks stay usable in badges, issues and follow-ups', async () => {
   const { trackValueState, listIssueIndices, findCompatibleSetTracks } = await import('../client/src/utils/trackBadges.js');
-  const corroboratedFlagged = { ...reviewTrack(), status: 'corroborated' }; // values cross-confirmed, flag is row-level only
+  // Edition-level caution only (no supplied ISRC): cross-confirmed values
+  // stay usable. A proven foreign ISRC (suppliedIsrc present) blocks even
+  // when corroborated - covered by the suite above (2026-11-15 finding 6a).
+  const corroboratedFlagged = {
+    ...reviewTrack(),
+    status: 'corroborated',
+    recordingMismatch: { matchedIsrc: null, reason: 'Matched record carries no ISRC; edition-level caution only.' }
+  };
   const blockingFlagged = reviewTrack(); // single_source + flag: still blocks
 
   // trackValueState: confirmed values render 'ok', not amber 'review'
