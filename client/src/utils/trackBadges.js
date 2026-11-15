@@ -44,7 +44,11 @@ export function camelotBadgeColors(camelot) {
 export function trackValueState(track, field) {
   const value = field === 'bpm' ? track?.bpm : track?.camelot;
   if (value === null || value === undefined || value === '') return 'missing';
-  if (track?.tempoNeedsReview || track?.recordingNeedsReview) return 'review';
+  // recordingBlocksGrading, not the raw flag: a corroborated track whose
+  // matched records are different edits has confirmed values (same rule as
+  // transitionDisplay), so its badges must not show amber over a green
+  // connector.
+  if (track?.tempoNeedsReview || recordingBlocksGrading(track)) return 'review';
   return 'ok';
 }
 
@@ -176,8 +180,13 @@ export function listIssueIndices(tracks, transitions) {
   list.forEach((track, idx) => {
     const tr = idx < list.length - 1 ? trans[idx] : null;
     const nextTrack = idx < list.length - 1 ? list[idx + 1] : null;
+    // The track's own review flag still lands it in the review list even
+    // when cross-confirmed (the identity caution stays at row level)...
     const trackReview = Boolean(track?.recordingNeedsReview || track?.tempoNeedsReview);
-    const pairReview = Boolean(trackReview || nextTrack?.recordingNeedsReview || nextTrack?.tempoNeedsReview);
+    // ...but only a grading-blocking flag suppresses a real CLASH/STRETCH
+    // between the pair (recordingBlocksGrading, as in transitionDisplay).
+    const pairReview = Boolean(recordingBlocksGrading(track) || track?.tempoNeedsReview
+      || recordingBlocksGrading(nextTrack) || nextTrack?.tempoNeedsReview);
 
     if (trackReview) {
       reviewIndices.push(idx);
@@ -207,7 +216,7 @@ export function listIssueIndices(tracks, transitions) {
  * Never alters values; skips unconfirmed review tracks or missing BPM/Camelot.
  */
 export function findCompatibleSetTracks(activeTrack, activeIndex, tracks, limit = 4) {
-  if (!activeTrack || !activeTrack.bpm || !activeTrack.camelot || activeTrack.recordingNeedsReview || activeTrack.tempoNeedsReview) {
+  if (!activeTrack || !activeTrack.bpm || !activeTrack.camelot || recordingBlocksGrading(activeTrack) || activeTrack.tempoNeedsReview) {
     return [];
   }
   if (!Array.isArray(tracks) || tracks.length < 2) return [];
@@ -215,7 +224,7 @@ export function findCompatibleSetTracks(activeTrack, activeIndex, tracks, limit 
   const matches = [];
   tracks.forEach((cand, idx) => {
     if (idx === activeIndex || !cand) return;
-    if (!cand.bpm || !cand.camelot || cand.recordingNeedsReview || cand.tempoNeedsReview) return;
+    if (!cand.bpm || !cand.camelot || recordingBlocksGrading(cand) || cand.tempoNeedsReview) return;
     const res = calculateTransitionCost(activeTrack, cand);
     if (res.grade === 'SMOOTH' || res.totalCost <= 4.5) {
       matches.push({

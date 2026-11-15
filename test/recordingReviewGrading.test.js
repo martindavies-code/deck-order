@@ -158,3 +158,35 @@ test('corroborated-flagged track with tempoNeedsReview still blanks the fit', ()
   const td = transitionDisplay(ev.transitions[0], a, b);
   assert.equal(td.text, 'Needs review - unconfirmed tempo/key');
 });
+
+test('PR20 predicate rollout: corroborated-but-flagged tracks stay usable in badges, issues and follow-ups', async () => {
+  const { trackValueState, listIssueIndices, findCompatibleSetTracks } = await import('../client/src/utils/trackBadges.js');
+  const corroboratedFlagged = { ...reviewTrack(), status: 'corroborated' }; // values cross-confirmed, flag is row-level only
+  const blockingFlagged = reviewTrack(); // single_source + flag: still blocks
+
+  // trackValueState: confirmed values render 'ok', not amber 'review'
+  assert.equal(trackValueState(corroboratedFlagged, 'bpm'), 'ok');
+  assert.equal(trackValueState(corroboratedFlagged, 'camelot'), 'ok');
+  assert.equal(trackValueState(blockingFlagged, 'bpm'), 'review');
+
+  // listIssueIndices: a real CLASH adjacent to a corroborated-flagged track is no longer hidden
+  const clasher = { id: 'clash', artist: 'A', title: 'Clash', bpm: 128, workingBpm: 128, camelot: '3B', status: 'corroborated' };
+  const { calculateTransitionCost } = await import('../server/core/costMatrix.js');
+  const tr = calculateTransitionCost(corroboratedFlagged, clasher);
+  assert.equal(tr.grade, 'CLASH');
+  const issues = listIssueIndices([corroboratedFlagged, clasher], [tr]);
+  assert.deepEqual(issues.clashIndices, [0]);
+  // ...while a grading-blocking flag still suppresses the transition grade
+  const tr2 = calculateTransitionCost(blockingFlagged, clasher);
+  const issues2 = listIssueIndices([blockingFlagged, clasher], [tr2]);
+  assert.deepEqual(issues2.clashIndices, []);
+  assert.deepEqual(issues2.reviewIndices, [0]);
+
+  // findCompatibleSetTracks: corroborated-flagged tracks are eligible follow-ups again
+  const follow = { id: 'follow', artist: 'A', title: 'Follow', bpm: 123, workingBpm: 123, camelot: '9A', status: 'corroborated' };
+  const matches = findCompatibleSetTracks(corroboratedFlagged, 0, [corroboratedFlagged, follow]);
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].track.id, 'follow');
+  const none = findCompatibleSetTracks(blockingFlagged, 0, [blockingFlagged, follow]);
+  assert.equal(none.length, 0);
+});

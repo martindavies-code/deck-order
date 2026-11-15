@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { recordingBlocksGrading } from '../../../server/core/costMatrix.js';
 
 // Chart semantics, kept honest with the solver (server/core/energyArc.js):
 // - Tempo view plots BPM by set position.
@@ -218,7 +219,11 @@ export function HarmonicArcVisualizer({ tracks, evaluation, onSelectTrack }) {
                                trans?.grade === 'STRETCH' ? '#EAB308' :
                                trans?.grade === 'UNVERIFIED' ? '#7E8876' : '#D6FC55';
 
-            if (p.hasValue && p.track.tempoNeedsReview) {
+            // Unconfirmed values get the amber dashed ring: an octave
+            // suggestion (tempoNeedsReview) or a recording match that blocks
+            // grading (recordingBlocksGrading - the corroborated-but-flagged
+            // case keeps its confirmed values and renders as a normal node).
+            if (p.hasValue && (p.track.tempoNeedsReview || recordingBlocksGrading(p.track))) {
               // Unconfirmed octave suggestion: amber dashed ring, never a trusted point.
               // Label matches the normal node placement so dense sets stay legible;
               // the legend explains the ring.

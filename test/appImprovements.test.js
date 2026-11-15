@@ -152,7 +152,7 @@ test('listIssueIndices and findCompatibleSetTracks pinpoint issues and safe foll
     makeTrack('a', 124, '8A'),
     makeTrack('b', 125, '1A'), // CLASH with a (1A -> 8A distance > 1 and not relative/energy shift)
     makeTrack('c', 124, '8A'), // CLASH from b -> c, yet highly compatible with track a!
-    makeTrack('d', 125, '8A', { recordingNeedsReview: true }),
+    makeTrack('d', 125, '8A', { recordingNeedsReview: true, status: 'single_source', confidence: 'single_source' }),
     makeTrack('e', 126, '9A')
   ];
   const ev = evaluateCurrentOrder(tracks);
