@@ -791,7 +791,17 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
     const processedAll = new Array(total).fill(null);
     const merged = {
       corroborated: 0, singleSource: 0, supplied: 0, disputed: 0, missing: 0,
-      disputedTracks: [], unverifiedTracks: [], tempoReviewTracks: [], recordingReviewTracks: []
+      disputedTracks: [], unverifiedTracks: [], tempoReviewTracks: [], recordingReviewTracks: [],
+      providerErrors: 0, providerErrorTracks: [], providerOutcomeSummary: {}
+    };
+    const mergeOutcomeSummary = (summary) => {
+      if (!summary || typeof summary !== 'object') return;
+      for (const [provider, bucket] of Object.entries(summary)) {
+        const target = merged.providerOutcomeSummary[provider] || (merged.providerOutcomeSummary[provider] = { hit: 0, miss: 0, error: 0 });
+        target.hit += bucket.hit || 0;
+        target.miss += bucket.miss || 0;
+        target.error += bucket.error || 0;
+      }
     };
     let checkedCount = 0;
     let consecutiveFailures = 0;
@@ -841,6 +851,11 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
         merged.unverifiedTracks.push(...(r.unverifiedTracks || []));
         merged.tempoReviewTracks.push(...(r.tempoReviewTracks || []));
         merged.recordingReviewTracks.push(...(r.recordingReviewTracks || []));
+        // Per-provider outcomes must survive batching: dropping them hides
+        // which provider hit, missed or errored behind the totals.
+        merged.providerErrors += r.providerErrors || 0;
+        merged.providerErrorTracks.push(...(r.providerErrorTracks || []));
+        mergeOutcomeSummary(r.providerOutcomeSummary);
         checkedCount += batch.length;
         consecutiveFailures = 0;
         if (typeof progressFn === 'function') {
@@ -896,7 +911,10 @@ export async function verifyTracklist(tracks, isSampleData = false, onProgress, 
         disputedTracks: merged.disputedTracks,
         unverifiedTracks: merged.unverifiedTracks,
         tempoReviewTracks: merged.tempoReviewTracks,
-        recordingReviewTracks: merged.recordingReviewTracks
+        recordingReviewTracks: merged.recordingReviewTracks,
+        providerErrors: merged.providerErrors,
+        providerErrorTracks: merged.providerErrorTracks,
+        providerOutcomeSummary: merged.providerOutcomeSummary
       }
     };
   }
