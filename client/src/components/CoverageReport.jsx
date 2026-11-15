@@ -97,6 +97,19 @@ export function CoverageReport({
                 : 'You can paste a tracklist with BPM and key columns (for example an export from your DJ software), set custom values per track in the inspector, or run the local server with metadata providers configured.'}
             </p>
           )}
+
+          {/* Per-provider outcomes: who hit, who missed, who errored. Provider
+              errors are outages/rate limits, not confirmed catalogue gaps. */}
+          {report.providerOutcomeSummary && Object.keys(report.providerOutcomeSummary).length > 0 && (
+            <p className="text-[11px] sm:text-xs text-[#BAC2B3] max-w-2xl leading-relaxed">
+              Provider results: {Object.entries(report.providerOutcomeSummary).map(([name, b]) =>
+                `${name}: ${b.hit || 0} hit${(b.hit || 0) === 1 ? '' : 's'}, ${b.miss || 0} miss${(b.miss || 0) === 1 ? '' : 'es'}${(b.error || 0) > 0 ? `, ${b.error} error${b.error === 1 ? '' : 's'}` : ''}`
+              ).join(' \u00b7 ')}
+              {(report.providerErrors || 0) > 0
+                ? ' A provider error means it did not respond - the track may still exist in its catalogue. Reload to retry.'
+                : ''}
+            </p>
+          )}
         </div>
 
         {/* Options & Sequencer Action */}
