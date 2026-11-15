@@ -16,8 +16,13 @@ export class GetSongBPMProvider {
     // non-browser clients (verified 2026-11-14).
     this.baseUrl = 'https://api.getsong.co';
     this.cache = options.cache || providerCache;
+    this.missCacheTtlSeconds = options.missCacheTtlSeconds || 24 * 3600;
+    // Brief circuit breaker after a 429 instead of re-hitting the API per track.
+    this.quotaCooldownSeconds = options.quotaCooldownSeconds || 15 * 60;
     this._inFlight = new Map();
   }
+
+  static QUOTA_COOLDOWN_QUERY = { artist: '__quota_cooldown__', title: '', isrc: null, version: null };
 
   isConfigured() {
     return Boolean(this.apiKey && this.apiKey.trim().length > 0);
@@ -29,8 +34,19 @@ export class GetSongBPMProvider {
     }
 
     const queryKey = { artist, title, isrc, version };
+    try {
+      const cooldown = await this.cache.get(this.name, GetSongBPMProvider.QUOTA_COOLDOWN_QUERY);
+      if (cooldown && cooldown.data) {
+        return { success: false, reason: cooldown.data.reason || 'Rate limit reached (cooldown).', cached: true };
+      }
+    } catch { /* cooldown read failures never block a lookup */ }
     const cached = await this.cache.get(this.name, queryKey);
     if (cached) {
+      // Negative caching: known misses stay misses instead of burning quota
+      // on every re-verify of the same playlist.
+      if (cached.data && cached.data.miss) {
+        return { success: false, reason: cached.data.reason || 'Track not found (cached)', cached: true };
+      }
       return { success: true, data: cached.data, cached: true };
     }
 
@@ -51,7 +67,11 @@ export class GetSongBPMProvider {
 
         if (!res.ok) {
           if (res.status === 429) {
-            return { success: false, reason: 'Rate limit reached (429)' };
+            const reason = 'Rate limit reached (429)';
+            try {
+              await this.cache.set(this.name, GetSongBPMProvider.QUOTA_COOLDOWN_QUERY, { miss: true, quota: true, reason }, this.quotaCooldownSeconds);
+            } catch { /* marker failures never block the response */ }
+            return { success: false, reason };
           }
           return { success: false, reason: `HTTP ${res.status}` };
         }
@@ -59,6 +79,7 @@ export class GetSongBPMProvider {
         const json = await res.json();
         const results = json.search || json.results || [];
         if (!Array.isArray(results) || results.length === 0) {
+          try { await this.cache.set(this.name, queryKey, { miss: true, reason: 'Track not found' }, this.missCacheTtlSeconds); } catch { /* ignore cache errors */ }
           return { success: false, reason: 'Track not found' };
         }
 
@@ -67,6 +88,7 @@ export class GetSongBPMProvider {
           crossCheckTrackIdentity(query, candidate, { requireFields: true }).ok
         );
         if (!hit) {
+          try { await this.cache.set(this.name, queryKey, { miss: true, reason: 'Identity cross-check rejected search candidates' }, this.missCacheTtlSeconds); } catch { /* ignore cache errors */ }
           return { success: false, reason: 'Identity cross-check rejected search candidates' };
         }
 
