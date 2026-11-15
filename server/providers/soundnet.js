@@ -1,6 +1,6 @@
 import { providerCache } from './cache.js';
 import { parseKey } from '../core/camelot.js';
-import { crossCheckTrackIdentity, withSingleflight } from './matchGuard.js';
+import { crossCheckTrackIdentity, versionTokens, withSingleflight } from './matchGuard.js';
 
 /**
  * SoundNet Track Analysis API (RapidAPI)
@@ -81,7 +81,7 @@ export class SoundNetProvider {
       try {
         const url = new URL('https://soundnet.p.rapidapi.com/analyze');
         url.searchParams.set('artist', artist);
-        url.searchParams.set('title', title);
+        url.searchParams.set('title', version && versionTokens(version).length > 0 ? `${title} ${version}` : title);
 
         const res = await this.fetchImpl(url.toString(), {
           headers: {
