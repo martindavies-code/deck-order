@@ -1,4 +1,5 @@
 import { VerificationPipeline } from '../../server/core/pipeline.js';
+import { providerCache } from '../../server/providers/cache.js';
 
 /**
  * Deck Order metadata API worker.
@@ -205,17 +206,36 @@ export default {
       const quotaId = env.QUOTA.idFromName('global');
       const quotaStub = env.QUOTA.get(quotaId);
       const clientIp = request.headers.get('CF-Connecting-IP') || 'anon';
+      // Keep the denial reason: the counter distinguishes the per-IP hourly
+      // cap from the global monthly cap, and providers must surface which one
+      // actually fired instead of reporting every denial as monthly exhaustion.
       const reserveQuota = async (n) => {
         const r = await quotaStub.fetch('https://quota.internal/reserve', {
           method: 'POST',
           body: JSON.stringify({ n, ip: clientIp })
         });
         const j = await r.json();
-        return Boolean(j.allowed);
+        return { allowed: Boolean(j.allowed), reason: j.reason || null, remaining: j.remaining };
       };
       const kvCache = {
         async get(k) { return env.FREQBLOG_KV.get(k, 'json'); },
         async set(k, v, ttl) { return env.FREQBLOG_KV.put(k, JSON.stringify(v), { expirationTtl: ttl }); }
+      };
+      // providerCache-shaped adapter for Sonovault/GetSongBPM: same (provider,
+      // query) key scheme as the in-memory cache, backed by KV so their
+      // lookups survive across requests instead of being re-asked every time.
+      const providerKvCache = {
+        buildKey: (provider, query) => providerCache.buildKey(provider, query),
+        async get(provider, query) {
+          const entry = await kvCache.get(providerCache.buildKey(provider, query));
+          if (!entry) return null;
+          if (typeof entry.expiresAt === 'number' && Date.now() > entry.expiresAt) return null;
+          return entry;
+        },
+        async set(provider, query, data, ttlSeconds) {
+          const ttl = ttlSeconds || 30 * 24 * 3600;
+          await kvCache.set(providerCache.buildKey(provider, query), { data, expiresAt: Date.now() + ttl * 1000 }, ttl);
+        }
       };
 
       // Every provider with a key participates; any one of them failing or
@@ -229,7 +249,9 @@ export default {
         freqblogKey: env.FREQBLOG_API_KEY,
         freqblogOptions: { cache: kvCache, reserveQuota },
         getSongBpmKey: env.GETSONGBPM_API_KEY,
+        getSongBpmOptions: { cache: providerKvCache },
         sonovaultKey: env.SONOVAULT_API_KEY,
+        sonovaultOptions: { cache: providerKvCache },
         rapidApiKey: env.RAPIDAPI_KEY,
         musicaeOptions: { cache: kvCache },
         ...(env.SOUNDNET_API_KEY ? {
