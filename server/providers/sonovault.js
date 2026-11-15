@@ -101,7 +101,7 @@ export class SonovaultProvider {
     }
 
     const queryKey = { artist, title, isrc, version };
-    const cached = this.cache.get(this.name, queryKey);
+    const cached = await this.cache.get(this.name, queryKey);
     if (cached) {
       return { success: true, data: cached.data, cached: true };
     }
@@ -121,7 +121,7 @@ export class SonovaultProvider {
           if (identity.ok) {
             const data = this._toResult(r.json, 'sonovault_isrc');
             if (data) {
-              this.cache.set(this.name, queryKey, data);
+              await this.cache.set(this.name, queryKey, data);
               return { success: true, data, cached: false };
             }
           }
@@ -151,7 +151,7 @@ export class SonovaultProvider {
         if (!identity.ok) continue;
         const data = this._toResult(rec, 'sonovault_search');
         if (data) {
-          this.cache.set(this.name, queryKey, data);
+          await this.cache.set(this.name, queryKey, data);
           return { success: true, data, cached: false };
         }
       }
