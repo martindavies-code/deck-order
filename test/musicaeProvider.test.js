@@ -305,4 +305,42 @@ describe('Musicae pipeline policy (tiebreaker/fallback only)', () => {
     assert.equal(t.status, 'disputed');
     assert.ok(!/Musicae/.test(t.reason));
   });
+
+  test('two providers agreeing on a foreign ISRC still flag recording review (#7)', async () => {
+    const { pipeline } = makePipeline({
+      primaryHits: [
+        STUB_HIT('GetSongBPM', 130, '5A', 'Cm', 'GBXEXTENDED01'),
+        STUB_HIT('Sonovault', 130, '5A', 'Cm', 'GBXEXTENDED01')
+      ],
+      musicaeData: null
+    });
+    const t = await pipeline.processTrack(QUERY); // QUERY.isrc = GBBKS2300081
+    assert.equal(t.status, 'verified');
+    assert.equal(t.recordingNeedsReview, true);
+    assert.equal(t.recordingMismatch.matchedIsrc, 'GBXEXTENDED01');
+    assert.equal(t.recordingMismatch.suppliedIsrc, 'GBBKS2300081');
+    assert.match(t.reason, /differs from this track/);
+  });
+
+  test('tiebreak won on a candidate ISRC flags recording review against the track ISRC (#6)', async () => {
+    const candidate = STUB_HIT('Sonovault', 128, '8A', 'Am', 'GBXCANDIDATE2');
+    const { pipeline } = makePipeline({
+      primaryHits: [
+        STUB_HIT('GetSongBPM', 130, '5A', 'Cm', 'GBXCANDIDATE1'),
+        candidate
+      ],
+      musicaeByIsrc: {
+        // The track's own ISRC misses on Musicae; the candidate's ISRC hits
+        // and sides with the candidate record.
+        GBBKS2300081: null,
+        GBXCANDIDATE2: STUB_HIT('Musicae', 128, '8A', 'Am', 'GBXCANDIDATE2')
+      }
+    });
+    const t = await pipeline.processTrack(QUERY);
+    assert.equal(t.status, 'verified');
+    assert.equal(t.confidence, 'tiebreaker_resolved');
+    assert.equal(t.recordingNeedsReview, true);
+    assert.equal(t.recordingMismatch.matchedIsrc, 'GBXCANDIDATE2');
+  });
 });
+
