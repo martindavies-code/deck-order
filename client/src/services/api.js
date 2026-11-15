@@ -422,8 +422,10 @@ export function mapSpotifyTrackToItem(t) {
   // Edit". Extract it so identity matching can tell two recordings of the
   // same song apart instead of overmatching on the bare title.
   const name = t.name || '';
-  const versionMatch = name.match(/\(([^()]*(?:mix|edit|remix|dub|version)[^()]*)\)/i)
-    || name.match(/\s-\s([^-()]*(?:mix|edit|remix|dub|version)[^()]*)$/i);
+  const VERSION_TAGS = '(?:mix|edit|remix|dub|version|vip|extended|instrumental|acoustic|live|rework|bootleg|remaster)';
+  const versionMatch = name.match(new RegExp(`\\(([^()]*${VERSION_TAGS}[^()]*)\\)`, 'i'))
+    || name.match(new RegExp(`\\[([^\\[\\]]*${VERSION_TAGS}[^\\[\\]]*)\\]`, 'i'))
+    || name.match(new RegExp(`\\s-\\s([^-()]*${VERSION_TAGS}[^()]*)$`, 'i'));
   return {
     id: t.id,
     title: t.name,
