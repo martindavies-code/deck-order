@@ -29,7 +29,7 @@ export class GetSongBPMProvider {
     }
 
     const queryKey = { artist, title, isrc, version };
-    const cached = this.cache.get(this.name, queryKey);
+    const cached = await this.cache.get(this.name, queryKey);
     if (cached) {
       return { success: true, data: cached.data, cached: true };
     }
@@ -85,7 +85,7 @@ export class GetSongBPMProvider {
           confidence: 'provider_api'
         };
 
-        this.cache.set(this.name, queryKey, data);
+        await this.cache.set(this.name, queryKey, data);
         return { success: true, data, cached: false };
       } catch (err) {
         return { success: false, reason: err.message };
