@@ -437,6 +437,27 @@ export function App() {
     setOriginalEvaluation(evaluateCurrentOrder(historicalSet.originalTracks || historicalSet.tracks || [], { enableEnergy }));
     setSelectedPlaylist({ name: historicalSet.name, id: null, itemCount: historicalSet.tracks?.length || 0 });
     setSetName(historicalSet.name || 'Saved Set');
+    // Rebuild the coverage report from the saved tracks: without it the
+    // CoverageReport panel (and its "Build my running order" action) never
+    // renders on a fresh page, or keeps the previous set's counts.
+    const savedTracks = historicalSet.tracks || [];
+    const countSaved = (pred) => savedTracks.filter(pred).length;
+    setCoverageReport({
+      ...computeCoverageCounts(savedTracks),
+      total: savedTracks.length,
+      corroborated: countSaved(t => t.status === 'corroborated' || t.status === 'verified'),
+      singleSource: countSaved(t => t.status === 'single_source'),
+      supplied: countSaved(t => t.status === 'supplied'),
+      sample: countSaved(t => t.status === 'sample' || t.isSampleData),
+      disputed: countSaved(t => t.status === 'disputed'),
+      missing: countSaved(t => t.status === 'missing' || t.status === 'unverified'),
+      unverified: countSaved(t => t.status === 'missing' || t.status === 'unverified'),
+      summaryText: `Saved set (${savedTracks.length} tracks)`,
+      disputedTracks: savedTracks.filter(t => t.status === 'disputed').map(t => ({ id: t.id, name: `${t.artist} - ${t.title}`, details: t.disputeDetails })),
+      unverifiedTracks: savedTracks.filter(t => t.status === 'missing' || t.status === 'unverified'),
+      tempoReviewTracks: savedTracks.filter(t => t.tempoNeedsReview),
+      recordingReviewTracks: savedTracks.filter(t => t.recordingNeedsReview)
+    });
     setIsSampleSet(false);
     setViewMode('sequenced');
     setSelectedTrackIndex(0);
@@ -692,14 +713,29 @@ export function App() {
     setOriginalTracks(updatedOriginal);
     setEvaluation(updatedEvaluation);
     setOriginalEvaluation(evaluateCurrentOrder(updatedOriginal, { enableEnergy }));
-    setCoverageReport(previous => previous ? ({
-      ...previous,
-      ...computeCoverageCounts(updatedTracks),
-      tempoReviewTracks: (previous.tempoReviewTracks || []).filter(t => t.id !== trackId)
-        .concat(replacement.tempoNeedsReview ? [replacement] : []),
-      recordingReviewTracks: (previous.recordingReviewTracks || []).filter(t => t.id !== trackId)
-        .concat(replacement.recordingNeedsReview ? [replacement] : [])
-    }) : null);
+    setCoverageReport(previous => {
+      if (!previous) return null;
+      // Recount the status buckets from the live track list: resolving a
+      // dispute or confirming a value changes a track's status, and stale
+      // counts (e.g. "Sources disagree (N)") must not outlive the fix.
+      const count = (pred) => updatedTracks.filter(pred).length;
+      const stillDisputed = updatedTracks.filter(t => t.status === 'disputed');
+      return {
+        ...previous,
+        ...computeCoverageCounts(updatedTracks),
+        corroborated: count(t => t.status === 'corroborated' || t.status === 'verified'),
+        singleSource: count(t => t.status === 'single_source'),
+        supplied: count(t => t.status === 'supplied'),
+        disputed: stillDisputed.length,
+        missing: count(t => t.status === 'missing' || t.status === 'unverified'),
+        unverified: count(t => t.status === 'missing' || t.status === 'unverified'),
+        disputedTracks: stillDisputed.map(t => ({ id: t.id, name: `${t.artist} - ${t.title}`, details: t.disputeDetails })),
+        tempoReviewTracks: (previous.tempoReviewTracks || []).filter(t => t.id !== trackId)
+          .concat(replacement.tempoNeedsReview ? [replacement] : []),
+        recordingReviewTracks: (previous.recordingReviewTracks || []).filter(t => t.id !== trackId)
+          .concat(replacement.recordingNeedsReview ? [replacement] : [])
+      };
+    });
     showToast(message);
   };
 
