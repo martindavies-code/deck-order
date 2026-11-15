@@ -1,5 +1,55 @@
 # Deck Order - Handover Notes
 
+Date: 2026-11-15
+Branch: `smarter-sequencing` (unmerged; branched from `main` at `1ceb057`)
+
+## What changed on this branch
+
+### 1. Directed Or-Opt ($L \in \{1, 2\}$) in the improvement loop (`server/core/solver.js`)
+
+- Added relocate moves for single tracks ($L = 1$) and adjacent pairs ($L = 2$) alongside directed 2-opt segment reversals inside `optimizeDirected2Opt`.
+- Each Or-opt move removes a contiguous run `[segStart .. segStart + L - 1]` and reinserts it at any valid gap (`insertBefore`), evaluated with exact directed boundary edge deltas (`removedEdges`, `healedEdge`, `insertedEdges`) from the precomputed cost matrix plus the exact arc-position penalty delta across the shifted index range `[shiftLeft .. shiftRight]`.
+- Uses first-improvement semantics consistent with the existing directed 2-opt loop, iterates 2-opt and Or-opt in a combined fixpoint loop until neither phase finds a strictly improving move (`delta < -1e-9`) within `DEFAULT_MAX_ITERATIONS = 1500` (raised modestly from `1000` to accommodate combined 2-opt + Or-opt passes on larger sets), preserves locked opener/closer pins (`minIdx` / `maxIdx`), and uses only the seeded Mulberry32 PRNG (`this.seed`, never `Math.random`).
+
+### 2. Beam-search warm start (`server/core/solver.js`)
+
+- Added `DEFAULT_BEAM_WIDTH = 50` (named, exported constant) and `buildBeamTours` / `buildBeamTour`.
+- Expands partial orders step-by-step over the gated `sequencable` pool using the precomputed transition-cost matrix and precomputed `n x n` arc-position penalty matrix (`buildPositionPenaltyMatrix`), respecting locked opener and closer pins (`lockedStartIndex`, `lockedEndIndex`).
+- Uses deterministic Zobrist hashing (`createPrng(this.seed)`) to deduplicate dominated partial tours that reach the same `(lastTrack, visitedSet)` state, keeping the beam diverse while running in $O(n^2 \cdot \text{beamWidth})$.
+- Feeds the top beam tours (`maxReturnedTours = 4`) into `optimizeDirected2Opt` alongside the multi-start greedy warm-ups and the user's anchored imported order.
+
+### 3. Arc-position penalty folded into the local-search & selection objective (`server/core/solver.js`, `server/core/energyArc.js`)
+
+- Precomputes the $n \times n$ `posPenaltyMatrix[trackIdx][pos]` once per `solve()` / `optimizeDirected2Opt()` call via `calculateArcPositionPenalty(tracks[trackIdx], pos, n)`.
+- Every candidate move in 2-opt AND Or-opt evaluates `totalDelta = edgeDelta + posDelta` (using exact incremental range evaluation over `[i..j]` for 2-opt with $O(1)$ running prefix sums and lower-bound pruning `edgeDelta - oldSegPen >= -IMPROVE_EPSILON`, and exact range evaluation over `[shiftLeft..shiftRight]` for Or-opt).
+- Candidate tour selection in `solve()` compares `evaluateTourObjective(tour, costMatrix, sequencable, posPenaltyMatrix)` (`edgeCost + posPenalty`) so greedy warm-up, beam search, local search, and final candidate selection all optimize the exact same target (`>132 BPM` discouraged in first 20%, `<124 BPM` discouraged in the 65–85% peak zone).
+
+### 4. Unconfirmed-track gating & cross-platform security test normalization (`server/core/energyArc.js`, `server/core/solver.js`, `test/forbiddenEndpoints.test.js`, `scripts/verify_security.js`)
+
+- Added `isTrackConfirmedForSequencing(track)` in `server/core/energyArc.js` and updated `selectWarmUpCandidates`, `calculateArcPositionPenalty`, and `DJSequencer.solve()` so tracks flagged `tempoNeedsReview` or `recordingBlocksGrading(track)` are gated alongside missing/unverified tracks according to `unverifiedStrategy` (`keep_relative_position`, `cluster_at_end`, `cluster_at_start`, `exclude`), while `UNVERIFIED` edges retain their flat tempo cost (`3.0`) across every phase.
+- Normalized Windows backslash paths (`.replace(/\\/g, '/')`) when checking the `server/providers/musicae.js` allowlist in `test/forbiddenEndpoints.test.js` and `scripts/verify_security.js`.
+
+## Tested (`smarter-sequencing`)
+
+- Added 6 regression tests in `test/solver.test.js`:
+  1. Or-opt ($L=1$ and $L=2$) + Beam Search escaping a plain 2-opt local minimum where plain greedy + 2-opt is stranded (`cost = 10.0` vs `2.0`).
+  2. Beam search respecting locked opener and closer pins and `DEFAULT_BEAM_WIDTH = 50`.
+  3. Determinism: identical seed produces byte-for-byte identical running orders and evaluations across repeated runs.
+  4. Arc-position penalty in the improvement loop preventing a `>132 BPM` track (`136 BPM`) from being swapped into the first 20% warm-up zone even when doing so reduces raw edge cost.
+  5. Unconfirmed tracks (`tempoNeedsReview`, uncorroborated `recordingNeedsReview`, `status: 'unverified'`) staying gated out across `exclude`, `cluster_at_end`, `cluster_at_start`, and `keep_relative_position` in every phase.
+  6. 60-track synthetic set performance sanity test (`~30 ms`, well under budget; 200-track benchmark also passes in `~350 ms`).
+- Commands run:
+  - `npm test`: pass (`286/286` tests across `24` suites)
+  - `npm run verify:security`: pass (`53` production code files, `28` client files checked)
+  - `npm --prefix client run build`: pass (`client/dist` built cleanly)
+  - Headless Chrome CDP UI verification (`1440x900` desktop and `390x844` mobile) against `client/dist`: loaded and sequenced the 12-track Demo Electronic Set (`Smooth handovers: 9% -> 73%`, `Transition score: 156.0 -> 37.0`, `Key step jumps: 10 -> 3`), verified rendered track rows, fit lines, and harmonic/tempo visualizer with zero console/page errors and zero mobile horizontal overflow.
+
+## Not covered / live flows unexercised
+
+- Live Cloudflare Worker deployment and live Spotify OAuth / playlist creation were not exercised (no live user data mutated; branch is unmerged per instructions).
+
+---
+
 Date: 2026-11-14 (later same day)
 Branch: `provider-resilience`
 

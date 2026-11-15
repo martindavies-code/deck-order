@@ -142,7 +142,7 @@ BPM and musical key are sourced from real, citable records at the individual tra
 
 ## 🧠 Phase 2: The DJ Sequencer Algorithm
 
-Deck Order computes an order a real DJ would defend using a **directed 2-opt local search optimizer** with multi-start greedy warmup:
+Deck Order computes an order a real DJ would defend using a **hybrid Beam-Search + Multi-Start Greedy warm-up and Directed 2-Opt + Or-Opt local search optimizer** (`server/core/solver.js`, shared with `client/src/services/clientSequencer.js`):
 
 1. **Directed Transition Cost Matrix (Calibrated for Un-Synced Spotify Mix)**:
    - $C(A \to B) \neq C(B \to A)$: Reversing transitions in DJ sets has asymmetric costs (e.g. tempo drops are penalized more than gradual rises).
@@ -151,12 +151,17 @@ Deck Order computes an order a real DJ would defend using a **directed 2-opt loc
    - **Beat-Drift Metric**: Per-transition drift across a blend (`|bpmB - bpmA| / bpmA * blendBeats`, 64 beats / 16 bars default) is surfaced alongside tempo deltas so you can spot mixes that will flam before blending.
    - **Energy Cost**: Enabled by default when both tracks carry real energy data (toggleable via **Energy-aware costing**); penalizes drops $> 0.15$ unless part of an intentional chapter reset.
    - **Loudness Delta Flag**: Transitions with large loudness jumps/drops ($\ge 3.5\text{ dB}$, when loudness metadata is available) are flagged as **`volume dip risk - trim in Mix`**.
-2. **True Delta Directed 2-Opt**:
-   - When a 2-opt move reverses segment $[i \dots j]$, every internal edge $(k \to k+1)$ is reversed to $(k+1 \to k)$. The solver evaluates the true directed edge delta.
-   - Deterministic PRNG seed (default: 42) ensures reruns match.
-   - **Performance Benchmark**: 200 synthetic tracks (40,000 directed edge pairs) solve in **~185 ms** with only **0.8 MB** heap delta!
-3. **Energy Arc & Accepted Limitations**:
-   - Biases set to open warm, build tempo, peak around 60–80% of the set, and flag at most one deliberate energy reset (chapter change).
+   - **Unconfirmed Track Gating**: Tracks missing BPM/key or flagged for review (`tempoNeedsReview` or uncorroborated `recordingNeedsReview`) are gated out of the active candidate pool according to your missing-data strategy (`keep_relative_position`, `cluster_at_end`, `cluster_at_start`, or `exclude`), and edges touching unconfirmed tracks keep their flat `UNVERIFIED` cost across every phase.
+2. **Beam-Search + Multi-Start Greedy Warm-Up**:
+   - **Beam Search (`DEFAULT_BEAM_WIDTH = 50`)**: Expands partial orders step-by-step across the precomputed transition-cost and arc-position penalty matrices, using deterministic Zobrist state hashing (`(lastTrack, visitedSet)`) to prune dominated partial paths of identical visited sets. Respects locked opener/closer pins and feeds the top beam tours into local search alongside the greedy warm-up candidates and the user's imported order.
+3. **Directed 2-Opt + Or-Opt Local Search with Unified Arc-Position Objective**:
+   - **Directed 2-Opt**: Evaluates exact directed segment-reversal deltas (`[i..j]`) with $O(1)$ running internal-edge and position-penalty prefix sums.
+   - **Directed Or-Opt ($L \in \{1, 2\}$)**: Relocates single tracks and adjacent pairs across rising-energy or harmonic chains where segment reversals are trapped in local minima, using exact directed boundary deltas and bounded range position-penalty evaluation.
+   - **Unified Arc-Position Objective**: Every candidate move in greedy warm-up, beam search, 2-opt, and Or-opt evaluates the same total objective (`directed edge cost + calculateArcPositionPenalty`), preventing local search from drifting >132 BPM tracks into the first 20% warm-up zone or <124 BPM tracks into the 65–85% peak zone.
+   - Deterministic PRNG seed (default: `42`, Mulberry32) guarantees identical reruns.
+   - **Performance Benchmark**: 60-track sets solve in **~30 ms** and 200-track sets (40,000 directed edge pairs) solve in **~350 ms** client-side.
+4. **Energy Arc & Accepted Limitations**:
+   - Biases set to open warm, build tempo, peak around 65–85% of the set, and flag at most one deliberate energy reset (chapter change).
    - *Accepted limitation*: Beatgrid timestamps and phrase/structure annotations are not available from our metadata providers, so Deck Order cannot auto-align downbeats or phrase bars for Spotify Mix.
 
 ---
