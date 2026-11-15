@@ -447,3 +447,14 @@ describe('handleSelectPlaylist Notification & Feedback Rules', () => {
   });
 });
 
+
+test('mapSpotifyTrackToItem extracts version from dash and parenthesised suffixes', () => {
+  const dash = mapSpotifyTrackToItem({ id: 'a', name: 'Song Title - Radio Edit', artists: [{ name: 'X' }] });
+  assert.equal(dash.version, 'Radio Edit');
+  const paren = mapSpotifyTrackToItem({ id: 'b', name: 'Song Title (Purple Disco Machine Remix)', artists: [{ name: 'X' }] });
+  assert.equal(paren.version, 'Purple Disco Machine Remix');
+  const none = mapSpotifyTrackToItem({ id: 'c', name: 'Song Title', artists: [{ name: 'X' }] });
+  assert.equal(none.version, null);
+  const twoParen = mapSpotifyTrackToItem({ id: 'd', name: 'Song (Radio Edit) (Club Mix)', artists: [{ name: 'X' }] });
+  assert.equal(twoParen.version, 'Radio Edit');
+});

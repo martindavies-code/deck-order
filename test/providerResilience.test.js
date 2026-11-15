@@ -244,3 +244,25 @@ test('coverage report aggregates provider errors and per-provider outcomes', asy
   assert.equal(report.providerErrorTracks.length, 2);
   assert.equal(report.providerOutcomeSummary.FreqBlog.error, 2);
 });
+
+test('identity cross-check: honorific tokens like DJ are not primary match tokens', () => {
+  // Query "DJ Antoine" must match the real DJ Antoine...
+  const ok = crossCheckTrackIdentity(
+    { artist: 'DJ Antoine', title: 'Sky Is The Limit' },
+    { artist_name: 'DJ Antoine', track_name: 'Sky Is The Limit' }
+  );
+  assert.equal(ok.ok, true, ok.reason);
+  // ...and must NOT match an unrelated act that merely shares the DJ prefix
+  const bad = crossCheckTrackIdentity(
+    { artist: 'DJ Antoine', title: 'Sky Is The Limit' },
+    { artist_name: 'DJ Tiesto', track_name: 'Sky Is The Limit' }
+  );
+  assert.equal(bad.ok, false);
+  // A record listing several artists satisfies a multi-artist query when any
+  // significant token matches (sonovault now passes all artist names through)
+  const multi = crossCheckTrackIdentity(
+    { artist: 'Claptone, Mylo, Purple Disco Machine', title: 'Drop The Pressure' },
+    { artist_name: 'Claptone, Mylo', track_name: 'Drop The Pressure' }
+  );
+  assert.equal(multi.ok, true, multi.reason);
+});

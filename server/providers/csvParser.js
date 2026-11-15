@@ -107,7 +107,9 @@ export function parseTracklistCSV(csvContent) {
 
     // Detect remix/version in title if not given
     if (!version && title) {
-      const match = title.match(/\((.*?mix|.*?edit|.*?remix|.*?dub|.*?version)\)/i);
+      // [^()]* rather than .*: a title like "Song (Radio Edit) (Club Mix)"
+      // must capture one parenthesised version, not span across both.
+      const match = title.match(/\(([^()]*(?:mix|edit|remix|dub|version)[^()]*)\)/i);
       if (match) {
         version = match[1];
       }

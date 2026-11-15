@@ -25,10 +25,16 @@ export function versionTokens(s) {
     .filter(t => t && !GENERIC_VERSION_TOKENS.has(t));
 }
 
+// Honorifics/prefixes that say nothing about identity: a query artist of
+// "DJ Antoine" must not have its primary match token be 'dj', which appears
+// in thousands of unrelated artist names.
+const GENERIC_ARTIST_TOKENS = new Set(['dj', 'mc']);
+
 function tokenMatches(haystack, needleTokens, fallbackNeedle) {
   if (!fallbackNeedle) return false;
   const hayTokens = new Set(haystack.split(' ').filter(Boolean));
-  const primary = needleTokens[0] || fallbackNeedle.split(' ')[0];
+  const significant = needleTokens.filter(t => !GENERIC_ARTIST_TOKENS.has(t));
+  const primary = significant[0] || needleTokens[0] || fallbackNeedle.split(' ')[0];
   if (!primary) return false;
   if (hayTokens.has(primary)) return true;
   // Require length >= 3 for substring fallback so 1-2 char artist tokens cannot match unrelated names.
