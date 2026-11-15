@@ -419,9 +419,16 @@ export function unwrapPlaylistItem(entry) {
 }
 
 export function mapSpotifyTrackToItem(t) {
+  // Spotify names often carry the mix/edit: "X (Radio Edit)" or "X - Radio
+  // Edit". Extract it so identity matching can tell two recordings of the
+  // same song apart instead of overmatching on the bare title.
+  const name = t.name || '';
+  const versionMatch = name.match(/\(([^()]*(?:mix|edit|remix|dub|version)[^()]*)\)/i)
+    || name.match(/\s-\s([^-()]*(?:mix|edit|remix|dub|version)[^()]*)$/i);
   return {
     id: t.id,
     title: t.name,
+    version: versionMatch ? versionMatch[1].trim() : null,
     artist: t.artists?.map(a => a.name).join(', ') || 'Unknown Artist',
     album: t.album?.name || null,
     albumArt: t.album?.images?.[0]?.url || null,
