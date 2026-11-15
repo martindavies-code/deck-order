@@ -237,8 +237,8 @@ export class VerificationPipeline {
   constructor(options = {}) {
     this.minBpm = options.minBpm || 90;
     this.maxBpm = options.maxBpm || 180;
-    this.getSongBPM = new GetSongBPMProvider(options.getSongBpmKey);
-    this.sonovault = new SonovaultProvider(options.sonovaultKey);
+    this.getSongBPM = new GetSongBPMProvider(options.getSongBpmKey, options.getSongBpmOptions || {});
+    this.sonovault = new SonovaultProvider(options.sonovaultKey, options.sonovaultOptions || {});
     this.soundNet = new SoundNetProvider(options.soundNetKey, options.soundNetOptions || {});
     this.freqblog = new FreqBlogProvider(options.freqblogKey, options.freqblogOptions || {});
     this.musicae = new MusicaeProvider(options.rapidApiKey, options.musicaeOptions || {});
@@ -496,7 +496,11 @@ export class VerificationPipeline {
         recordingNeedsReview: evaluation.recordingNeedsReview || false,
         recordingMismatch: evaluation.recordingMismatch || null,
         reason: evaluation.reason,
-        sources: successfulHits
+        sources: successfulHits,
+        // Per-provider outcomes ride along on every path, not just Case C,
+        // so the coverage report can show who hit, missed and errored.
+        providerError: providerOutcomes.some(o => o.outcome === 'error'),
+        providerOutcomes
       };
     }
 
@@ -589,6 +593,8 @@ export class VerificationPipeline {
         confidence: hit.confidence || 'single_source',
         disputeDetails,
         sources: successfulHits,
+        providerError: providerOutcomes.some(o => o.outcome === 'error'),
+        providerOutcomes,
         reason
       };
     }

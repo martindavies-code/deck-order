@@ -344,3 +344,36 @@ describe('Musicae pipeline policy (tiebreaker/fallback only)', () => {
   });
 });
 
+
+test('providerOutcomes ride along on verified and single-source tracks, not just unverified ones', async () => {
+  const STUB_HIT2 = (provider, bpm, camelot, key, isrc) => ({
+    provider, bpm, camelot, key, isrc: isrc || null, energy: null, source: 'stub', confidence: 'provider_api'
+  });
+  const Q = { id: 'x', artist: 'Peggy Gou', title: '(It Goes Like) Nanana', isrc: 'GBBKS2300081' };
+  const mk = (primaryHits) => {
+    const pipeline = new VerificationPipeline({});
+    const stub = (hit) => ({
+      isConfigured: () => true,
+      lookupTrack: async () => hit ? { success: true, data: hit } : { success: false, reason: 'Track not found' }
+    });
+    pipeline.getSongBPM = stub(primaryHits[0] || null);
+    pipeline.sonovault = stub(primaryHits[1] || null);
+    pipeline.soundNet = { isConfigured: () => false };
+    pipeline.freqblog = { isConfigured: () => false };
+    pipeline.musicae = { isConfigured: () => false, name: 'Musicae' };
+    return pipeline;
+  };
+
+  // Case A: two priority providers agree -> verified, outcomes attached
+  const a = await mk([STUB_HIT2('GetSongBPM', 130, '5A', 'Cm'), STUB_HIT2('Sonovault', 130, '5A', 'Cm')]).processTrack(Q);
+  assert.equal(a.status, 'verified');
+  assert.ok(Array.isArray(a.providerOutcomes), 'verified track carries providerOutcomes');
+  assert.deepEqual(a.providerOutcomes.map(o => [o.provider, o.outcome]), [['GetSongBPM', 'hit'], ['Sonovault', 'hit']]);
+
+  // Case B: one hit, one miss -> single_source, outcomes still attached
+  const b = await mk([STUB_HIT2('GetSongBPM', 130, '5A', 'Cm'), null]).processTrack(Q);
+  assert.equal(b.status, 'single_source');
+  assert.ok(Array.isArray(b.providerOutcomes), 'single-source track carries providerOutcomes');
+  assert.equal(b.providerOutcomes.find(o => o.provider === 'Sonovault').outcome, 'miss');
+  assert.equal(b.providerError, false);
+});

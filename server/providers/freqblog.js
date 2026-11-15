@@ -9,7 +9,7 @@ import {
 
 const DEFAULT_BASE = 'https://api.freqblog.com';
 const ISRC_RE = /^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/i;
-const TRANSIENT_REASON_RE = /^(provider_unreachable:|provider_http_429$|provider_http_5\d{2}$|provider_monthly_quota_exhausted$|provider_bad_json$|analysis_queued_or_missing$)/;
+const TRANSIENT_REASON_RE = /^(provider_unreachable:|provider_http_429$|provider_http_5\d{2}$|provider_monthly_quota_exhausted$|provider_hourly_cap$|provider_bad_json$|analysis_queued_or_missing$)/;
 
 function isTransientOutcome(out) {
   return !out?.success && TRANSIENT_REASON_RE.test(out?.reason || '');
@@ -41,7 +41,7 @@ export class FreqBlogProvider {
     this.baseUrl = options.baseUrl || DEFAULT_BASE;
     this.fetchImpl = options.fetchImpl || ((...args) => fetch(...args));
     this.cache = options.cache || null;               // { async get(k), async set(k, v, ttlSeconds) }
-    this.reserveQuota = options.reserveQuota || null; // async (n) => boolean
+    this.reserveQuota = options.reserveQuota || null; // async (n) => boolean | { allowed, reason?, remaining? }
     this.cacheTtlSeconds = options.cacheTtlSeconds || 30 * 24 * 3600;
     this.missCacheTtlSeconds = options.missCacheTtlSeconds || 24 * 3600;
     // Shadow copy of the last known-good record, kept far longer than the
@@ -57,8 +57,15 @@ export class FreqBlogProvider {
 
   async _call(pathAndQuery, body = null) {
     if (this.reserveQuota) {
-      const ok = await this.reserveQuota(1);
-      if (!ok) return { success: false, reason: 'provider_monthly_quota_exhausted' };
+      const res = await this.reserveQuota(1);
+      // Older callers hand back a bare boolean; the worker hands back the
+      // counter's { allowed, reason } so an hourly per-IP cap is not
+      // misreported as global monthly exhaustion.
+      const allowed = res === true || (res != null && typeof res === 'object' && res.allowed === true);
+      if (!allowed) {
+        const denial = res != null && typeof res === 'object' ? res.reason : null;
+        return { success: false, reason: denial === 'per_ip_hourly_cap' ? 'provider_hourly_cap' : 'provider_monthly_quota_exhausted' };
+      }
     }
     let res;
     try {
