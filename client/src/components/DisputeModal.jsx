@@ -23,8 +23,10 @@ export function DisputeModal({ disputedTracks, onClose, onApplyOverride }) {
   const sB = details?.sourceB;
 
   const handleSelectSource = (src) => {
+    // Apply the value the modal DISPLAYS (workingBpm), never a hidden raw
+    // measurement: the user picks what they see.
     onApplyOverride(current.id, {
-      bpm: src.rawBpm || src.bpm,
+      bpm: src.workingBpm ?? src.bpm ?? src.rawBpm,
       key: src.key || src.camelot,
       camelot: src.camelot
     });
@@ -38,10 +40,18 @@ export function DisputeModal({ disputedTracks, onClose, onApplyOverride }) {
   const handleCustomSubmit = (e) => {
     e.preventDefault();
     if (!customBpm && !customKey) return;
-    onApplyOverride(current.id, {
-      bpm: customBpm ? parseFloat(customBpm) : (sA?.bpm || 124),
-      key: customKey || (sA?.key || '8A')
-    });
+    // Never invent values: an unset field keeps the track's current value,
+    // and an unparsable BPM rejects the submit instead of closing the modal
+    // over a silently failed (or NaN) override.
+    let bpm;
+    if (customBpm) {
+      bpm = parseFloat(customBpm);
+      if (!Number.isFinite(bpm) || bpm <= 0) return;
+    } else {
+      bpm = current?.bpm ?? null;
+    }
+    const key = customKey || current?.key || current?.camelot || null;
+    onApplyOverride(current.id, { bpm, key });
     setCustomBpm('');
     setCustomKey('');
     if (activeTrackIndex < disputedTracks.length - 1) {
