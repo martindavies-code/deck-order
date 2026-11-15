@@ -340,32 +340,44 @@ export class VerificationPipeline {
       }
     }
 
-    // Musicae consultation policy (owner decision 2026-11-14): providers are
-    // consulted in descending lookup allowance - GetSongBPM (~3,000/hr), then
-    // Sonovault (1,000/mo) and the other configured sources in parallel - and
-    // Musicae (10/day, ISRC-addressable only) is consulted ONLY as (a) a
-    // tiebreaker when the two priority sources disagree, or (b) a fallback
-    // when fewer than two priority sources respond. Its responses are cached
-    // by ISRC, so repeats never burn the daily quota.
-    const musicaeEligible = this.musicae.isConfigured()
-      && typeof trackQuery.isrc === 'string' && trackQuery.isrc.trim().length > 0;
+    // Musicae consultation policy (owner decision 2026-11-14, extended
+    // 2026-11-15): providers are consulted in descending lookup allowance -
+    // GetSongBPM (~3,000/hr), then Sonovault (1,000/mo) and the other
+    // configured sources in parallel - and Musicae (10/day, ISRC-addressable
+    // only) is consulted ONLY as (a) a tiebreaker when the two priority
+    // sources disagree, or (b) a fallback when fewer than two priority
+    // sources respond. Its responses are cached by ISRC, so repeats never
+    // burn the daily quota. When the query itself carries no ISRC, a
+    // tiebreak may address Musicae by the ISRC(s) on the matched priority
+    // records instead (owner decision 2026-11-15): the records' recording
+    // identity is exactly what the dispute is about.
+    const musicaeConfigured = this.musicae.isConfigured();
     let musicaeConsulted = false;
-    const consultMusicae = async () => {
-      if (!musicaeEligible || musicaeConsulted) return null;
+    const consultMusicae = async (isrcCandidates) => {
+      if (!musicaeConfigured || musicaeConsulted) return null;
+      const candidates = [...new Set((isrcCandidates || [])
+        .filter(v => typeof v === 'string' && v.trim().length > 0)
+        .map(v => v.trim().toUpperCase()))];
+      if (candidates.length === 0) return null;
       musicaeConsulted = true;
-      const r = await this.musicae.lookupTrack(trackQuery);
-      providerOutcomes.push({
-        provider: this.musicae.name,
-        outcome: classifyProviderOutcome(r),
-        reason: r?.success ? null : String(r?.reason || 'unknown')
-      });
-      return r && r.success && r.data && r.data.bpm && r.data.camelot ? r.data : null;
+      for (const isrc of candidates) {
+        const r = await this.musicae.lookupTrack({ ...trackQuery, isrc });
+        providerOutcomes.push({
+          provider: this.musicae.name,
+          outcome: classifyProviderOutcome(r),
+          reason: r?.success ? null : String(r?.reason || 'unknown')
+        });
+        if (r && r.success && r.data && r.data.bpm && r.data.camelot) return r.data;
+      }
+      return null;
     };
 
     // Fallback: fewer than two corroborating sources - Musicae may supply the
-    // missing second source (or the only one).
+    // missing second source (or the only one). Addressed by the query's own
+    // ISRC only: without a dispute to settle, matched-record ISRCs stay
+    // untouched so routine single-source misses never burn the daily quota.
     if (successfulHits.length < 2) {
-      const hit = await consultMusicae();
+      const hit = await consultMusicae([trackQuery.isrc]);
       if (hit && !successfulHits.some(h => h.provider === hit.provider)) {
         successfulHits.push(hit);
       }
@@ -380,7 +392,8 @@ export class VerificationPipeline {
 
       // Tiebreak: the priority pair disagrees and Musicae has not spoken yet.
       if (evaluation.status === 'disputed' && !successfulHits.some(h => h.provider === this.musicae.name)) {
-        const tiebreak = await consultMusicae();
+        const tiebreakCandidates = [trackQuery.isrc, successfulHits[0].isrc, successfulHits[1].isrc];
+        const tiebreak = await consultMusicae(tiebreakCandidates);
         if (tiebreak) {
           const normM = normalizeTempo(tiebreak.bpm, this.minBpm, this.maxBpm);
           const agreesWith = (rec) => {
@@ -412,7 +425,7 @@ export class VerificationPipeline {
               reason: `${evaluation.reason} Musicae tiebreak ${agreesA ? 'agreed with both sides within tolerance' : 'corroborated neither side'}; dispute stands.`
             };
           }
-        } else if (musicaeEligible) {
+        } else if (musicaeConfigured && tiebreakCandidates.some(v => typeof v === 'string' && v.trim().length > 0)) {
           evaluation = {
             ...evaluation,
             reason: `${evaluation.reason} Musicae tiebreak unavailable.`
